@@ -33,6 +33,9 @@ defaults:
   # Rollout correction config.
   - algorithm@algorithm.rollout_correction: rollout_correction
 
+  - evaluation: default
+  - prompt: default
+
   # load the reference default config, then apply the fields in the current yaml
   # self config override anything above
   - _self_
@@ -68,11 +71,12 @@ algorithm:
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
   _target_: verl.trainer.config.AlgoConfig
 
-  # Discount factor for future rewards
   gamma: 1.0
-
-  # Trade-off between bias and variance in the GAE estimator
+  step_gamma: 1.0
+  token_gamma: 1.0
   lam: 1.0
+  step_lam: 1.0
+  token_lam: 1.0
 
   # Advantage estimator type: "gae", "grpo", "reinforce_plus_plus", etc.
   adv_estimator: gae
@@ -131,8 +135,9 @@ trainer:
   # Project name for experiment tracking (e.g., wandb)
   project_name: verl_examples
 
-  # Experiment name for run identification in tracking tools
   experiment_name: gsm8k
+  # Optional group label used by loggers (e.g., WandB)
+  group: null
 
   # Logging backends to use: "console", "wandb", etc.
   logger: ["console", "wandb"]
@@ -154,6 +159,12 @@ trainer:
 
   # Save frequency (by iteration) for model checkpoints
   save_freq: -1
+
+  # Whether to save rendered environment rollouts as GIFs during training
+  render: False
+
+  # Output directory for rendered environment rollouts
+  render_path: null
 
   # ESI refers to the elastic server instance used during training, similar to the training plan. For example,
   # if you purchase 10 hours of computing power, the ESI will automatically shut down after 10 hours of training.
@@ -207,6 +218,234 @@ trainer:
   # whether to use legacy worker implementation
   #  mode: "auto", "enable", or "disable"
   use_legacy_worker_impl: auto
+
+# configuration for multi-step environment rollouts
+envs:
+
+  # Whether to enable VecEnv-based multi-step environments
+  enable: False
+
+  # Number of parallel environment rollouts
+  n_rollouts: 16
+
+  # Maximum number of actions per episode
+  episode_length: 8
+
+  # How to duplicate prompts across rollouts
+  duplication_mode: none
+
+  # Shared seed for groups of environments, can be "none", "random", or an integer
+  group_initial_seed: none
+
+  # Number of consecutive rollouts that share the same seed
+  group_rollout_size: null
+
+  # Default environment name to instantiate
+  env_name: babyai
+
+  # Task identifier passed to the environment factory
+  task: BabyAI-MixedTrainLocal-v0/goto
+
+  # Whether to enable GRPO-specific handling inside VecEnv
+  grpo_mode: False
+
+  # Penalty applied when the policy outputs malformed actions
+  format_penalty: 0.0
+
+  # Optional instruction prompt injected into captioners
+  instruction_prompt: null
+
+  # Whether to squash all positive rewards to 1.0
+  binary_reward: False
+
+  # Whether to freeze environments that finished an episode early
+  freeze_completed_episodes: False
+
+  # Multiprocessing mode for VecEnv worker creation
+  vec_env_multiprocessing: fork
+
+  # Captioner configuration used to build textual observations
+  captioner:
+
+    # Captioner implementation name
+    type: naive
+
+    # Maximum number of text observations stored in history
+    max_text_history: 1
+
+    # Maximum number of chain-of-thought entries stored in history
+    max_cot_history: 1
+
+    # Maximum number of image observations stored in history
+    max_image_history: 0
+
+  # Additional kwargs forwarded to BabyAI environments
+  babyai_kwargs:
+
+    # Maximum number of steps per BabyAI episode
+    max_steps: 64
+
+  # Additional kwargs forwarded to BabaIsAI environments
+  babaisai_kwargs:
+
+    # Whether to add the ruleset description to prompts
+    add_ruleset: True
+
+    # Maximum episode length for BabaIsAI
+    max_step: 100
+
+  # Additional kwargs forwarded to FastSnake environments
+  fastsnake_kwargs:
+
+    # Grid width for the snake board
+    width: 10
+
+    # Grid height for the snake board
+    height: 10
+
+    # Maximum number of rounds per episode
+    max_rounds: 100
+
+    # Number of external snakes controlled by scripted agents
+    num_external_snakes: 1
+
+    # Number of randomly moving snakes
+    num_random_snakes: 1
+
+    # Number of apples spawned on the board
+    num_apples: 5
+
+    # Number of bananas spawned on the board
+    num_bananas: 0
+
+    # Number of fire tiles on the board
+    num_fires: 0
+
+    # Reward applied at each step
+    step_reward: -0.01
+
+    # Penalty when the agent dies
+    death_reward: -1
+
+    # Reward for eating an apple
+    apple_reward: 1
+
+    # Reward for eating a banana
+    banana_reward: 10
+
+    # Reward penalty for running into fire
+    fire_reward: -1
+
+    # Preferred hill climbing direction
+    hill_direction: null
+
+    # Whether to destroy tail segments at the bottom
+    destroy_at_bottom: False
+
+    # Whether to include absent objects in observations
+    include_absent_objects: True
+
+    # Whether to print ASCII visualization
+    print_visualization: True
+
+    # Whether to print coordinates in visualization
+    print_coordinates: True
+
+    # Whether to print axis labels in visualization
+    print_axes: False
+
+  # Additional kwargs forwarded to Crafter environments
+  crafter_kwargs:
+
+    # Size of the simulated world area
+    area: [64, 64]
+
+    # Size of the agent view window
+    view: [9, 9]
+
+    # Rendered image size
+    size: [256, 256]
+
+    # Whether to use reward-based objectives
+    reward: True
+
+    # Random seed used by Crafter
+    seed: null
+
+    # Maximum episode length
+    max_episode_steps: 2000
+
+  # Additional kwargs forwarded to MiniHack environments
+  minihack_kwargs:
+
+    # Starting character glyph
+    character: "@"
+
+    # Maximum episode length
+    max_episode_steps: 100
+
+    # Per-step reward penalty
+    penalty_step: -0.01
+
+    # Time-based penalty
+    penalty_time: 0.0
+
+    # Penalty scheduling mode
+    penalty_mode: constant
+
+    # Directory for storing ttyrec files
+    savedir: null
+
+    # Frequency for saving ttyrec files
+    save_ttyrec_every: 0
+
+    # Whether to automatically pick up items
+    autopickup: False
+
+    # Whether to skip '--more--' prompts
+    skip_more: True
+
+  # Additional kwargs forwarded to FrozenLake environments
+  frozenlake_kwargs:
+
+    # Side length of the randomly generated map
+    random_map_size: 4
+
+    # Probability that a tile is frozen instead of a hole
+    frozen_probability: 0.8
+
+    # Whether the agent can slip randomly
+    is_slippery: False
+
+    # Whether to print ASCII visualization
+    print_visualization: True
+
+    # Whether to print coordinates in visualization
+    print_coordinates: True
+
+    # Whether to print axis labels in visualization
+    print_axes: False
+
+    # Maximum number of rounds per episode
+    max_rounds: 8
+
+    # Shape to pad observations to, if required
+    pad_observation_to_shape: null
+
+  # Additional kwargs forwarded to WebShop environments
+  webshop_kwargs:
+
+    # Maximum number of steps per episode
+    max_steps: 8
+
+    # Number of products available in the catalog
+    num_products: 100000
+
+    # Limit of shopping goals sampled per episode (-1 means unlimited)
+    limit_goals: -1
+
+    # Random seed for selecting shopping goals
+    goals_seed: null
 
 # profiler configs
 global_profiler:

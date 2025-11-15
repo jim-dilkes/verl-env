@@ -1,0 +1,336 @@
+# @package eval
+
+evaluation:
+  environments:
+    # --- Config 1: Default Evaluation ---
+    - name: "FastSnake-Default"
+      n_rollouts: 100
+      episode_length: 8
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: fastsnake
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: | 
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
+        You are controlling a snake in a multi-player Snake game
+
+        [Available Actions]
+        "up": move your head one space up,
+        "down": move your head one space down,
+        "left": move your head one space left,
+        "right": move your head one space right,
+
+        [Rules]
+        - You can move your head one space up, down, left, or right
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+      captioner:
+        type: naive
+        max_text_history: 0
+      fastsnake_kwargs:
+        width: 10
+        height: 10
+        max_rounds: 8
+        num_external_snakes: 1
+        num_random_snakes: 1
+        death_reward: -1
+        step_reward: 0
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-PickupDist"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-PickupDist-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-GoToRedBallNoDists"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToRedBallNoDists-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-GoToRedBall"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToRedBall-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+    # --- Config 4: FrozenLake Evaluation ---
+    - name: "FrozenLake-NoSlip"
+      n_rollouts: 100
+      episode_length: 8
+      initial_seed: 1 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: frozenlake
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens).
+        You are navigating the surface of a frozen lake. You must reach the goal. 
+
+        [Available Actions]
+        "left": move left,
+        "down": move down,
+        "right": move right,
+        "up": move up,
+
+        [Rules]
+        - If you step on a hole, you will fall through and die
+        - You can take one action out of up, down, left, or right
+      captioner:
+        type: naive
+        max_text_history: 0
+      frozenlake_kwargs:
+        random_map_size: 4
+        frozen_probability: 0.80
+        is_slippery: false
+        print_visualization: true
+        print_coordinates: true
+        max_rounds: 8
+
+    # --- Config 4: FrozenLake-Default ---
+    - name: "FrozenLake-Slippery"
+      n_rollouts: 100
+      episode_length: 15
+      initial_seed: 2
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: frozenlake
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens).
+        You are navigating the surface of a frozen lake. You must reach the goal. 
+
+        [Available Actions]
+        "left": move left,
+        "down": move down,
+        "right": move right,
+        "up": move up,
+
+        [Rules]
+        - If you step on a hole, you will fall through and die. 
+        - The ice is slippery, so you might accidentally move in an perpendicular direction with every step.
+        - You can take one action out of up, down, left, or right
+      captioner:
+        type: naive
+        max_text_history: 0
+      frozenlake_kwargs:
+        random_map_size: 4
+        frozen_probability: 0.90
+        is_slippery: true
+        print_visualization: true
+        print_coordinates: true
+        max_rounds: 15
+
+
+        # --- Config 4: FrozenLake-Default ---
+    - name: "FrozenLake-BigSlippery"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 3
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: frozenlake
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens).
+        You are navigating the surface of a frozen lake. You must reach the goal. 
+        
+        [Available Actions]
+        "left": move left,
+        "down": move down,
+        "right": move right,
+        "up": move up,
+
+        [Rules]
+        - If you step on a hole, you will fall through and die. 
+        - The ice is slippery, so you might accidentally move in an perpendicular direction with every step.
+        - You can take one action out of up, down, left, or right
+      captioner:
+        type: naive
+        max_text_history: 0
+      frozenlake_kwargs:
+        random_map_size: 8
+        frozen_probability: 0.90
+        is_slippery: true
+        print_visualization: true
+        print_coordinates: true
+        max_rounds: 15
+
+    # --- Config 6: Snake-20Step ---
+    - name: "Snake-20Step"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 4
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: fastsnake
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: | 
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
+        You are controlling a snake in a multi-player Snake game
+        
+        [Available Actions]
+        "up": move your head one space up,
+        "down": move your head one space down,
+        "left": move your head one space left,
+        "right": move your head one space right,
+
+        [Rules]
+        - You can move your head one space up, down, left, or right
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+      captioner:
+        type: naive
+        max_text_history: 0
+      fastsnake_kwargs:
+        num_apples: 5
+        print_visualization: true
+        print_coordinates: true
+        width: 10
+        height: 10
+        max_rounds: 20
+        death_reward: -1
+        step_reward: 0
+
+
+    # --- Config 8: Snake-20Steps-PoisonApple ---
+    # - name: "Snake-20Steps-PoisonApple"
+    #   n_rollouts: 100
+    #   episode_length: 20
+    #   initial_seed: 5
+    #   freeze_completed_episodes: True
+    #   duplication_mode: none
+    #   env_name: fastsnake
+    #   task: none
+    #   format_penalty: 0.0
+    #   instruction_prompt: | 
+    #     [Instructions]
+    #     You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
+    #     You are controlling a snake in a multi-player Snake game
+
+    #     [Available Actions]
+    #     "up": move your head one space up,
+    #     "down": move your head one space down,
+    #     "left": move your head one space left,
+    #     "right": move your head one space right,
+
+    #     [Rules]
+    #     - You can move your head one space up, down, left, or right
+    #     - All apples are poisonous and will hurt you. If you move onto an apple, you *lose* 1 point.
+    #     - You die if you move into a wall, another snake, or yourself
+    #   captioner:
+    #     type: naive
+    #     max_text_history: 0
+    #   fastsnake_kwargs:
+    #     num_apples: 5
+    #     apple_reward: -1
+    #     width: 10
+    #     height: 10
+    #     print_visualization: true
+    #     print_coordinates: true
+    #     max_rounds: 20
+    #     death_reward: -1
+    #     step_reward: 0
+
+    # --- Config 9: Snake-20Steps-PoisonAppleAndBanana ---
+    - name: "Snake-20Steps-PoisonAppleAndBanana"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 6
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: fastsnake
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: | 
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
+        You are controlling a snake in a multi-player Snake game
+
+        [Available Actions]
+        "up": move your head one space up,
+        "down": move your head one space down,
+        "left": move your head one space left,
+        "right": move your head one space right,
+
+        [Rules]
+        - You can move your head one space up, down, left, or right
+        - All apples are poisonous and will hurt you. If you move onto an apple, you *lose* 1 point.
+        - All bananas are healthy and are good for you. If you move onto a banana, you *receive* 1 point and you gain a body segment.
+        - You die if you move into a wall, another snake, or yourself
+      captioner:
+        type: naive
+        max_text_history: 0
+      fastsnake_kwargs:
+        num_apples: 3
+        num_bananas: 3
+        apple_reward: -1
+        banana_reward: 1
+        width: 10
+        height: 10
+        print_visualization: true
+        print_coordinates: true
+        max_rounds: 20
+        death_reward: -1
+        step_reward: 0
+
+    # # --- Config 10: BabaIsAI Evaluation ---
+    # - name: "BabaIsAI-TwoRoom-MaybeBreakStop-GotoWin"
+    #   n_rollouts: 100
+    #   initial_seed: 0 # Use a fixed seed for reproducibility
+    #   freeze_completed_episodes: True
+    #   duplication_mode: none
+    #   env_name: babaisai
+    #   task: env/two_room-maybe_break_stop-goto_win
+    #   format_penalty: 0.0
+    #   captioner:
+    #     type: naive
+    #     max_text_history: 1
+    #   babaisai_kwargs:
+    #     add_ruleset: True

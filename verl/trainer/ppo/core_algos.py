@@ -260,6 +260,95 @@ def compute_gae_advantage_return(
     return advantages, returns
 
 
+def compute_multistep_gae_advantage_return(
+    token_level_rewards: torch.Tensor,
+    values: torch.Tensor,
+    response_mask: torch.Tensor,
+    token_gamma: float,
+    step_gamma: float,
+    dones: torch.Tensor,
+    token_lam: float,
+    step_lam: float,
+    n_rollouts: int = 1,
+    frozen_mask: Optional[torch.Tensor] = None,
+    whiten: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """GAE implementation that supports batched multi-environment rollouts.
+
+    Args:
+        token_level_rewards: Reward tensor with shape (bs, response_length).
+        values: Value tensor with shape (bs, response_length).
+        response_mask: Attention mask for response tokens.
+        token_gamma: Discount factor applied within a response.
+        step_gamma: Discount factor applied between environment steps.
+        dones: Done flags for each environment step (shape: (bs,)).
+        token_lam: Lambda used within responses.
+        step_lam: Lambda used between environment steps.
+        n_rollouts: Number of parallel rollouts.
+        frozen_mask: Optional mask indicating frozen episodes to skip.
+        whiten: Whether to whiten the resulting advantages.
+    """
+
+    with torch.no_grad():
+        _, gen_len = values.shape
+        batch_values = values.reshape(-1, n_rollouts, gen_len)
+        batch_rewards = token_level_rewards.reshape(-1, n_rollouts, gen_len)
+        batch_dones = dones.reshape(-1, n_rollouts)
+        batch_response_mask = response_mask.reshape(-1, n_rollouts, gen_len)
+
+        if frozen_mask is not None:
+            batch_frozen = frozen_mask.reshape(-1, n_rollouts)
+        else:
+            batch_frozen = torch.zeros_like(batch_dones)
+
+        episode_len, _, gen_len = batch_values.shape
+        all_advantages_reversed = [torch.zeros_like(batch_values[0])]
+
+        gae = 0
+        next_values = batch_values[episode_len - 1, :, 0]
+
+        for env_t in reversed(range(episode_len - 1)):
+            advantages_reversed = []
+
+            gamma = step_gamma
+            lam = step_lam
+            done_t = batch_dones[env_t]
+            frozen_t = batch_frozen[env_t]
+
+            gae = (1 - done_t) * (1 - frozen_t) * gae
+
+            for token_t in reversed(range(gen_len)):
+                rew_t = batch_rewards[env_t, :, token_t]
+                v_t = batch_values[env_t, :, token_t]
+
+                update_t = 1 if token_t == 0 else batch_response_mask[env_t, :, token_t - 1]
+                update_t = update_t * (1 - frozen_t)
+
+                delta = rew_t + gamma * next_values * (1 - done_t) * (1 - frozen_t) - v_t
+                gae = (delta + gamma * lam * gae) * update_t + gae * (1 - update_t)
+                advantages_reversed.append(gae * update_t)
+
+                next_values = v_t * update_t + next_values * (1 - update_t)
+                done_t = done_t * (1 - update_t)
+
+                gamma = token_gamma * update_t + step_gamma * (1 - update_t)
+                lam = token_lam * update_t + step_lam * (1 - update_t)
+
+            advantages_reversed = torch.stack(advantages_reversed, dim=-1)
+            step_advantage = torch.flip(advantages_reversed, dims=[-1])
+            all_advantages_reversed.append(step_advantage)
+
+        all_advantages_reversed = torch.stack(all_advantages_reversed, dim=0)
+        all_advantages = torch.flip(all_advantages_reversed, dims=[0])
+        advantages = all_advantages.reshape(-1, gen_len)
+        returns = advantages + values
+
+        if whiten:
+            advantages = verl_F.masked_whiten(advantages, response_mask)
+
+    return advantages, returns
+
+
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
 @register_adv_est(AdvantageEstimator.GRPO)  # or simply: @register_adv_est("grpo")
 def compute_grpo_outcome_advantage(
@@ -269,6 +358,7 @@ def compute_grpo_outcome_advantage(
     epsilon: float = 1e-6,
     norm_adv_by_std_in_grpo: bool = True,
     config: Optional[AlgoConfig] = None,
+    group_all: Optional[bool] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Compute advantage for GRPO, operating only on Outcome reward
@@ -287,10 +377,15 @@ def compute_grpo_outcome_advantage(
             whether to scale the GRPO advantage
         config: `(Optional[AlgoConfig])`
             algorithm configuration object
+        group_all: `(Optional[bool])`
+            whether to aggregate all responses per prompt and assign the same normalized episode
+            reward. If None, falls back to config or defaults to False.
 
     Note:
         If norm_adv_by_std_in_grpo is True, the advantage is scaled by the std, as in the original GRPO.
         If False, the advantage is not scaled, as in Dr.GRPO (https://arxiv.org/abs/2503.20783).
+        If group_all is True, all responses that belong to the same prompt share the same (normalized) episode
+        score
 
     Returns:
         advantages: `(torch.Tensor)`
@@ -298,32 +393,75 @@ def compute_grpo_outcome_advantage(
         Returns: `(torch.Tensor)`
             shape is (bs, response_length)
     """
+    if group_all is None and config is not None:
+        if hasattr(config, "get"):
+            group_all = config.get("group_all", False)
+        else:
+            group_all = getattr(config, "group_all", False)
+    if group_all is None:
+        group_all = False
+
     scores = token_level_rewards.sum(dim=-1)
 
     id2score = defaultdict(list)
     id2mean = {}
     id2std = {}
 
+    def _idx_value(idx_like):
+        if isinstance(idx_like, torch.Tensor):
+            return int(idx_like.item())
+        return int(idx_like)
+
     with torch.no_grad():
         bsz = scores.shape[0]
-        for i in range(bsz):
-            id2score[index[i]].append(scores[i])
-        for idx in id2score:
-            if len(id2score[idx]) == 1:
-                id2mean[idx] = torch.tensor(0.0)
-                id2std[idx] = torch.tensor(1.0)
-            elif len(id2score[idx]) > 1:
-                scores_tensor = torch.stack(id2score[idx])
-                id2mean[idx] = torch.mean(scores_tensor)
-                id2std[idx] = torch.std(scores_tensor)
-            else:
-                raise ValueError(f"no score in prompt index: {idx}")
-        for i in range(bsz):
-            if norm_adv_by_std_in_grpo:
-                scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
-            else:
-                scores[i] = scores[i] - id2mean[index[i]]
-        scores = scores.unsqueeze(-1) * response_mask
+        if group_all:
+            episode_totals = {}
+            for i in range(bsz):
+                idx = _idx_value(index[i])
+                if idx in episode_totals:
+                    episode_totals[idx] = episode_totals[idx] + scores[i]
+                else:
+                    episode_totals[idx] = scores[i].clone()
+
+            if len(episode_totals) == 0:
+                raise ValueError("No episode scores found when computing GRPO advantages.")
+
+            episode_sums = torch.stack(list(episode_totals.values()))
+            ep_mean = torch.mean(episode_sums)
+            ep_std = torch.std(episode_sums)
+
+            normalized_episode_scores = {}
+            for idx, total in episode_totals.items():
+                centered = total - ep_mean
+                if norm_adv_by_std_in_grpo:
+                    centered = centered / (ep_std + epsilon)
+                normalized_episode_scores[idx] = centered
+
+            for i in range(bsz):
+                scores[i] = normalized_episode_scores[_idx_value(index[i])]
+            scores = scores.unsqueeze(-1) * response_mask
+
+        else:
+            for i in range(bsz):
+                idx = _idx_value(index[i])
+                id2score[idx].append(scores[i])
+            for idx in id2score:
+                if len(id2score[idx]) == 1:
+                    id2mean[idx] = torch.tensor(0.0, device=scores.device)
+                    id2std[idx] = torch.tensor(1.0, device=scores.device)
+                elif len(id2score[idx]) > 1:
+                    scores_tensor = torch.stack(id2score[idx])
+                    id2mean[idx] = torch.mean(scores_tensor)
+                    id2std[idx] = torch.std(scores_tensor)
+                else:
+                    raise ValueError(f"no score in prompt index: {idx}")
+            for i in range(bsz):
+                idx = _idx_value(index[i])
+                if norm_adv_by_std_in_grpo:
+                    scores[i] = (scores[i] - id2mean[idx]) / (id2std[idx] + epsilon)
+                else:
+                    scores[i] = scores[i] - id2mean[idx]
+            scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
 
