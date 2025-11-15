@@ -1,0 +1,3 @@
+[submodule "verl/envs/environments/webshop/WebShop"]
+	path = verl/envs/environments/webshop/WebShop
+	url = https://github.com/jim-dilkes/WebShop/

@@ -121,6 +121,32 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     return tensor_dict1
 
 
+def insert_tensor_dict(
+    tensor_dict1: TensorDict,
+    tensor_dict2: TensorDict,
+    start_idx: int,
+    end_idx: int,
+    diff_size: bool = False,
+) -> TensorDict:
+    """Insert tensor_dict2 data into tensor_dict1 between start_idx and end_idx."""
+    expected = end_idx - start_idx
+    assert (
+        tensor_dict2.batch_size[0] == expected
+    ), f"Expected slice of length {expected}, but got {tensor_dict2.batch_size[0]}"
+
+    for key in tensor_dict2.keys():
+        if key not in tensor_dict1.keys():
+            continue
+
+        if diff_size:
+            last_dim_size = tensor_dict2[key].shape[-1]
+            tensor_dict1[key][start_idx:end_idx, :last_dim_size] = tensor_dict2[key]
+        else:
+            tensor_dict1[key][start_idx:end_idx] = tensor_dict2[key]
+
+    return tensor_dict1
+
+
 def _array_equal(array1: np.ndarray, array2: np.ndarray, visited: set[int]) -> bool:
     """
     Recursively compares two NumPy arrays for strict equality, with special
@@ -195,6 +221,42 @@ def union_numpy_dict(tensor_dict1: dict[str, np.ndarray], tensor_dict2: dict[str
             )
         tensor_dict1[key] = val
 
+    return tensor_dict1
+
+
+def insert_numpy_dict(
+    tensor_dict1: dict[str, np.ndarray],
+    tensor_dict2: dict[str, np.ndarray],
+    start_idx: int,
+    end_idx: int,
+    diff_size: bool = False,
+) -> dict[str, np.ndarray]:
+    """Insert numpy arrays into tensor_dict1."""
+    for key, val in tensor_dict2.items():
+        assert key in tensor_dict1, f"{key} not found in target numpy dict"
+        if diff_size:
+            last_dim_size = val.shape[-1]
+            tensor_dict1[key][start_idx:end_idx, :last_dim_size] = val
+        else:
+            tensor_dict1[key][start_idx:end_idx] = val
+    return tensor_dict1
+
+
+def insert_numpy_dict(
+    tensor_dict1: dict[str, np.ndarray],
+    tensor_dict2: dict[str, np.ndarray],
+    start_idx: int,
+    end_idx: int,
+    diff_size: bool = False,
+) -> dict[str, np.ndarray]:
+    """Insert numpy arrays into tensor_dict1."""
+    for key, val in tensor_dict2.items():
+        assert key in tensor_dict1, f"{key} not found in target numpy dict"
+        if diff_size:
+            last_dim_size = val.shape[-1]
+            tensor_dict1[key][start_idx:end_idx, :last_dim_size] = val
+        else:
+            tensor_dict1[key][start_idx:end_idx] = val
     return tensor_dict1
 
 
@@ -782,6 +844,34 @@ class DataProto:
             )
 
         self.batch.rename_key_(tuple(old_keys), tuple(new_keys))
+
+        return self
+
+    def insert(self, other: "DataProto", start_idx: int, end_idx: int, diff_size: bool = False) -> "DataProto":
+        """Insert another DataProto into this one at the specified indices."""
+        assert isinstance(other, DataProto)
+
+        if other.batch is not None:
+            self.batch = insert_tensor_dict(self.batch, other.batch, start_idx, end_idx, diff_size)
+
+        if other.non_tensor_batch:
+            self.non_tensor_batch = insert_numpy_dict(
+                self.non_tensor_batch, other.non_tensor_batch, start_idx, end_idx, diff_size
+            )
+
+        return self
+
+    def insert(self, other: "DataProto", start_idx: int, end_idx: int, diff_size: bool = False) -> "DataProto":
+        """Insert another DataProto into this one at the specified indices."""
+        assert isinstance(other, DataProto)
+
+        if other.batch is not None:
+            self.batch = insert_tensor_dict(self.batch, other.batch, start_idx, end_idx, diff_size)
+
+        if other.non_tensor_batch:
+            self.non_tensor_batch = insert_numpy_dict(
+                self.non_tensor_batch, other.non_tensor_batch, start_idx, end_idx, diff_size
+            )
 
         return self
 

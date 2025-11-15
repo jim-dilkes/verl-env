@@ -14,6 +14,7 @@
 
 import random
 import unittest
+from collections import defaultdict
 
 import numpy as np
 import pytest
@@ -219,6 +220,39 @@ def _rand_mask(batch_size: int, seq_len: int) -> torch.Tensor:
     return mask
 
 
+def _group_all_reference(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    normalize_std: bool = True,
+) -> torch.Tensor:
+    scores = token_level_rewards.sum(dim=-1).clone()
+    id2score = defaultdict(list)
+    for i in range(scores.shape[0]):
+        id2score[int(index[i])].append(scores[i])
+
+    if len(id2score) == 0:
+        raise ValueError("group_all reference received empty score dictionary.")
+
+    id2sum = {idx: torch.stack(vals).sum() for idx, vals in id2score.items()}
+    episode_sums = torch.stack(list(id2sum.values()))
+    ep_mean = torch.mean(episode_sums)
+    ep_std = torch.std(episode_sums)
+
+    normalized = {}
+    for idx, total in id2sum.items():
+        centered = total - ep_mean
+        if normalize_std:
+            centered = centered / (ep_std + epsilon)
+        normalized[idx] = centered
+
+    out = torch.zeros_like(scores)
+    for i in range(scores.shape[0]):
+        out[i] = normalized[int(index[i])]
+    return out.unsqueeze(-1) * response_mask
+
+
 @pytest.mark.parametrize(
     "batch_size,seq_len,num_groups,seed",
     [
@@ -311,6 +345,54 @@ def test_grpo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_grou
     assert ret1.shape == ret2.shape == (batch_size, seq_len)
     assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
     assert torch.allclose(ret1, ret2, rtol=1e-5, atol=1e-6)
+
+
+def test_grpo_group_all_matches_reference():
+    batch_size, seq_len, num_groups = 32, 16, 4
+    torch.manual_seed(0)
+    random.seed(0)
+    np.random.seed(0)
+
+    index = _make_group_index(batch_size, num_groups)
+    response_mask = _rand_mask(batch_size, seq_len)
+    token_level_rewards = torch.randn(batch_size, seq_len) * response_mask
+
+    adv_ref = _group_all_reference(token_level_rewards, response_mask, index)
+    adv_impl, _ = compute_grpo_outcome_advantage(
+        token_level_rewards=token_level_rewards,
+        response_mask=response_mask,
+        index=index,
+        group_all=True,
+    )
+
+    assert torch.allclose(adv_impl, adv_ref, rtol=1e-5, atol=1e-6)
+
+
+def test_grpo_group_all_without_std_matches_reference():
+    batch_size, seq_len, num_groups = 24, 12, 3
+    torch.manual_seed(1)
+    random.seed(1)
+    np.random.seed(1)
+
+    index = _make_group_index(batch_size, num_groups)
+    response_mask = torch.ones(batch_size, seq_len)
+    token_level_rewards = torch.randn(batch_size, seq_len) * response_mask
+
+    adv_ref = _group_all_reference(
+        token_level_rewards,
+        response_mask,
+        index,
+        normalize_std=False,
+    )
+    adv_impl, _ = compute_grpo_outcome_advantage(
+        token_level_rewards=token_level_rewards,
+        response_mask=response_mask,
+        index=index,
+        group_all=True,
+        norm_adv_by_std_in_grpo=False,
+    )
+
+    assert torch.allclose(adv_impl, adv_ref, rtol=1e-5, atol=1e-6)
 
 
 if __name__ == "__main__":

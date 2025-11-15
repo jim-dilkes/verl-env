@@ -1,0 +1,15 @@
+# @package prompt
+
+# Default prompt configuration
+# If no prompt config is specified, these defaults will be used
+# To use a custom prompt config, specify: prompt=your_prompt_name
+
+prompt:
+  # Captioner instruction (used by NaiveCaptioner and other captioners)
+  # If null, the hardcoded default in the captioner will be used
+  naive_instruction: null
+  
+  # Environment instruction (used by environment wrappers like FastSnakeLLMAgentsWrapper)
+  # If null, the hardcoded default in the environment will be used
+  environment_instruction: null
+

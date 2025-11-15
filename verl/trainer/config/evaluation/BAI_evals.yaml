@@ -1,0 +1,156 @@
+# @package eval
+
+evaluation:
+  environments:
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-GoToLocalS5N2"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToLocalS5N2-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-GoToObjMazeS4R2"
+      n_rollouts: 100
+      episode_length: 60
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToObjMazeS4R2-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 60
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-PickupLoc"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-PickupLoc-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-UnlockPickup"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-UnlockPickup-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-BlockedUnlockPickup"
+      n_rollouts: 100
+      episode_length: 40
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-BlockedUnlockPickup-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 40
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-UnlockToUnlock"
+      n_rollouts: 100
+      episode_length: 60
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-UnlockToUnlock-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 60
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-PickupDist"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-PickupDist-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-PutNextLocalS5N3"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-PutNextLocalS5N3-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+    # --- Config 3: BabyAI Evaluation ---
+    - name: "BabyAI-UnlockLocalDist"
+      n_rollouts: 100
+      episode_length: 20
+      initial_seed: 0 # Use a fixed seed for reproducibility
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-UnlockLocalDist-v0
+      format_penalty: 0.0
+      binary_reward: False
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
