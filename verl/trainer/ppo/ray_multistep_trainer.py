@@ -1019,7 +1019,7 @@ class RayMultistepTrainer(object):
                     "extra_info": np.zeros([meta_size]),
                     "raw_prompt_ids": np.zeros([meta_size]),
                     "index": np.zeros([meta_size]),
-                    "frozen_mask": np.zeros([bsize + esize], dtype=np.int64),
+                    "frozen_mask": torch.zeros([bsize + esize], dtype=torch.int64),
                 }
     
             metrics = {}
