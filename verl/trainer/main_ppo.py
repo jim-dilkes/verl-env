@@ -300,6 +300,13 @@ class TaskRunner:
 
         from verl.utils.dataset.rl_dataset import collate_fn
 
+        # Override data files to placeholders for multistep trainer if enabled
+        # Multistep trainer uses environments to generate data, so dataset files are not needed
+        if config.envs.get("enable", False):
+            config.data.train_files = "examples/data/placeholder.parquet"
+            config.data.val_files = "examples/data/placeholder.parquet"
+            print("Multistep trainer detected: Overriding data.train_files and data.val_files to placeholder.parquet")
+
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(
             config.data.train_files,
