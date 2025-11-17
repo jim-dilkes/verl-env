@@ -20,6 +20,7 @@ import os
 import re
 import warnings
 from dataclasses import dataclass
+from types import MethodType
 from typing import Optional
 
 import numpy as np
@@ -587,8 +588,6 @@ def get_parallel_gptmodel_from_config(
 
 
 def patch_valuehead_model(model) -> None:
-    from types import MethodType
-
     from transformers import PreTrainedModel
     from trl import AutoModelForCausalLMWithValueHead
 
@@ -627,6 +626,21 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
             attn_implementation="flash_attention_2",
             trust_remote_code=trust_remote_code,
         )
+        if not hasattr(model, "prepare_inputs_for_generation"):
+            # Some value-head critics are classification models without generation helpers.
+            # PEFT expects this attribute to exist when wrapping the model, so we inject a stub.
+            def _critic_prepare_inputs_for_generation(self, *args, **kwargs):  # pragma: no cover - simple stub
+                raise NotImplementedError(
+                    f"{self.__class__.__name__} does not implement generation; "
+                    "this method is only present to satisfy PEFT."
+                )
+
+            model.prepare_inputs_for_generation = MethodType(_critic_prepare_inputs_for_generation, model)
+        if not hasattr(model, "can_generate"):
+            def _critic_can_generate(self):  # pragma: no cover - simple stub
+                return False
+
+            model.can_generate = MethodType(_critic_can_generate, model)
         return model
     except BaseException as e:
         if not is_trl_available():

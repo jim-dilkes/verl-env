@@ -244,3 +244,5 @@ class FSDPCriticModelCfg(BaseModelConfig):
     lora_rank: int = 0
     lora_alpha: int = 16
     target_modules: str | list[str] = "all-linear"
+    exclude_modules: str | list[str] | None = None
+    modules_to_save: str | list[str] | None = None
