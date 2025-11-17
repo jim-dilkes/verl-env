@@ -552,5 +552,9 @@ ray_kwargs:
     # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
     num_cpus: null
 
+    # Number of GPUs Ray should reserve. Set per-node GPU count when the scheduler
+    # already assigns specific devices.
+    num_gpus: null
+
   # Path to save Ray timeline JSON for performance profiling
   timeline_json_file: null
