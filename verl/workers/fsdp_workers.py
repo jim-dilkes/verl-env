@@ -1321,12 +1321,41 @@ class CriticWorker(Worker, DistProfilerExtension):
                     peft_config.task_type = TaskType.CAUSAL_LM
 
             else:
+                def _normalize_to_list(value):
+                    value = convert_to_regular_types(value)
+                    if value is None:
+                        return []
+                    if isinstance(value, list):
+                        return value.copy()
+                    if isinstance(value, tuple):
+                        return list(value)
+                    return [value]
+
+                critic_head_module_names = ["classifier", "score", "value_head", "lm_head"]
+
+                critic_model_conf = self.config.model
+                exclude_modules = _normalize_to_list(
+                    OmegaConf.select(critic_model_conf, "exclude_modules", default=None)
+                )
+                for head_module_name in critic_head_module_names:
+                    if head_module_name not in exclude_modules:
+                        exclude_modules.append(head_module_name)
+
+                modules_to_save = _normalize_to_list(
+                    OmegaConf.select(critic_model_conf, "modules_to_save", default=None)
+                )
+                for head_module_name in critic_head_module_names:
+                    if head_module_name not in modules_to_save:
+                        modules_to_save.append(head_module_name)
+
                 # Convert config to regular Python types before creating PEFT model
                 lora_config = {
                     "task_type": TaskType.CAUSAL_LM,
                     "r": self.config.model.lora_rank,
                     "lora_alpha": self.config.model.lora_alpha,
                     "target_modules": convert_to_regular_types(self.config.model.target_modules),
+                    "exclude_modules": exclude_modules if exclude_modules else None,
+                    "modules_to_save": modules_to_save,
                     "bias": "none",
                 }
                 critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
