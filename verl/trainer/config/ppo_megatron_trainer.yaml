@@ -80,6 +80,12 @@ trainer:
   total_training_steps: null
   project_name: verl_examples
   experiment_name: gsm8k
+  # Optional group label used by loggers (e.g., WandB)
+  group: null
+
+  # Optional list of tags to apply to WandB runs
+  tags: []
+
   logger: ["console", "wandb"]
   log_val_generations: 0
   nnodes: 1
@@ -178,3 +184,4 @@ ray_kwargs:
   ray_init:
     num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
   timeline_json_file: null
+
