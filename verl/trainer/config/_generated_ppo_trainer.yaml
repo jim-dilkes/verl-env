@@ -517,6 +517,7 @@ trainer:
   val_only: false
   test_freq: -1
   critic_warmup: 0
+  critic_warmup_micro_batch_size_per_gpu: null
   default_hdfs_dir: null
   del_local_ckpt_after_load: false
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}

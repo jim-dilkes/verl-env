@@ -323,6 +323,22 @@ class RayPPOTrainer:
         self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
         self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_critic = need_critic(self.config)
+        self.critic_warmup_micro_batch_size_per_gpu = getattr(
+            self.config.trainer, "critic_warmup_micro_batch_size_per_gpu", None
+        )
+        if self.use_critic and self.critic_warmup_micro_batch_size_per_gpu is not None:
+            assert self.critic_warmup_micro_batch_size_per_gpu > 0, (
+                "trainer.critic_warmup_micro_batch_size_per_gpu must be positive"
+            )
+            assert not self.config.critic.use_dynamic_bsz, (
+                "trainer.critic_warmup_micro_batch_size_per_gpu is not supported when critic.use_dynamic_bsz is True"
+            )
+            assert (
+                self.config.critic.ppo_mini_batch_size % self.critic_warmup_micro_batch_size_per_gpu == 0
+            ), (
+                "trainer.critic_warmup_micro_batch_size_per_gpu must divide critic.ppo_mini_batch_size "
+                f"(got {self.config.critic.ppo_mini_batch_size} vs {self.critic_warmup_micro_batch_size_per_gpu})"
+            )
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if device_name else self.config.trainer.device
         self.validation_generations_logger = ValidationGenerationsLogger(
@@ -1202,10 +1218,19 @@ class RayPPOTrainer:
 
                     # update critic
                     if self.use_critic:
+                        warmup_micro_batch_size = None
+                        if (
+                            self.critic_warmup_micro_batch_size_per_gpu is not None
+                            and self.global_steps <= self.config.trainer.critic_warmup
+                        ):
+                            warmup_micro_batch_size = self.critic_warmup_micro_batch_size_per_gpu
+                            batch.meta_info["critic_micro_batch_size_per_gpu"] = warmup_micro_batch_size
                         with marked_timer("update_critic", timing_raw, color="pink"):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
                         metrics.update(critic_output_metrics)
+                        if warmup_micro_batch_size is not None:
+                            batch.meta_info.pop("critic_micro_batch_size_per_gpu", None)
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
