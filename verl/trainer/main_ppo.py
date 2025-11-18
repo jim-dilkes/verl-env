@@ -20,6 +20,7 @@ import socket
 
 import hydra
 import ray
+import torch
 from omegaconf import OmegaConf
 
 from verl.experimental.dataset.sampler import AbstractSampler
@@ -248,8 +249,12 @@ class TaskRunner:
         from omegaconf import OmegaConf
 
         from verl.utils.fs import copy_to_local
-
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
+        print(
+            "TaskRunner CUDA_VISIBLE_DEVICES="
+            f"{os.environ.get('CUDA_VISIBLE_DEVICES')}, "
+            f"torch.cuda.is_available()={torch.cuda.is_available()}"
+        )
         pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
 
