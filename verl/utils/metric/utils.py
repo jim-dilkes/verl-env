@@ -18,6 +18,25 @@ Metrics utils.
 from typing import Any
 
 import numpy as np
+import torch
+
+
+def _to_cpu_numpy(value: Any) -> Any:
+    """Recursively convert metrics to CPU scalars / numpy arrays."""
+    if isinstance(value, torch.Tensor):
+        tensor = value.detach()
+        if tensor.is_cuda:
+            tensor = tensor.cpu()
+        if tensor.numel() == 1:
+            return tensor.item()
+        return tensor.numpy()
+    if isinstance(value, (list, tuple)):
+        return [_to_cpu_numpy(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _to_cpu_numpy(v) for k, v in value.items()}
+    if isinstance(value, np.ndarray) and value.dtype == object:
+        return np.array([_to_cpu_numpy(v) for v in value.tolist()], dtype=object)
+    return value
 
 
 def reduce_metrics(metrics: dict[str, list[Any]]) -> dict[str, Any]:
@@ -45,10 +64,12 @@ def reduce_metrics(metrics: dict[str, list[Any]]) -> dict[str, Any]:
         {"loss": 2.0, "accuracy": 0.8, "max_reward": 8.0, "min_error": 0.05}
     """
     for key, val in metrics.items():
+        processed_val = _to_cpu_numpy(val)
+
         if "max" in key:
-            metrics[key] = np.max(val)
+            metrics[key] = np.max(processed_val)
         elif "min" in key:
-            metrics[key] = np.min(val)
+            metrics[key] = np.min(processed_val)
         else:
-            metrics[key] = np.mean(val)
+            metrics[key] = np.mean(processed_val)
     return metrics
