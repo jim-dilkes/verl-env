@@ -67,6 +67,11 @@ class Tracking:
 
         self.logger = {}
 
+        trainer_config = _get_nested_value(config, "trainer") if config is not None else None
+        if group is None and trainer_config is not None:
+            group = _get_nested_value(trainer_config, "group")
+        wandb_tags = _normalize_wandb_tags(_get_nested_value(trainer_config, "tags") if trainer_config else None)
+
         if "tracking" in default_backend or "wandb" in default_backend:
             import os
 
@@ -83,6 +88,7 @@ class Tracking:
                 config=config,
                 settings=settings,
                 group=group,
+                tags=wandb_tags,
             )
             self.logger["wandb"] = wandb
 
@@ -309,6 +315,40 @@ class _MlflowLoggingAdapter:
 
         results = {sanitize_key(k): v for k, v in data.items()}
         mlflow.log_metrics(metrics=results, step=step)
+
+
+def _get_nested_value(container, key):
+    if container is None:
+        return None
+    if isinstance(container, dict):
+        return container.get(key)
+    if hasattr(container, key):
+        return getattr(container, key)
+    if hasattr(container, "get"):
+        try:
+            return container.get(key, None)
+        except TypeError:
+            try:
+                return container.get(key)
+            except Exception:
+                return None
+        except Exception:
+            return None
+    return None
+
+
+def _normalize_wandb_tags(tags):
+    if tags is None:
+        return None
+    if isinstance(tags, str):
+        normalized = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        return normalized or None
+    try:
+        iterable = list(tags)
+    except TypeError:
+        iterable = [tags]
+    normalized = [str(tag).strip() for tag in iterable if str(tag).strip()]
+    return normalized or None
 
 
 def _compute_mlflow_params_from_objects(params) -> dict[str, Any]:

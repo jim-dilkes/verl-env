@@ -139,6 +139,9 @@ trainer:
   # Optional group label used by loggers (e.g., WandB)
   group: null
 
+  # Optional list of tags to apply to WandB runs
+  tags: []
+
   # Logging backends to use: "console", "wandb", etc.
   logger: ["console", "wandb"]
 
@@ -561,3 +564,4 @@ ray_kwargs:
 
   # Path to save Ray timeline JSON for performance profiling
   timeline_json_file: null
+
