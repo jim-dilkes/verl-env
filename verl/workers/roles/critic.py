@@ -164,7 +164,11 @@ class CriticWorker(Worker, DistProfilerExtension):
         if self.config.use_dynamic_bsz:
             data.meta_info["max_token_len_per_gpu"] = self.config.ppo_max_token_len_per_gpu
         else:
-            data.meta_info["micro_batch_size_per_gpu"] = self.config.ppo_micro_batch_size_per_gpu
+            override_micro_bsz = data.meta_info.pop("critic_micro_batch_size_per_gpu", None)
+            micro_batch_size = (
+                override_micro_bsz if override_micro_bsz is not None else self.config.ppo_micro_batch_size_per_gpu
+            )
+            data.meta_info["micro_batch_size_per_gpu"] = micro_batch_size
 
         metrics = {}
         # Support all hardwares

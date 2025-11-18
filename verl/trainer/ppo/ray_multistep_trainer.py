@@ -274,6 +274,10 @@ class RayMultistepTrainer(object):
         else:
             print(f"[RayMultistepTrainer] Using {self.config.algorithm.adv_estimator} without critic")
 
+        self.critic_warmup_micro_batch_size_per_gpu = getattr(
+            self.config.trainer, "critic_warmup_micro_batch_size_per_gpu", None
+        )
+
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
         
@@ -436,6 +440,19 @@ class RayMultistepTrainer(object):
             if config.critic.ppo_micro_batch_size is not None:
                 assert config.critic.ppo_mini_batch_size % config.critic.ppo_micro_batch_size == 0
                 assert config.critic.ppo_micro_batch_size * sp_size >= n_gpus
+
+        warmup_micro_batch_size = getattr(config.trainer, "critic_warmup_micro_batch_size_per_gpu", None)
+        if self.use_critic and warmup_micro_batch_size is not None:
+            assert warmup_micro_batch_size > 0, "trainer.critic_warmup_micro_batch_size_per_gpu must be positive"
+            assert not config.critic.use_dynamic_bsz, (
+                "trainer.critic_warmup_micro_batch_size_per_gpu is not supported when critic.use_dynamic_bsz is True"
+            )
+            assert (
+                config.critic.ppo_mini_batch_size % warmup_micro_batch_size == 0
+            ), (
+                "trainer.critic_warmup_micro_batch_size_per_gpu must divide critic.ppo_mini_batch_size "
+                f"(got {config.critic.ppo_mini_batch_size} vs {warmup_micro_batch_size})"
+            )
 
         # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
         if config.actor_rollout_ref.actor.strategy == 'fsdp':
@@ -1339,10 +1356,16 @@ class RayMultistepTrainer(object):
                     # Add flag to indicate if we're in critic warmup phase
                     is_critic_warmup = self.global_steps <= self.critic_warmup_step
                     batch4train.meta_info['is_critic_warmup'] = is_critic_warmup
+                    warmup_micro_batch_size = None
+                    if is_critic_warmup and self.critic_warmup_micro_batch_size_per_gpu is not None:
+                        warmup_micro_batch_size = self.critic_warmup_micro_batch_size_per_gpu
+                        batch4train.meta_info['critic_micro_batch_size_per_gpu'] = warmup_micro_batch_size
                     with _timer('update_critic', timing_raw):
                         critic_output = self.critic_wg.update_critic(batch4train)
                     critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                     metrics.update(critic_output_metrics)
+                    if warmup_micro_batch_size is not None:
+                        batch4train.meta_info.pop('critic_micro_batch_size_per_gpu', None)
                     # Clear the warmup flag after use to avoid memory issues
                     if 'is_critic_warmup' in batch4train.meta_info:
                         del batch4train.meta_info['is_critic_warmup']

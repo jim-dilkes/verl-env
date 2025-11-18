@@ -210,10 +210,12 @@ class DataParallelPPOCritic(BasePPOCritic):
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                     micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
                 else:
-                    self.gradient_accumulation = (
-                        self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
+                    override_micro_bsz = data.meta_info.get("critic_micro_batch_size_per_gpu")
+                    micro_batch_size_per_gpu = (
+                        override_micro_bsz if override_micro_bsz is not None else self.config.ppo_micro_batch_size_per_gpu
                     )
-                    micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
+                    self.gradient_accumulation = self.config.ppo_mini_batch_size // micro_batch_size_per_gpu
+                    micro_batches = mini_batch.split(micro_batch_size_per_gpu)
 
                 self.critic_optimizer.zero_grad()
 

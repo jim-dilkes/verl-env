@@ -302,7 +302,13 @@ class MegatronPPOCritic(BasePPOCritic):
             for chunk in self.critic_module:
                 chunk.zero_grad_buffer()
 
-            micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
+            meta_info = getattr(data, "meta_info", None)
+            if meta_info is not None:
+                micro_batch_size = meta_info.get(
+                    "critic_micro_batch_size_per_gpu", self.config.ppo_micro_batch_size_per_gpu
+                )
+            else:
+                micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
             max_token_len = None
             if self.config.use_dynamic_bsz:
                 max_token_len = self.config.ppo_max_token_len_per_gpu * self.config.megatron.context_parallel_size

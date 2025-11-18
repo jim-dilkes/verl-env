@@ -1089,6 +1089,9 @@ trainer:
   # Number of iterations to warm up the critic before updating policy
   critic_warmup: 0
 
+  # Optional per-GPU critic micro-batch size override during warmup
+  critic_warmup_micro_batch_size_per_gpu: null
+
   # Default path to distributed filesystem for saving checkpoints
   default_hdfs_dir: null
 
