@@ -438,6 +438,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 }
                 actor_module = get_peft_model(actor_module, LoraConfig(**lora_config))
 
+            # LoRA injects new parameters that default to fp32. Cast them to the model dtype
+            actor_module.to(torch_dtype)
+
         self.use_orig_params = fsdp_config.get("use_orig_params", False)
         if self.config.actor.get("freeze_vision_tower", False):
             vision_tower = get_vl_model_vision_tower(actor_module)
@@ -1359,6 +1362,9 @@ class CriticWorker(Worker, DistProfilerExtension):
                     "bias": "none",
                 }
                 critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
+
+            # Ensure LoRA parameters match the configured dtype
+            critic_module.to(torch_dtype)
 
         if self.rank == 0:
             print_model_size(critic_module)
