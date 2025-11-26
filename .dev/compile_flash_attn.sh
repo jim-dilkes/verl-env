@@ -6,7 +6,7 @@ set -e
 
 # Activate conda environment
 source $(conda info --base)/etc/profile.d/conda.sh
-conda activate verl_latest
+conda activate verl_latest_vllm9
 
 # Load CUDA module (must match PyTorch's CUDA version)
 module load cuda/12.8.0
