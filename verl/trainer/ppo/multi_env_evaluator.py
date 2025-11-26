@@ -18,11 +18,15 @@ This module provides a flexible evaluation system that can run evaluations
 across multiple, distinct environments as specified in the configuration.
 """
 
+import json
 import numpy as np
 import time
 import gc
 import psutil
 import os
+from collections import Counter
+from collections.abc import Mapping
+from typing import Dict, List, Optional, Sequence
 from verl import DataProto
 from verl.utils.tracking import ValidationGenerationsLogger
 
@@ -369,9 +373,12 @@ class MultiEnvEvaluator:
         formatted_input = self._format_episode(episode_data['inputs'])
         formatted_output = self._format_episode(episode_data['outputs'])
         total_score = episode_data['total_score']
+        score_log_value = "N/A" if total_score is None else total_score
+        if total_score is None:
+            print(f"[MultiEnvEvaluator] Episode score unavailable for {env_name}; logging 'N/A'.")
         
         # Create sample tuple (input, output, score) as expected by ValidationGenerationsLogger
-        sample = (formatted_input, formatted_output, total_score)
+        sample = (formatted_input, formatted_output, score_log_value)
         
         # Log to each configured logger
         logger_backends = getattr(self.config.trainer, 'logger', ['console'])
@@ -397,13 +404,56 @@ class MultiEnvEvaluator:
             formatted_steps.append(f"---\nStep {i+1}\n---\n{text}")
         
         return "\n\n---\n\n".join(formatted_steps)
+
+    def _extract_info_array(self, info_obj, key: str, expected_len: int) -> Optional[np.ndarray]:
+        """
+        Attempt to extract a per-rollout array for `key` from a Gym-like info object.
+
+        Returns:
+            np.ndarray of shape (expected_len,) with float64 values, or None if the key
+            is unavailable or the shape does not match.
+        """
+        if info_obj is None:
+            return None
+
+        if isinstance(info_obj, Mapping):
+            if key not in info_obj:
+                return None
+            values = info_obj[key]
+            arr = np.asarray(values, dtype=np.float64)
+            if arr.ndim == 0:
+                if expected_len != 1:
+                    return None
+                arr = arr.reshape(1)
+            if arr.shape[0] != expected_len:
+                return None
+            return arr
+
+        if isinstance(info_obj, (list, tuple)):
+            if len(info_obj) != expected_len:
+                return None
+            extracted = []
+            for item in info_obj:
+                if not isinstance(item, Mapping) or key not in item:
+                    return None
+                extracted.append(item[key])
+            return np.asarray(extracted, dtype=np.float64)
+
+        return None
     
     def _evaluate_single_env(self, val_env, env_config, env_name):
+        """Run evaluation while preserving tokenizer state."""
+        original_padding_side = getattr(self.tokenizer, "padding_side", None)
+        self.tokenizer.padding_side = "left"
+        try:
+            return self._evaluate_single_env_body(val_env, env_config, env_name)
+        finally:
+            if original_padding_side is not None:
+                self.tokenizer.padding_side = original_padding_side
+
+    def _evaluate_single_env_body(self, val_env, env_config, env_name):
         """
-        Run evaluation for a single environment.
-        
-        This method implements the core evaluation logic, similar to the
-        original _validate method but adapted for multi-environment use.
+        Run evaluation for a single environment, optionally collecting action entropy metrics.
         
         Args:
             val_env: The vectorized environment to evaluate
@@ -414,48 +464,93 @@ class MultiEnvEvaluator:
             tuple: (dict of metrics, dict episode_data)
         """
         max_seq_len = self.config.data.max_prompt_length
-        
-        # Use environment-specific seed if configured
         initial_seed = env_config.get('initial_seed', None)
+        if initial_seed is not None:
+            initial_seed = int(initial_seed)
         val_obs, val_info = val_env.reset(seed=initial_seed, use_incremental_seeds=True)
-        
-        # Lists to collect samples for logging
+
+        # Action entropy configuration (if provided)
+        action_entropy_cfg = env_config.get('action_entropy') or {}
+        entropy_enabled = bool(action_entropy_cfg.get('enabled', False))
+        entropy_cfg = None
+        entropy_measure_steps: Sequence[int] = []
+        pending_entropy_steps = set()
+        entropy_measurements: List[float] = []
+        entropy_action_counter: Counter = Counter()
+        entropy_probe_time = 0.0
+        active_rollouts = None
+
+        if entropy_enabled:
+            entropy_cfg = self._validate_action_entropy_config(action_entropy_cfg)
+            entropy_measure_steps = self._compute_entropy_measurement_steps(
+                entropy_cfg,
+                env_config['episode_length'],
+                initial_seed,
+            )
+            pending_entropy_steps = set(entropy_measure_steps)
+            active_rollouts = np.ones(env_config['n_rollouts'], dtype=bool)
+            print(
+                f"[MultiEnvEvaluator] Action entropy enabled for {env_name} "
+                f"with measurement steps: {sorted(entropy_measure_steps)}"
+            )
+
+        exclusive_entropy_metrics = bool(entropy_cfg['exclusive_metric']) if entropy_enabled else False
+        track_standard_metrics = not (entropy_enabled and exclusive_entropy_metrics)
+
+        # Lists to collect samples for logging (only populated when tracking metrics)
         sample_inputs = []
         sample_outputs = []
         sample_scores = []
         end_of_traj = None
         rew_of_traj = 0.
-        score_of_traj = 0.
+        score_of_traj = None
         len_of_traj = 0.
         total_tokens_generated = 0
         total_inference_time = 0.0
+        score_tracking_active = False
+        score_warning_logged = False
         
         # Track one full episode for logging (first rollout)
         episode_inputs = []
         episode_outputs = []
-        episode_total_score = 0.0
+        episode_total_score = None
         episode_tracked = False
 
         # Get generation config for this environment (once per environment)
         self._current_gen_config = self._get_generation_config(env_config)
+        response_lengths = None
 
-        for j in range(env_config['episode_length']):
-        
-            self.tokenizer.padding_side = "left"
+        for step_idx in range(env_config['episode_length']):
             val_input_obs_text = self.tokenizer.apply_chat_template(
                 val_obs, tokenize=False, add_generation_prompt=True
             )
-            sample_inputs.extend(val_input_obs_text)
-            
-            # Track episode data for the first rollout (index 0)
-            if not episode_tracked:
-                episode_inputs.append(val_input_obs_text[0])  # First rollout's input
-            
+
+            if entropy_enabled and step_idx in pending_entropy_steps:
+                entropies, step_action_counts, probe_time = self._probe_action_entropy(
+                    val_input_obs_text,
+                    entropy_cfg,
+                    active_rollouts,
+                    max_seq_len,
+                )
+                entropy_measurements.extend(entropies)
+                entropy_action_counter.update(step_action_counts)
+                entropy_probe_time += probe_time
+                pending_entropy_steps.remove(step_idx)
+
+                if not track_standard_metrics and not pending_entropy_steps:
+                    # Entropy-only evaluation is complete; no need to continue rollouts.
+                    break
+
+            if track_standard_metrics:
+                sample_inputs.extend(val_input_obs_text)
+                if not episode_tracked:
+                    episode_inputs.append(val_input_obs_text[0])
+
             val_input_obs = self.tokenizer(
-                val_input_obs_text, 
-                return_tensors='pt', 
-                padding='max_length', 
-                truncation=True, 
+                val_input_obs_text,
+                return_tensors='pt',
+                padding='max_length',
+                truncation=True,
                 max_length=max_seq_len
             )
             input_ids = val_input_obs['input_ids']
@@ -471,12 +566,9 @@ class MultiEnvEvaluator:
             val_gen_batch = DataProto.from_dict(tensors=val_obs_data)
             val_gen_batch.meta_info["step"] = None
             
-            # Apply generation config to meta_info (temperature, top_p, etc.)
-            # This was set once at the start of the evaluation for this environment
             for key, value in self._current_gen_config.items():
                 val_gen_batch.meta_info[key] = value
             
-            # Generate actions using the shared policy (measure inference time)
             inference_start = time.time()
             val_gen_batch_output = self.actor_rollout_wg.generate_sequences(val_gen_batch)
             inference_end = time.time()
@@ -484,17 +576,15 @@ class MultiEnvEvaluator:
             
             response_ids = val_gen_batch_output.batch['responses']
             actions = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
-            sample_outputs.extend(actions)
+
+            if track_standard_metrics:
+                sample_outputs.extend(actions)
+                if not episode_tracked:
+                    episode_outputs.append(actions[0])
             
-            # Track episode data for the first rollout (index 0)
-            if not episode_tracked:
-                episode_outputs.append(actions[0])  # First rollout's action
-            
-            # Count tokens generated (sum of response lengths)
             response_lengths = (response_ids != self.tokenizer.pad_token_id).sum(dim=-1)
             total_tokens_generated += response_lengths.sum().item()
             
-            # Step the environment
             try:
                 val_obs, val_reward, val_terminated, val_truncated, val_info = val_env.step(actions)
             except Exception as e:
@@ -502,66 +592,310 @@ class MultiEnvEvaluator:
                 import traceback
                 print(f"[ERROR] MultiEnvEvaluator: Traceback: {traceback.format_exc()}")
                 raise
+
+            if entropy_enabled and active_rollouts is not None:
+                done_mask = np.logical_or(val_terminated, val_truncated)
+                active_rollouts = np.logical_not(done_mask)
             
-            # Track trajectory metrics
-            if end_of_traj is None:
-                end_of_traj = np.logical_or(val_terminated, val_truncated)
-                rew_of_traj = val_reward
-                score_of_traj = np.where(val_reward > 0., val_reward, 0.)
-                len_of_traj = np.ones_like(val_reward)
-                pos_rew_of_traj = (np.array(val_reward) > 0.) * 1.
-            else:
-                done = np.logical_or(val_terminated, val_truncated)
-                rew_of_traj += val_reward * (~end_of_traj).astype(np.float32)
-                score_of_traj += np.where(val_reward > 0., val_reward * (~end_of_traj).astype(np.float32), 0.) 
-                len_of_traj += (~end_of_traj).astype(np.float32)
-                end_of_traj = np.logical_or(end_of_traj, done)
-                pos_rew_of_traj = np.logical_or(pos_rew_of_traj, (np.array(val_reward) > 0.) * 1.)
-            
-            sample_scores.extend(rew_of_traj)
-            
-            # Track episode data for the first rollout (index 0)
-            if not episode_tracked:
-                episode_total_score += val_reward[0]  # First rollout's reward
-                # Check if the first rollout's episode is done
-                if val_terminated[0] or val_truncated[0] or j == env_config['episode_length'] - 1:
-                    episode_tracked = True  # Stop tracking after episode completion
-            
-            # Check if all episodes are done
-            if end_of_traj.all():
-                break
+            if track_standard_metrics:
+                score_values = self._extract_info_array(val_info, "score", len(val_reward))
+                if score_values is not None:
+                    score_tracking_active = True
+                elif score_tracking_active and not score_warning_logged:
+                    print(
+                        f"[MultiEnvEvaluator] Warning: score info missing at step {step_idx} "
+                        f"for {env_name}, keeping last known values."
+                    )
+                    score_warning_logged = True
+
+                if end_of_traj is None:
+                    end_of_traj = np.logical_or(val_terminated, val_truncated)
+                    rew_of_traj = val_reward
+                    len_of_traj = np.ones_like(val_reward)
+                    pos_rew_of_traj = (np.array(val_reward) > 0.) * 1.
+                    if score_values is not None:
+                        score_of_traj = score_values
+                else:
+                    done = np.logical_or(val_terminated, val_truncated)
+                    active_mask = (~end_of_traj).astype(np.float32)
+                    rew_of_traj += val_reward * active_mask
+                    len_of_traj += active_mask
+                    end_of_traj = np.logical_or(end_of_traj, done)
+                    pos_rew_of_traj = np.logical_or(pos_rew_of_traj, (np.array(val_reward) > 0.) * 1.)
+                    if score_values is not None:
+                        if score_of_traj is None:
+                            score_of_traj = score_values
+                        else:
+                            score_of_traj = np.where(~end_of_traj, score_values, score_of_traj)
+                
+                if score_tracking_active and score_of_traj is not None:
+                    sample_scores.extend(score_of_traj.tolist())
+                
+                if not episode_tracked:
+                    if score_tracking_active and score_of_traj is not None:
+                        episode_total_score = float(score_of_traj[0])
+                    if val_terminated[0] or val_truncated[0] or step_idx == env_config['episode_length'] - 1:
+                        episode_tracked = True
+
+                if end_of_traj.all():
+                    break
         
-        # Compute final metrics - ensure all arrays are float type for mean calculations
-        rew_of_traj = np.array(rew_of_traj, dtype=np.float64)
-        score_of_traj = np.array(score_of_traj, dtype=np.float64)
-        len_of_traj = np.array(len_of_traj, dtype=np.float64)
-        pos_rew_of_traj = np.array(pos_rew_of_traj, dtype=np.float64)
-        succ_of_traj = (rew_of_traj > 0.) * 1.
-        response_lengths = response_lengths.float()  # Convert tensor to float
-        
-        metric_dict = {
-            "rewards_mean": float(rew_of_traj.mean()),
-            "rewards_std": float(rew_of_traj.std()),
-            "score_mean": float(score_of_traj.mean()),
-            "score_std": float(score_of_traj.std()),
-            "pos_reward_any_prop_mean": float(pos_rew_of_traj.mean()),
-            "pos_reward_any_prop_std": float(pos_rew_of_traj.std()),
-            "traj_length_mean": float(len_of_traj.mean()),
-            "traj_length_std": float(len_of_traj.std()),
-            "toks_out_mean": float(response_lengths.mean()),
-            "toks_out_std": float(response_lengths.std()),
+        metric_dict: Dict[str, float] = {}
+
+        if track_standard_metrics and end_of_traj is not None:
+            rew_of_traj = np.array(rew_of_traj, dtype=np.float64)
+            len_of_traj = np.array(len_of_traj, dtype=np.float64)
+            pos_rew_of_traj = np.array(pos_rew_of_traj, dtype=np.float64)
+            response_lengths = response_lengths.float() if response_lengths is not None else None
+            
+            metric_dict.update({
+                "rewards_mean": float(rew_of_traj.mean()),
+                "rewards_std": float(rew_of_traj.std()),
+                "pos_reward_any_prop_mean": float(pos_rew_of_traj.mean()),
+                "pos_reward_any_prop_std": float(pos_rew_of_traj.std()),
+                "traj_length_mean": float(len_of_traj.mean()),
+                "traj_length_std": float(len_of_traj.std()),
+            })
+
+            if score_tracking_active and score_of_traj is not None:
+                score_arr = np.array(score_of_traj, dtype=np.float64)
+                metric_dict.update({
+                    "score_mean": float(score_arr.mean()),
+                    "score_std": float(score_arr.std()),
+                })
+            elif not score_tracking_active:
+                print(f"[MultiEnvEvaluator] Score info unavailable for {env_name}; skipping score metrics.")
+
+            if response_lengths is not None:
+                metric_dict.update({
+                    "toks_out_mean": float(response_lengths.mean()),
+                    "toks_out_std": float(response_lengths.std()),
+                })
+
+            metric_dict.update({
+                "tokens_per_rollout": total_tokens_generated / env_config['n_rollouts'],
+                "tokens_per_step": total_tokens_generated / max(1, (env_config['episode_length'] * env_config['n_rollouts'])),
+            })
+
+        metric_dict.update({
             "inference_time_seconds": total_inference_time,
-            "inference_time_per_rollout": total_inference_time / env_config['n_rollouts'],
-            "inference_time_per_step": total_inference_time / (env_config['episode_length'] * env_config['n_rollouts']),
-            "tokens_per_rollout": total_tokens_generated / env_config['n_rollouts'],
-            "tokens_per_step": total_tokens_generated / (env_config['episode_length'] * env_config['n_rollouts']),
-        }
-        
-        # Prepare episode data for logging
-        episode_data = {
-            'inputs': episode_inputs,
-            'outputs': episode_outputs,
-            'total_score': float(episode_total_score)
-        } if episode_tracked else None
+            "inference_time_per_rollout": total_inference_time / max(1, env_config['n_rollouts']),
+            "inference_time_per_step": total_inference_time / max(1, (env_config['episode_length'] * env_config['n_rollouts'])),
+        })
+
+        if entropy_enabled:
+            num_entropy_measurements = len(entropy_measurements)
+            entropy_mean = float(np.mean(entropy_measurements)) if entropy_measurements else 0.0
+            entropy_std = float(np.std(entropy_measurements)) if entropy_measurements else 0.0
+            metric_dict.update({
+                "action_entropy_mean": entropy_mean,
+                "action_entropy_std": entropy_std,
+                "action_entropy_num_measurements": float(num_entropy_measurements),
+                "action_entropy_probe_time_seconds": entropy_probe_time,
+            })
+
+            if entropy_action_counter:
+                total_actions = sum(entropy_action_counter.values())
+                if total_actions > 0:
+                    normalized_dist = {
+                        action: count / total_actions
+                        for action, count in entropy_action_counter.items()
+                    }
+                    metric_dict["val/entropy_dist"] = json.dumps(normalized_dist)
+
+        episode_data = None
+        if track_standard_metrics and episode_tracked:
+            episode_data = {
+                'inputs': episode_inputs,
+                'outputs': episode_outputs,
+                'total_score': float(episode_total_score) if episode_total_score is not None else None
+            }
         
         return metric_dict, episode_data
+
+    def _validate_action_entropy_config(self, entropy_cfg: Dict) -> Dict:
+        """Validate and normalize the action entropy configuration."""
+        cfg = dict(entropy_cfg)
+        n_samples = int(cfg.get('n_samples', 1))
+        if n_samples <= 0:
+            raise ValueError("action_entropy.n_samples must be > 0")
+
+        temperature = float(cfg.get('temperature', 1.0))
+        if temperature <= 0:
+            raise ValueError("action_entropy.temperature must be > 0")
+
+        measure_mode = str(cfg.get('measure_at_steps', 'start')).lower()
+        allowed_modes = {"start", "random", "every_n"}
+        if measure_mode not in allowed_modes:
+            raise ValueError(f"action_entropy.measure_at_steps must be one of {allowed_modes}")
+
+        step_interval = int(cfg.get('step_interval', 1))
+        if step_interval <= 0:
+            step_interval = 1
+
+        max_batch_size = int(cfg.get('max_batch_size', 64))
+        if max_batch_size <= 0:
+            raise ValueError("action_entropy.max_batch_size must be > 0")
+
+        return {
+            "n_samples": n_samples,
+            "temperature": temperature,
+            "measure_at_steps": measure_mode,
+            "step_interval": step_interval,
+            "exclusive_metric": bool(cfg.get('exclusive_metric', False)),
+            "max_batch_size": max_batch_size,
+        }
+
+    def _compute_entropy_measurement_steps(
+        self,
+        entropy_cfg: Dict,
+        episode_length: int,
+        seed: Optional[int],
+    ) -> List[int]:
+        """Determine the rollout steps at which entropy should be measured."""
+        episode_length = max(1, int(episode_length))
+        mode = entropy_cfg['measure_at_steps']
+        
+        if mode == "start":
+            steps = [0]
+        elif mode == "random":
+            rng = np.random.default_rng(seed)
+            max_step = max(episode_length - 1, 0)
+            steps = [int(rng.integers(0, max_step + 1))]
+        else:  # every_n
+            interval = entropy_cfg['step_interval']
+            steps = list(range(0, episode_length, interval))
+        
+        normalized_steps = sorted({step for step in steps if 0 <= step < episode_length})
+        return normalized_steps or [0]
+
+    def _probe_action_entropy(
+        self,
+        prompt_texts: Sequence[str],
+        entropy_cfg: Dict,
+        active_rollouts: Optional[np.ndarray],
+        max_seq_len: int,
+    ):
+        """Run entropy probes (n_samples completions) for the provided prompts."""
+        n_samples = entropy_cfg['n_samples']
+        prompts: List[str] = []
+        prompt_owner: List[int] = []
+
+        for idx, prompt in enumerate(prompt_texts):
+            is_active = True if active_rollouts is None else bool(active_rollouts[idx])
+            if not is_active:
+                continue
+            prompts.extend([prompt] * n_samples)
+            prompt_owner.extend([idx] * n_samples)
+
+        if not prompts:
+            return [], Counter(), 0.0
+
+        chunk_size = entropy_cfg['max_batch_size']
+        probe_meta = dict(self._current_gen_config)
+        probe_meta['temperature'] = entropy_cfg['temperature']
+        probe_meta['do_sample'] = True
+        probe_meta.pop('n', None)
+
+        action_counter: Counter = Counter()
+        rollout_samples: Dict[int, List[str]] = {}
+        total_probe_time = 0.0
+
+        for start in range(0, len(prompts), chunk_size):
+            end = start + chunk_size
+            chunk_prompts = prompts[start:end]
+            chunk_owners = prompt_owner[start:end]
+            chunk_responses, chunk_time = self._run_entropy_generation_chunk(
+                chunk_prompts,
+                probe_meta,
+                max_seq_len,
+            )
+            total_probe_time += chunk_time
+
+            for owner_idx, response in zip(chunk_owners, chunk_responses):
+                action_text = self._extract_action_string(response)
+                normalized_action = self._normalize_action_text(action_text)
+                action_counter[normalized_action] += 1
+                rollout_samples.setdefault(owner_idx, []).append(normalized_action)
+
+        entropies = [
+            self._compute_shannon_entropy(samples)
+            for samples in rollout_samples.values()
+        ]
+        return entropies, action_counter, total_probe_time
+
+    def _run_entropy_generation_chunk(
+        self,
+        prompts: Sequence[str],
+        probe_meta: Dict,
+        max_seq_len: int,
+    ):
+        """Generate a batch of probe completions."""
+        tokenized = self.tokenizer(
+            list(prompts),
+            return_tensors='pt',
+            padding='max_length',
+            truncation=True,
+            max_length=max_seq_len
+        )
+        input_ids = tokenized['input_ids']
+        attention_mask = tokenized['attention_mask']
+        position_ids = attention_mask.long().cumsum(-1) - 1
+        position_ids.masked_fill_(attention_mask == 0, 1)
+
+        val_obs_data = {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'position_ids': position_ids,
+        }
+        val_gen_batch = DataProto.from_dict(tensors=val_obs_data)
+        val_gen_batch.meta_info["step"] = None
+
+        for key, value in probe_meta.items():
+            val_gen_batch.meta_info[key] = value
+
+        inference_start = time.time()
+        val_gen_batch_output = self.actor_rollout_wg.generate_sequences(val_gen_batch)
+        inference_end = time.time()
+
+        responses = self.tokenizer.batch_decode(
+            val_gen_batch_output.batch['responses'],
+            skip_special_tokens=True
+        )
+        return responses, (inference_end - inference_start)
+
+    @staticmethod
+    def _extract_action_string(text: str | None) -> str:
+        """Extract the content inside <action> tags, falling back to raw text."""
+        if not text:
+            return ""
+        
+        lower_text = text.lower()
+        try:
+            start_idx = lower_text.index("<action>")
+            end_idx = lower_text.index("</action>", start_idx)
+            tag_length = len("<action>")
+            return text[start_idx + tag_length:end_idx]
+        except ValueError:
+            return "__parse_error__"
+
+    @staticmethod
+    def _normalize_action_text(action: str | None) -> str:
+        """Normalize action strings for counting."""
+        if action is None:
+            return "__invalid__"
+        normalized = action.strip().lower()
+        return normalized if normalized else "__invalid__"
+
+    @staticmethod
+    def _compute_shannon_entropy(samples: Sequence[str]) -> float:
+        """Compute Shannon entropy (in nats) for the provided samples."""
+        if not samples:
+            return 0.0
+        counts = Counter(samples)
+        total = sum(counts.values())
+        if total == 0:
+            return 0.0
+        probs = np.array(list(counts.values()), dtype=np.float64) / total
+        entropy = -np.sum(probs * np.log(probs + 1e-12))
+        return float(entropy)
