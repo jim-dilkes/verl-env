@@ -114,7 +114,8 @@ multi_stage_wake_up: false
 engine_kwargs:
 
   # vllm engine config
-  vllm: {}
+  vllm:
+    max_seq_len_to_capture: null
 
   # sglang engine config
   sglang: {}
