@@ -1,63 +1,35 @@
 #!/bin/bash
-#SBATCH --job-name=FS_PPO_Q3_14B_11
+#SBATCH --job-name=WS_Q3_4B_8step_Hpt005_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=250GB
+#SBATCH --mem=460GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=48
 #SBATCH --partition=dual_h200,quad_h200
-#SBATCH --time=48:00:00
-#SBATCH --gpus-per-node=2
-#SBATCH --gres=gpu:2
-
-echo "===== GPU visibility diagnostics (pre-setup) ====="
-date
-hostname
-echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
-command -v nvidia-smi && nvidia-smi || echo "nvidia-smi not available"
-echo "=================================================="
+#SBATCH --time=47:59:59
+#SBATCH --gpus-per-node=1
 
 # --- Setup ---
 module load conda/python3
-module load cuda/12.8.0
+module load cuda/12.4.0
 module load gcc/13.3.0
+
+# jdk required for WebShop environment (pyserini)
+module load jdk/22.0.1 
 
 cd Verlog
 eval "$(conda shell.bash hook)"
-conda activate verl_latest
+conda activate verlog_new
 
-python - <<'PY'
-import torch, sys
-print("torch.cuda.is_available()", torch.cuda.is_available())
-print("torch.cuda.device_count()", torch.cuda.device_count())
-sys.exit(0 if torch.cuda.is_available() else 1)
-PY
-
-# Verify CUDA is available and PyTorch can see it
-# Verify CUDA is available and PyTorch can see it
-echo "Checking CUDA availability..."
-python3 -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA devices: {torch.cuda.device_count() if torch.cuda.is_available() else 0}'); print(f'CUDA_VISIBLE_DEVICES: {__import__(\"os\").environ.get(\"CUDA_VISIBLE_DEVICES\", \"not set\")}')"
-if ! python3 -c "import torch; assert torch.cuda.is_available(), 'CUDA not available! Check PyTorch installation.'"; then
-    echo "ERROR: CUDA is not available. This will cause the distributed backend error."
-    echo "Please check:"
-    echo "  1. PyTorch is installed with CUDA support: pip list | grep torch"
-    echo "  2. CUDA_VISIBLE_DEVICES is set correctly"
-    exit 1
-fi
-
-
-project_name=AAMAS_msrl
-experiment_name=FS_PPO_Q3_14B_X
-run_number=11
+run_number=1
 number_of_steps=1000
-number_of_gpus=2
+number_of_gpus=1
 
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export HF_HUB_OFFLINE=1
 export WANDB_MODE=offline
-export RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
 
 # # --- Clean up previous Ray instances (this is good practice) ---
 # ray stop --force 2>/dev/null || true
@@ -75,57 +47,65 @@ export RAY_DEDUP_LOGS=0
 export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 
 # --- Define model and batch size ---
-model=Qwen/Qwen3-14B
+model=Qwen/Qwen3-4B-Instruct-2507
 # model=/scratch/jsbd1n24/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct
 micro_batch_size=8
+
+# --- Define experiment variables ---
+project_name=webshop
+experiment_name=8step_100k
 
 # --- Run your main application ---
 PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   data.max_prompt_length=1500 \
-  data.max_response_length=256 \
+  data.max_response_length=128 \
   data.train_batch_size=256 \
-  data.train_files=examples/data/placeholder.parquet \
-  data.val_files=examples/data/placeholder.parquet \
   actor_rollout_ref.actor.ppo_mini_batch_size=128 \
   actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$micro_batch_size \
-  actor_rollout_ref.actor.optim.lr=5e-6 \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.tensor_model_parallel_size=$number_of_gpus \
+  actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
   actor_rollout_ref.model.path=$model \
   actor_rollout_ref.rollout.temperature=1.25 \
   actor_rollout_ref.rollout.top_k=-1 \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
-  actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.max_model_len=2048 \
+  actor_rollout_ref.actor.entropy_coeff=0.0 \
+  actor_rollout_ref.actor.policy_loss.loss_mode=clip_cov \
+  actor_rollout_ref.actor.policy_loss.clip_cov_ratio=0.0002 \
+  actor_rollout_ref.actor.policy_loss.clip_cov_lb=1.0  \
+  actor_rollout_ref.actor.policy_loss.clip_cov_ub=5.0  \
+  # actor_rollout_ref.actor.policy_loss.kl_cov_ratio=0.0002  \
+  # actor_rollout_ref.actor.policy_loss.ppo_kl_coef=0.1  \
   critic.model.path=$model \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
   critic.optim.lr=5e-5 \
-  ray_kwargs.ray_init.num_gpus=$number_of_gpus \
+  critic.highlight_first=True \
+  critic.highlight_ratio=3.0 \
   algorithm.step_gamma=0.99 \
   algorithm.step_lam=0.95 \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
-  envs.enable=True \
+  envs.env_name=webshop \
   envs.n_rollouts=32 \
+  envs.webshop_kwargs.max_steps=8 \
+  envs.webshop_kwargs.num_products=10_000 \
+  envs.webshop_kwargs.goals_seed=${run_number} \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
-  envs.env_name=fastsnake \
   envs.format_penalty=1 \
   envs.binary_reward=False \
   envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
-  envs.fastsnake_kwargs.width=10 \
-  envs.fastsnake_kwargs.height=10 \
-  envs.fastsnake_kwargs.max_rounds=8 \
-  envs.fastsnake_kwargs.num_external_snakes=1 \
-  envs.fastsnake_kwargs.num_random_snakes=1 \
-  envs.fastsnake_kwargs.death_reward=-1 \
+  envs.vec_env_multiprocessing=spawn \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_name}_run${run_number}_slurm${SLURM_JOB_ID} \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
-  trainer.critic_warmup=5 \
+  trainer.critic_warmup=20 \
+  trainer.critic_warmup_step=5 \
+  trainer.critic_warmup_micro_batch_size_per_gpu=64 \
   trainer.n_gpus_per_node=$number_of_gpus \
   trainer.nnodes=1 \
   trainer.save_freq=50 \
@@ -135,8 +115,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   trainer.default_local_dir=/scratch/jsbd1n24/checkpoints/${project_name}/${experiment_name}_run${run_number} \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
-  evaluation=snake_evals \
-  prompt=snake 2>&1 | tee verl_demo.log
+  evaluation=webshop_evals 2>&1 | tee verl_demo.log
 
 # --- Cleanup Ray Cluster ---
 if [ -n "$RAY_HEAD_PID" ]; then
