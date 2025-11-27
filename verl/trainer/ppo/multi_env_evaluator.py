@@ -598,7 +598,10 @@ class MultiEnvEvaluator:
                 active_rollouts = np.logical_not(done_mask)
             
             if track_standard_metrics:
-                score_values = self._extract_info_array(val_info, "score", len(val_reward))
+                rollout_infos = getattr(val_env, "last_info", None)
+                score_values = self._extract_info_array(rollout_infos, "score", len(val_reward))
+                if score_values is None:
+                    score_values = self._extract_info_array(val_info, "score", len(val_reward))
                 if score_values is not None:
                     score_tracking_active = True
                 elif score_tracking_active and not score_warning_logged:
