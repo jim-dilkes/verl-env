@@ -1,19 +1,19 @@
 #!/bin/bash
-#SBATCH --job-name=FS_PPO_4B_Hpt005_2
+#SBATCH --job-name=FS_PPO_14B_Hpt005_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=6
-#SBATCH --partition=swarm_h100,swarm_a100,a100
+#SBATCH --partition=dual_h200,quad_h200
 #SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
 # --- Define experiment variables ---
 project_name=verl_env
-experiment_name=FS_PPO_4B_Hpt005
-run_number=2
+experiment_name=FS_PPO_14B_Hpt005
+run_number=1
 number_of_gpus=2
 WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1"]'
 
@@ -66,7 +66,7 @@ export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=false
 export VERL_PPO_LOGGING_LEVEL=DEBUG
 
-model=Qwen/Qwen3-4B-Instruct-2507
+model=Qwen/Qwen3-14B
 micro_batch_size=16
 
 max_prompt_length=768
@@ -85,6 +85,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   data.val_files=examples/data/placeholder.parquet \
   actor_rollout_ref.actor.ppo_mini_batch_size=128 \
   actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$micro_batch_size \
+  actor_rollout_ref.actor.optim.lr=5e-6 \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$max_token_len_per_gpu \
@@ -116,6 +117,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   critic.model.fsdp_config.model_dtype=bfloat16 \
   critic.model.path=$model \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
+  critic.optim.lr=5e-5 \
   critic.ppo_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   critic.forward_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   algorithm.step_gamma=0.99 \
@@ -144,9 +146,9 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_run_name} \
   trainer.group=${experiment_name} \
-  trainer.val_before_train=True \
+  trainer.val_before_train=False \
   trainer.critic_warmup=5 \
-  trainer.critic_warmup_micro_batch_size_per_gpu=8 \
+  trainer.critic_warmup_micro_batch_size_per_gpu=16 \
   trainer.n_gpus_per_node=$number_of_gpus \
   trainer.nnodes=1 \
   trainer.save_freq=50 \

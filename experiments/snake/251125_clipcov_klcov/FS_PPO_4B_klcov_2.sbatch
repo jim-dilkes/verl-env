@@ -146,7 +146,6 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   envs.fastsnake_kwargs.death_reward=-1 \
   envs.vec_env_multiprocessing=fork \
   trainer.log_val_generations=1 \
-  trainer.log_memory_stats=True \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_run_name} \
   trainer.group=${experiment_name} \

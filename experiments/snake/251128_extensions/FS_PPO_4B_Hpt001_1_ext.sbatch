@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=FS_PPO_4B_Hpt005_2
+#SBATCH --job-name=FS_PPO_4B_Hpt001_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
@@ -12,8 +12,8 @@
 
 # --- Define experiment variables ---
 project_name=verl_env
-experiment_name=FS_PPO_4B_Hpt005
-run_number=2
+experiment_name=FS_PPO_4B_Hpt001
+run_number=1
 number_of_gpus=2
 WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1"]'
 
@@ -100,7 +100,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.top_k=-1 \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.name=vllm \
-  actor_rollout_ref.actor.entropy_coeff=0.005 \
+  actor_rollout_ref.actor.entropy_coeff=0.001 \
   actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$max_token_len_per_gpu \
   trainer.balance_batch=False \
@@ -144,16 +144,16 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_run_name} \
   trainer.group=${experiment_name} \
-  trainer.val_before_train=True \
-  trainer.critic_warmup=5 \
-  trainer.critic_warmup_micro_batch_size_per_gpu=8 \
+  trainer.val_before_train=False \
+  trainer.critic_warmup=0 \
+  trainer.critic_warmup_micro_batch_size_per_gpu=16 \
   trainer.n_gpus_per_node=$number_of_gpus \
   trainer.nnodes=1 \
   trainer.save_freq=50 \
   trainer.test_freq=50 \
   trainer.render=False \
-  trainer.total_epochs=1000 \
-  trainer.total_training_steps=1000 \
+  trainer.total_epochs=2000 \
+  trainer.total_training_steps=2000 \
   trainer.default_local_dir=/scratch/${user_name}/checkpoints/${project_name}/${experiment_name}_run${run_number} \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
