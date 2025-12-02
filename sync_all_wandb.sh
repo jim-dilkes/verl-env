@@ -1,5 +1,5 @@
 #!/bin/bash
-source activate verl_latest
+source activate verl_latest_vllm9
 
 # Maximum number of parallel jobs
 MAX_PARALLEL=8
