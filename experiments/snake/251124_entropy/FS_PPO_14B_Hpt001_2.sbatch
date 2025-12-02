@@ -66,7 +66,7 @@ export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=false
 export VERL_PPO_LOGGING_LEVEL=DEBUG
 
-model=Qwen/Qwen3-14B-Instruct-2507
+model=Qwen/Qwen3-14B
 micro_batch_size=16
 
 max_prompt_length=768
@@ -143,7 +143,6 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   envs.fastsnake_kwargs.death_reward=-1 \
   envs.vec_env_multiprocessing=fork \
   trainer.log_val_generations=1 \
-  trainer.log_memory_stats=True \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_run_name} \
   trainer.group=${experiment_name} \
