@@ -547,6 +547,7 @@ class vLLMAsyncRollout(BaseRollout):
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL
+        self._pending_resume_requests: list[list[str]] = []
 
     def _init_zeromq(self) -> str:
         tensor_parallel_size = self.config.tensor_model_parallel_size
@@ -613,6 +614,10 @@ class vLLMAsyncRollout(BaseRollout):
                 raise ValueError(f"Currently only support fp8 quantization, got: {self.config.quantization}")
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
+        if self._pending_resume_requests:
+            for pending_tags in self._pending_resume_requests:
+                self.inference_engine.wake_up(tags=pending_tags)
+            self._pending_resume_requests.clear()
 
     def _load_model(self, *args, **kwargs):
         self.inference_engine.load_model(*args, **kwargs)
@@ -632,8 +637,15 @@ class vLLMAsyncRollout(BaseRollout):
         Args:
             tags: weights or kv_cache.
         """
-        if self.config.free_cache_engine:
-            self.inference_engine.wake_up(tags=tags)
+        if not self.config.free_cache_engine:
+            return
+
+        if self.inference_engine is None:
+            self._pending_resume_requests.append(tags)
+            logger.debug("Deferred vLLM resume until inference engine initialization completes.")
+            return
+
+        self.inference_engine.wake_up(tags=tags)
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
