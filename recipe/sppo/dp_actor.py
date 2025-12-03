@@ -124,6 +124,7 @@ class DataParallelSPPOActor(DataParallelPPOActor):
                     rewards = data["seq_level_rewards"]
 
                     entropy_coeff = self.config.entropy_coeff
+                    entropy_top_p = getattr(self.config, "entropy_top_p", 1.0)
                     loss_agg_mode = self.config.loss_agg_mode
                     eta = self.config.get("sppo_eta", 1.0)
 
@@ -131,9 +132,14 @@ class DataParallelSPPOActor(DataParallelPPOActor):
                     calculate_entropy = False
                     if entropy_coeff != 0:
                         calculate_entropy = True
-                    entropy, log_prob = self._forward_micro_batch(
-                        micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy
+                    forward_out = self._forward_micro_batch(
+                        micro_batch=data,
+                        temperature=temperature,
+                        calculate_entropy=calculate_entropy,
+                        entropy_top_p=entropy_top_p,
                     )
+                    entropy = forward_out.entropy_top_p
+                    log_prob = forward_out.log_probs
 
                     pg_loss, log_ratios, preference = compute_sppo_loss(
                         old_log_prob=old_log_prob,
