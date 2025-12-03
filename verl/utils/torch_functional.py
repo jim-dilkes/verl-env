@@ -149,6 +149,31 @@ def entropy_from_logits(logits: torch.Tensor):
     return entropy
 
 
+def clamped_entropy_from_logits(logits: torch.Tensor, clamp_p: float):
+    """Calculate entropy from logits with token space clamping."""
+    # From Shen (2025): "On Entropy Control in LLM-RL Algorithms"
+    if clamp_p <= 0:
+        return entropy_from_logits(logits)
+
+    vocab_size = logits.shape[-1]
+    k = int(vocab_size * clamp_p)
+
+    if k <= 0:
+        clamped_logits = logits
+    else:
+        if k >= vocab_size:
+            rm_mask = torch.ones_like(logits, dtype=torch.bool)
+        else:
+            _, rm_indices = torch.topk(logits, k=k, dim=-1, largest=False)
+            rm_mask = torch.zeros_like(logits, dtype=torch.bool)
+            rm_mask.scatter_(-1, rm_indices, True)
+        clamped_logits = logits.masked_fill(rm_mask, float("-inf"))
+
+    clamped_pd = torch.nn.functional.softmax(clamped_logits, dim=-1)
+    clamped_entropy = torch.logsumexp(clamped_logits, dim=-1) - torch.sum(clamped_pd * logits, dim=-1)
+    return clamped_entropy
+
+
 def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 2048):
     """Memory-efficient entropy calculation with chunking."""
     entropy = torch.zeros(logits.shape[0], device=logits.device)

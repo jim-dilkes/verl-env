@@ -81,6 +81,9 @@ loss_scale_factor: null
 # Entropy regularization coefficient in PPO loss
 entropy_coeff: 0
 
+# AEnt Adaptive Entropy Regularization Top-p clamp proportion
+entropy_top_p: 1
+
 # When true, the actor forward will request entropy from the model
 calculate_entropy: false
 
