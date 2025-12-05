@@ -100,6 +100,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.top_k=-1 \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.name=vllm \
+  actor_rollout_ref.rollout.mode=sync \
   actor_rollout_ref.actor.entropy_coeff=0.0 \
   actor_rollout_ref.actor.policy_loss.loss_mode=clip_cov \
   actor_rollout_ref.actor.policy_loss.clip_cov_ratio=0.0002 \
