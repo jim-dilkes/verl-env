@@ -276,3 +276,6 @@ evaluation:
         step_interval: 1
         exclusive_metric: true
         max_batch_size: 32
+      unique_states:
+        enabled: true
+        seed_group_size: null  # null means each rollout is independent; set to a number to group rollouts by initial_seed
