@@ -39,6 +39,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.55 \
   actor_rollout_ref.rollout.name=vllm \
+  actor_rollout_ref.rollout.mode=sync \
   actor_rollout_ref.model.path="$MODEL_PATH" \
   +actor_rollout_ref.model.override_config.attn_implementation=eager \
   actor_rollout_ref.model.use_remove_padding=False \
