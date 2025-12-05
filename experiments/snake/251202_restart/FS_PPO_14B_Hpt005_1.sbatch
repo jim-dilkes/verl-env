@@ -101,6 +101,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.top_k=-1 \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.name=vllm \
+  actor_rollout_ref.rollout.mode=sync \
   actor_rollout_ref.actor.entropy_coeff=0.005 \
   actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$max_token_len_per_gpu \
