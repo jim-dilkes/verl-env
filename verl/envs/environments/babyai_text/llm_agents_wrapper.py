@@ -76,6 +76,7 @@ class BabyAILLMAgentsWrapper(gym.Wrapper):
             
             action = lower_pred_action
         
+        extracted_action = action
         valid_action = action if action in self.language_action_space else self.default_action
         
         total_action_occurrences = 0
@@ -95,4 +96,4 @@ class BabyAILLMAgentsWrapper(gym.Wrapper):
             "behavior/backtrack_length": total_but_occurrences
         }
         
-        return full_action, valid_action, is_valid, metrics
+        return full_action, extracted_action, valid_action, is_valid, metrics
