@@ -2,17 +2,17 @@
 
 evaluation:
   environments:
-    # --- Config 1: Default Evaluation ---
-    - name: "FastSnake-Default-Greedy"
-      n_rollouts: 3
-      episode_length: 4
+    - name: "FastSnake-Default-StateVisitation"
+      n_rollouts: 400
+      episode_length: 8
       generation:
-        temperature: 0.0
+        temperature: 1.25
         top_p: 1.0
         top_k: -1
         min_p: 0.0
         do_sample: False
-      initial_seed: 0 # Use a fixed seed for reproducibility
+      initial_seed: 10 # Use a fixed seed for reproducibility
+      seed_group_size: 20
       freeze_completed_episodes: True
       duplication_mode: none
       env_name: fastsnake
@@ -20,7 +20,7 @@ evaluation:
       format_penalty: 0.0
       instruction_prompt: | 
         [Instructions]
-        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 100 words (tokens)
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
         You are controlling a snake in a multi-player Snake game
 
         [Available Actions]
@@ -41,7 +41,8 @@ evaluation:
         height: 10
         max_rounds: 8
         num_external_snakes: 1
-        num_random_snakes: 1
+        num_random_snakes: 0
         death_reward: -1
         step_reward: 0
-
+        no_respawn: true # No random elements to ensure deterministic environment behavior
+        print_visualization: false
