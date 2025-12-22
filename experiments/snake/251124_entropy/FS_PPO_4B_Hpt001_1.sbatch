@@ -12,7 +12,7 @@
 
 # --- Define experiment variables ---
 project_name=verl_env
-experiment_name=FS_PPO_4B_Hpt001
+experiment_name=FS_PPO_TEST
 run_number=1
 number_of_gpus=2
 WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1"]'
@@ -52,10 +52,6 @@ sleep $RANDOM_DELAY
 unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES 
 
-# Introduce random delay to avoid simultaneous Ray init on H100 nodes
-RANDOM_DELAY=$(( ( RANDOM % 120 ) + 1 ))
-echo "Sleeping for $RANDOM_DELAY seconds to avoid simultaneous Ray cluster startup..."
-sleep $RANDOM_DELAY
 
 # --- Configure Environment for Ray ---
 
@@ -140,6 +136,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   envs.fastsnake_kwargs.num_external_snakes=1 \
   envs.fastsnake_kwargs.num_random_snakes=1 \
   envs.fastsnake_kwargs.death_reward=-1 \
+  envs.fastsnake_kwargs.print_visualization=False \
   envs.vec_env_multiprocessing=fork \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \

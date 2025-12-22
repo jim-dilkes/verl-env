@@ -52,10 +52,6 @@ sleep $RANDOM_DELAY
 unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES 
 
-# Introduce random delay to avoid simultaneous Ray init on H100 nodes
-RANDOM_DELAY=$(( ( RANDOM % 120 ) + 1 ))
-echo "Sleeping for $RANDOM_DELAY seconds to avoid simultaneous Ray cluster startup..."
-sleep $RANDOM_DELAY
 
 # --- Configure Environment for Ray ---
 

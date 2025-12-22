@@ -352,13 +352,16 @@ envs:
     include_absent_objects: True
 
     # Whether to print ASCII visualization
-    print_visualization: True
+    print_visualization: False
 
     # Whether to print coordinates in visualization
     print_coordinates: True
 
     # Whether to print axis labels in visualization
     print_axes: False
+
+    # Whether to respawn objects (apples, bananas, fires)
+    no_respawn: False
 
   # Additional kwargs forwarded to Crafter environments
   crafter_kwargs:
