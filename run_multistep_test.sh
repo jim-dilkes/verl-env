@@ -2,8 +2,12 @@
 
 set -euo pipefail
 
-module load cuda/13.0.0
+module load conda/python3
+module load cuda/12.8.0
 module load gcc/13.3.0
+
+eval "$(conda shell.bash hook)"
+conda activate verl_latest_vllm9
 
 # --- User-tunable variables --------------------------------------------------
 MODEL_PATH="${MODEL_PATH:-Qwen/Qwen2.5-0.5B-Instruct}"
@@ -27,8 +31,8 @@ export RAY_DEDUP_LOGS=0
 # source activate verl
 
 PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
-  data.max_prompt_length=1500 \
-  data.max_response_length=128 \
+  data.max_prompt_length=512 \
+  data.max_response_length=64 \
   data.train_batch_size=256 \
   data.train_files=examples/data/placeholder.parquet \
   data.val_files=examples/data/placeholder.parquet \
@@ -52,9 +56,9 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
   envs.enable=True \
-  envs.n_rollouts=32 \
+  envs.n_rollouts=8 \
   envs.group_initial_seed=random \
-  envs.group_rollout_size=16 \
+  envs.group_rollout_size=4 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
   envs.env_name=fastsnake \
@@ -64,7 +68,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   envs.captioner.max_text_history=0 \
   envs.fastsnake_kwargs.width=10 \
   envs.fastsnake_kwargs.height=10 \
-  envs.fastsnake_kwargs.max_rounds=8 \
+  envs.fastsnake_kwargs.max_rounds=2 \
   envs.fastsnake_kwargs.num_external_snakes=1 \
   envs.fastsnake_kwargs.num_random_snakes=1 \
   envs.fastsnake_kwargs.death_reward=-1 \
@@ -74,13 +78,13 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   trainer.val_before_train=True \
   trainer.n_gpus_per_node=1 \
   trainer.nnodes=1 \
-  trainer.save_freq=25 \
-  trainer.test_freq=25 \
+  trainer.save_freq=1000 \
+  trainer.test_freq=1000 \
   trainer.render=False \
   trainer.total_epochs="$NUM_STEPS" \
   trainer.default_local_dir="outputs/checkpoints/${PROJECT_NAME}/${EXPERIMENT_NAME}_${RUN_ID}" \
-  trainer.max_actor_ckpt_to_keep=1 \
-  trainer.max_critic_ckpt_to_keep=1 \
-  evaluation=snake_evals_128_min \
+  trainer.max_actor_ckpt_to_keep=0 \
+  trainer.max_critic_ckpt_to_keep=0 \
+  evaluation=snake_evals_128_min_test \
   prompt=snake_128 "$@"
 
