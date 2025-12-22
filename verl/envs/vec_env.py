@@ -10,13 +10,6 @@ import psutil
 
 from collections import defaultdict
 
-def merge_metrics(infos):
-    merged_infos = defaultdict(list)
-    for info in infos:
-        for key, value in info["metrics"].items():
-            merged_infos[key].append(value)
-    merged_infos = {key: np.mean(values) for key, values in merged_infos.items()}
-    return merged_infos
 
 
 def get_process_memory_mb():
@@ -82,6 +75,11 @@ class VecEnv:
         self.last_info = [{"metrics": {}}] * self.n_rollouts
             
     def step(self, actions):
+        """
+        Returns lists for obs and infos, numpy vectors for reward, terminated, truncated
+        Always returns the most recent values of these veriables for each environment, 
+           even if the environment was not processed this step (because already completed)
+        """
         # Handle skip actions for frozen environments
         skip_action = "__SKIP__"
         active_remotes = []
@@ -146,8 +144,6 @@ class VecEnv:
             self.last_truncated[i] = truncated[i]
             self.last_info[i] = infos[i]
         
-        infos = merge_metrics(infos)
-        
         return obs, np.stack(rews), np.stack(terminated), np.stack(truncated), infos
     
     def reset(self, seed=None, seed_group_size=None, use_incremental_seeds=False):
@@ -161,18 +157,21 @@ class VecEnv:
             use_incremental_seeds: If True, each worker gets seed + worker_rank (for evaluation).
                                  If False, all workers get the same seed (for GRPO training).
         """
+        if seed_group_size==self.n_rollouts:
+            seed_group_size = None
         if seed_group_size is not None and self.n_rollouts % seed_group_size != 0:
             raise ValueError("n_rollouts must be divisible by seed_group_size")
 
         for i, remote in enumerate(self.remotes):
             try:
-                if use_incremental_seeds and seed is not None:
-                    # Create unique seed for each worker: base_seed + worker_rank (for evaluation)
-                    worker_seed = seed + i
-                elif seed_group_size is not None and seed is not None:
+                if seed_group_size is not None and seed is not None:
                     # Group successive sets of seed_group_size rollouts to have the same seed
+                    # This takes priority over use_incremental_seeds to ensure proper grouping
                     group_index = i // seed_group_size
                     worker_seed = seed + group_index
+                elif use_incremental_seeds and seed is not None:
+                    # Create unique seed for each worker: base_seed + worker_rank (for evaluation)
+                    worker_seed = seed + i
                 else:
                     # Use the same seed for all workers (for GRPO training)
                     worker_seed = seed
@@ -289,9 +288,10 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
     
     def env_step(action):
         try:
-            full_action, executed_action, is_valid, metrics = env.extract_action(action)
-            
+            full_action, extracted_action, executed_action, is_valid, metrics = env.extract_action(action)
             env_obs, reward, terminated, truncated, info = env.step(executed_action, is_valid)
+            if executed_action is not None:
+                info["executed_action_text"] = executed_action
             
             image = env_obs.get("image", None)
             instructions = env_obs["mission"]  if env_name == "babyai" else None

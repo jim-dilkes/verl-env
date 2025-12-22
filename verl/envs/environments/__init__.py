@@ -60,6 +60,14 @@ def make_env(env_name, task, config, render_mode=None):
     return EnvWrapper(base_env, env_name, task)
 
 
+def get_action_extraction_fn(env_name):
+    if env_name == "fastsnake":
+        from verl.envs.environments.FastSnake.base import FastSnakeLLMAgentsWrapper
+        return FastSnakeLLMAgentsWrapper.extract_action
+    else:
+        raise ValueError(f"Not accessible action extraction function for {env_name}")
+
+
 class Strings(spaces.Space):
     """A custom Gym space for managing discrete string-based actions."""
 

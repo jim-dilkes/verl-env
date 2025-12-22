@@ -611,7 +611,7 @@ class RayMultistepTrainer(object):
             val_seed = (self.env_seed + 2**31) % (2**32)
         else:
             val_seed = 0
-        val_obs, val_info = self.val_env.reset(seed=val_seed, use_incremental_seeds=True)
+        val_obs, _ = self.val_env.reset(seed=val_seed, use_incremental_seeds=True)
         
         # Lists to collect samples for the table
         sample_inputs = []
@@ -654,7 +654,7 @@ class RayMultistepTrainer(object):
             actions = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
             sample_outputs.extend(actions)
             
-            val_obs, val_reward, val_terminated, val_truncated, val_info = self.val_env.step(actions)
+            val_obs, val_reward, val_terminated, val_truncated, _ = self.val_env.step(actions)
             
             if end_of_traj is None:
                 end_of_traj = np.logical_or(val_terminated, val_truncated)
@@ -946,63 +946,7 @@ class RayMultistepTrainer(object):
         self.global_steps += 1
         last_val_metrics = {}
         
-        if self.config.trainer.render:
-            
-            obs, info = self.env.reset()
-            images = self.env.render()
-            all_imgs = [[img] for img in images]
-            
-            episode_done = np.zeros(self.config.envs.n_rollouts, dtype=np.bool_)
-            max_seq_len = self.config.data.max_prompt_length
-            
-            while not np.all(episode_done):
-                
-                self.tokenizer.padding_side = "left"
-                input_obs = self.tokenizer.apply_chat_template(obs, tokenize=False, add_generation_prompt=True) #, enable_thinking=True)
-                input_obs = self.tokenizer(input_obs, return_tensors='pt', padding='max_length', truncation=True, max_length=max_seq_len)
-                        
-                input_ids = input_obs['input_ids']
-                attention_mask = input_obs['attention_mask']
-                position_ids = attention_mask.long().cumsum(-1) - 1
-                position_ids.masked_fill_(attention_mask == 0, 1)
-                
-                obs_data = {
-                    'input_ids': input_ids,
-                    'attention_mask': attention_mask,
-                    'position_ids': position_ids,
-                }
-                gen_batch = DataProto.from_dict(tensors=obs_data)
-                gen_batch.meta_info["step"] = None
-                gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                
-                response_ids = gen_batch_output.batch['responses']
-                actions = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
-                
-                obs, reward, terminated, truncated, info = self.env.step(actions)
-
-                images = self.env.render()
-                for i in range(len(images)):
-                    if not episode_done[i]:
-                        all_imgs[i].append(images[i])
-                
-                done = np.logical_or(terminated, truncated)
-                episode_done = np.logical_or(episode_done, done)
-                
-            # use all_imgs which is a list of np array to create a git file
-            for episode_idx in range(len(all_imgs)):
-                
-                episode_img = all_imgs[episode_idx]
-                render_path = self.config.trainer.render_path
-                gif_path = render_path + '/output{}.gif'.format(episode_idx)
-                episode_img[0].save(
-                    gif_path,
-                    save_all=True,
-                    append_images=episode_img[1:],
-                    duration=100,  # duration per frame in milliseconds
-                    loop=0  # 0 means loop forever
-                )
-        
-        obs, info = self.env.reset()
+        obs_vec, info_vec = self.env.reset()
         
         for epoch in range(self.config.trainer.total_epochs):
             
@@ -1010,7 +954,7 @@ class RayMultistepTrainer(object):
             if self.env_seed is not None:
                 seed = self.get_next_env_seed()
                 # Use seed_group_size for GRPO to ensure proper grouping
-                obs, info = self.env.reset(seed=seed, seed_group_size=self.seed_group_size)
+                obs_vec, info_vec = self.env.reset(seed=seed, seed_group_size=self.seed_group_size)
         
             self.critic_warmup_step = self.config.trainer.critic_warmup # TODO: move to the config file
             if self.global_steps <= self.critic_warmup_step:
@@ -1068,7 +1012,7 @@ class RayMultistepTrainer(object):
                         
                         with _timer_accumulate('text_gen_proc', timing_raw):
                             self.tokenizer.padding_side = "left"
-                            input_obs = self.tokenizer.apply_chat_template(obs, tokenize=False, add_generation_prompt=True) #, enable_thinking=True)
+                            input_obs = self.tokenizer.apply_chat_template(obs_vec, tokenize=False, add_generation_prompt=True) #, enable_thinking=True)
                             
                             input_obs = self.tokenizer(input_obs, return_tensors='pt', padding='max_length', truncation=True, max_length=max_seq_len)
                                     
@@ -1138,17 +1082,22 @@ class RayMultistepTrainer(object):
                                     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                                 response_ids = gen_batch_output.batch['responses']
                                 actions = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
+                                active_envs = np.ones(self.config.envs.n_rollouts, dtype=bool)
                         
                         with _timer_accumulate('env_step', timing_raw):
-                            obs, reward, terminated, truncated, info = self.env.step(actions)
+                            obs_vec, reward_vec, terminated_vec, truncated_vec, info_vec = self.env.step(actions)
+
+                        # Collect metrics from each environment's info for this step
+                        # Later these are used to calculate mean value of the metrics per executed step across all environments
+                        for active_flag, info in zip(active_envs, info_vec):
+                            if active_flag:
+                                for key, value in info['metrics'].items():
+                                    if key in metrics:
+                                        metrics[key].append(value)
+                                    else:
+                                        metrics[key] = [value]
                         
-                        done = np.logical_or(terminated, truncated)
-                                                
-                        for key in info.keys():
-                            if key in metrics:
-                                metrics[key].append(info[key])
-                            else:
-                                metrics[key] = [info[key]]
+                        done_vec = np.logical_or(terminated_vec, truncated_vec)
                         
                         # Handle batch insertion based on freezing logic
                         if self.freeze_completed_episodes:
@@ -1181,10 +1130,8 @@ class RayMultistepTrainer(object):
                                 
                                 # Set done and reward for all environments
                                 # For frozen environments, ensure done=True for proper GAE behavior
-                                # full_done = done.copy()
-                                # full_done[env_frozen] = True  # Force done=True for frozen environments
-                                full_batch_output.batch["done"] = torch.tensor(done, dtype=torch.float64)
-                                full_batch_output.batch["reward"] = torch.tensor(reward, dtype=torch.float64)
+                                full_batch_output.batch["done"] = torch.tensor(done_vec, dtype=torch.float64)
+                                full_batch_output.batch["reward"] = torch.tensor(reward_vec, dtype=torch.float64)
                                 full_batch_output.batch["frozen_mask"] = torch.tensor(env_frozen, dtype=torch.int64)
                                 
                                 batch.insert(
@@ -1226,8 +1173,8 @@ class RayMultistepTrainer(object):
                                 )
                         else:
                             # Original behavior when freezing is disabled
-                            gen_batch_output.batch["done"] = torch.tensor(done, dtype=torch.float64)
-                            gen_batch_output.batch["reward"] = torch.tensor(reward, dtype=torch.float64)
+                            gen_batch_output.batch["done"] = torch.tensor(done_vec, dtype=torch.float64)
+                            gen_batch_output.batch["reward"] = torch.tensor(reward_vec, dtype=torch.float64)
                             gen_batch_output.batch["frozen_mask"] = torch.zeros(self.config.envs.n_rollouts, dtype=torch.int64)
 
                             if self.config.envs.group_rollout_size is not None and type(self.config.envs.group_rollout_size) == int:
@@ -1242,11 +1189,11 @@ class RayMultistepTrainer(object):
                         # Update any newly completed episodes to be frozen
                         if self.freeze_completed_episodes:
                             # Freeze environments that have completed episodes
-                            env_frozen = np.logical_or(env_frozen, done)
+                            env_frozen = np.logical_or(env_frozen, done_vec)
                     
                     # merge batch metrics
                     for key in metrics.keys():
-                        metrics[key] = np.mean(metrics[key])
+                        metrics[key] = np.mean(metrics[key]) # Mean per exectued step
                         
                 if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                     with _timer('gen_max', timing_raw):
