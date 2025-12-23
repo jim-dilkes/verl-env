@@ -55,6 +55,6 @@ class NaiveCaptioner(BaseCaptioner):
 
         return prompt
     
-    def update_action(self, full_action, executed_action):
-        # self.prompt_builder.update_reasoning(full_action)
+    def update_action(self, full_response, executed_action):
+        self.prompt_builder.update_reasoning(full_response)
         self.prompt_builder.update_action(executed_action)

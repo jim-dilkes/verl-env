@@ -30,12 +30,12 @@ class HistoryPromptBuilder:
     ):
         self.max_text_history = max_text_history
         self.max_image_history = max_image_history
-        self.max_history = max(max_text_history, max_image_history)
         self.system_prompt = system_prompt
-        self._events = deque(maxlen=self.max_history * 2 + 1)  # Store n actions and n+1 observations
         self._last_short_term_obs = None  # To store the latest short-term observation
         self.previous_reasoning = None
         self.max_cot_history = max_cot_history
+        self.max_history = max(max_text_history, max_image_history, max_cot_history)
+        self._events = deque(maxlen=self.max_history * 2 + 1)  # Store n actions and n+1 observations
 
     def update_instruction_prompt(self, instruction: str):
         """Set the system-level instruction prompt."""
@@ -119,20 +119,29 @@ class HistoryPromptBuilder:
         # Process events to create messages
         for idx, event in enumerate(self._events):
             if event["type"] == "observation":
+                include_text = event.get("include_text", False)
+                include_image = event.get("include_image", False)
+                is_current = idx == len(self._events) - 1
+
+                # Skip past observations when nothing is selected for inclusion
+                has_short_term = bool(self._last_short_term_obs) if is_current else False
+                if not include_text and not include_image and not has_short_term:
+                    continue
+
                 message_parts = []
 
-                if idx == len(self._events) - 1:
-                    message_parts.append("Current Observation:")
-                    if self._last_short_term_obs:
+                if is_current:
+                    message_parts.append("[Current Observation]")
+                    if has_short_term:
                         message_parts.append(self._last_short_term_obs)
                 else:
                     message_parts.append("Observation:")
 
-                if event.get("include_text", False):
+                if include_text and event.get("text"):
                     message_parts.append(event["text"])
                     
                 image = None
-                if event.get("include_image", False):
+                if include_image:
                     image = event["image"]
                     message_parts.append("Image observation provided.")
 
@@ -145,7 +154,7 @@ class HistoryPromptBuilder:
                         del event[flag]
             elif event["type"] == "action":
                 if event.get("reasoning") is not None:
-                    content = "Previous plan:\n" + event["reasoning"]
+                    content = "[My Previous Thoughts]\n" + event["reasoning"]
                 else:
                     content = event["action"]
                 message = Message(role="assistant", content=content)
