@@ -201,7 +201,7 @@ evaluation:
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: False
+        do_sample: True
       initial_seed: 40000
       seed_group_size: 20
       freeze_completed_episodes: True

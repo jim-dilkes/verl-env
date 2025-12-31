@@ -7,9 +7,9 @@
 prompt:
   # Captioner instruction for NaiveCaptioner
   naive_instruction: |
-    Respond using ONLY valid XML with <think>...</think> and <action>...</action> tags. Stop responding after the </action> tag.
+    Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
     [Response Template]
-    <think>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</think>
+    <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
     <action>{Your selected action from the list above}</action>
   
   # Environment instruction for FastSnake

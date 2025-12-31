@@ -5,7 +5,7 @@ set -euo pipefail
 # Optional: adjust or remove these if not on the cluster modules
 # module load conda/python3
 # eval "$(conda shell.bash hook)"
-# conda activate verl_latest_vllm9
+# conda activate verl
 
 project_name=verl_env
 experiment_name=FS_PPO_TEST
@@ -16,7 +16,7 @@ module load cuda/12.8.0
 module load gcc/13.3.0
 
 eval "$(conda shell.bash hook)"
-conda activate verl_latest_vllm9
+conda activate verl
 
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1

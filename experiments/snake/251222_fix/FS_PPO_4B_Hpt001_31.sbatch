@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=swarm_h100,swarm_a100
+#SBATCH --partition=swarm_h100,swarm_a100,a100
 #SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
@@ -36,7 +36,7 @@ module load cuda/12.8.0
 module load gcc/13.3.0
 
 eval "$(conda shell.bash hook)"
-conda activate verl_latest_vllm9
+conda activate verl
 
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
@@ -62,7 +62,21 @@ export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=false
 export VERL_PPO_LOGGING_LEVEL=DEBUG
 
-model=Qwen/Qwen3-4B-Instruct-2507
+MODEL_ID=Qwen/Qwen3-4B-Instruct-2507
+FOLDER_NAME="models--$(echo "$MODEL_ID" | sed 's/\//--/')"
+SNAPSHOT_DIR="$HF_HOME/hub/$FOLDER_NAME/snapshots"
+
+echo SNAPSHOT_DIR: $SNAPSHOT_DIR
+
+# Automatically pick the first (latest) snapshot folder
+if [ -d "$SNAPSHOT_DIR" ]; then
+    LATEST_SNAPSHOT=$(ls -d $SNAPSHOT_DIR/* | head -n 1)
+    MODEL_PATH="$LATEST_SNAPSHOT"
+    echo "Auto-resolved model path to: $MODEL_PATH"
+else
+    echo "Error: Could not find local cache for $MODEL_ID"
+    exit 1
+fi
 micro_batch_size=16
 
 max_prompt_length=768
@@ -91,12 +105,12 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.engine_kwargs.vllm.max_seq_len_to_capture=$((max_token_len_per_gpu + critic_max_token_len_per_gpu)) \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.40 \
   actor_rollout_ref.rollout.max_model_len=$max_token_len_per_gpu \
-  actor_rollout_ref.model.path=$model \
+  actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.rollout.temperature=1.25 \
   actor_rollout_ref.rollout.top_k=-1 \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.name=vllm \
-  actor_rollout_ref.rollout.mode=async \
+  actor_rollout_ref.rollout.mode=sync \
   actor_rollout_ref.actor.entropy_coeff=0.001 \
   actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$max_token_len_per_gpu \
@@ -111,7 +125,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
   +critic.model.override_config.torch_dtype=bfloat16 \
   critic.model.fsdp_config.model_dtype=bfloat16 \
-  critic.model.path=$model \
+  critic.model.path=$MODEL_PATH \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
   critic.ppo_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   critic.forward_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
@@ -130,6 +144,7 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   envs.binary_reward=False \
   envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
+  envs.captioner.max_cot_history=0 \
   envs.fastsnake_kwargs.width=10 \
   envs.fastsnake_kwargs.height=10 \
   envs.fastsnake_kwargs.max_rounds=8 \
@@ -137,6 +152,16 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   envs.fastsnake_kwargs.num_random_snakes=1 \
   envs.fastsnake_kwargs.death_reward=-1 \
   envs.vec_env_multiprocessing=fork \
+  actor_rollout_ref.rollout.calculate_log_probs=true \
+  algorithm.rollout_correction.rollout_is=sequence \
+  algorithm.rollout_correction.rollout_is_threshold=3.0 \
+  algorithm.rollout_correction.rollout_rs=null \
+  algorithm.rollout_correction.rollout_rs_threshold=null \
+  algorithm.rollout_correction.rollout_rs_threshold_lower=null \
+  algorithm.rollout_correction.rollout_token_veto_threshold=null \
+  algorithm.rollout_correction.bypass_mode=false \
+  algorithm.rollout_correction.use_policy_gradient=false \
+  algorithm.rollout_correction.rollout_is_batch_normalize=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_run_name} \

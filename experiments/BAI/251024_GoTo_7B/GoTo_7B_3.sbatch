@@ -64,12 +64,12 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.tensor_model_parallel_size=$number_of_gpus \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
-  actor_rollout_ref.model.path=$model \
+  actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.rollout.temperature=1.25 \
   actor_rollout_ref.rollout.top_k=-1 \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.max_model_len=2048 \
-  critic.model.path=$model \
+  critic.model.path=$MODEL_PATH \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
   critic.optim.lr=5e-5 \
   critic.highlight_first=True \
