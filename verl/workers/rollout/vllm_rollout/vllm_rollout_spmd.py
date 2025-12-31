@@ -49,6 +49,7 @@ from omegaconf import ListConfig
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
 from vllm import LLM, SamplingParams
+from vllm.entrypoints.llm import EngineArgs
 from vllm.config import CompilationConfig, LoRAConfig
 from vllm.lora.request import LoRARequest
 from vllm.model_executor.model_loader.utils import process_weights_after_loading
@@ -220,6 +221,20 @@ class vLLMRollout(BaseRollout):
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         if config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
+
+        # Filter out engine kwargs that the installed vLLM version does not support.
+        try:
+            supported_params = set(inspect.signature(EngineArgs.__init__).parameters.keys())
+            unsupported_keys = [k for k in engine_kwargs.keys() if k not in supported_params]
+            for k in unsupported_keys:
+                engine_kwargs.pop(k, None)
+            if unsupported_keys:
+                logger.warning(
+                    f"Dropping unsupported vLLM engine_kwargs {unsupported_keys}; "
+                    f"installed vLLM EngineArgs supports {sorted(supported_params)}"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to filter engine_kwargs against EngineArgs signature: {e}")
 
         compilation_config = {}
 
