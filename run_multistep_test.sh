@@ -7,10 +7,9 @@ module load cuda/12.8.0
 module load gcc/13.3.0
 
 eval "$(conda shell.bash hook)"
-conda activate verl_latest_vllm9
+conda activate verl
 
 # --- User-tunable variables --------------------------------------------------
-MODEL_PATH="${MODEL_PATH:-Qwen/Qwen2.5-0.5B-Instruct}"
 RUN_ID="${RUN_ID:-local_test}"
 PROJECT_NAME="${PROJECT_NAME:-local_multistep}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-fastsnake_grpo}"
@@ -26,6 +25,24 @@ export WANDB_MODE="${WANDB_MODE:-offline}"
 export RAY_OBJECT_STORE_MEMORY="${RAY_OBJECT_STORE_MEMORY:-50000000000}"
 export RAY_DISABLE_IMPORT_WARNING=1
 export RAY_DEDUP_LOGS=0
+
+
+MODEL_ID=Qwen/Qwen2.5-0.5B-Instruct
+FOLDER_NAME="models--$(echo "$MODEL_ID" | sed 's/\//--/')"
+SNAPSHOT_DIR="$HF_HOME/hub/$FOLDER_NAME/snapshots"
+
+echo SNAPSHOT_DIR: $SNAPSHOT_DIR
+
+# Automatically pick the first (latest) snapshot folder
+if [ -d "$SNAPSHOT_DIR" ]; then
+    LATEST_SNAPSHOT=$(ls -d $SNAPSHOT_DIR/* | head -n 1)
+    MODEL_PATH="$LATEST_SNAPSHOT"
+    echo "Auto-resolved model path to: $MODEL_PATH"
+else
+    echo "Error: Could not find local cache for $MODEL_ID"
+    exit 1
+fi
+
 
 # Optional: activate a conda/env (uncomment if needed)
 # source activate verl
@@ -45,7 +62,6 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.mode=sync \
   actor_rollout_ref.model.path="$MODEL_PATH" \
-  +actor_rollout_ref.model.override_config.attn_implementation=eager \
   actor_rollout_ref.model.use_remove_padding=False \
   actor_rollout_ref.rollout.temperature=1.25 \
   actor_rollout_ref.rollout.top_k=-1 \
@@ -66,9 +82,10 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   envs.binary_reward=False \
   envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
+  envs.captioner.max_cot_history=0 \
   envs.fastsnake_kwargs.width=10 \
   envs.fastsnake_kwargs.height=10 \
-  envs.fastsnake_kwargs.max_rounds=2 \
+  envs.fastsnake_kwargs.max_rounds=4 \
   envs.fastsnake_kwargs.num_external_snakes=1 \
   envs.fastsnake_kwargs.num_random_snakes=1 \
   envs.fastsnake_kwargs.death_reward=-1 \
@@ -85,6 +102,20 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   trainer.default_local_dir="outputs/checkpoints/${PROJECT_NAME}/${EXPERIMENT_NAME}_${RUN_ID}" \
   trainer.max_actor_ckpt_to_keep=0 \
   trainer.max_critic_ckpt_to_keep=0 \
+  actor_rollout_ref.rollout.calculate_log_probs=true \
+  algorithm.rollout_correction.rollout_is=sequence \
+  algorithm.rollout_correction.rollout_is_threshold=3.0 \
+  algorithm.rollout_correction.rollout_rs=null \
+  algorithm.rollout_correction.rollout_rs_threshold=null \
+  algorithm.rollout_correction.rollout_rs_threshold_lower=null \
+  algorithm.rollout_correction.rollout_token_veto_threshold=null \
+  algorithm.rollout_correction.bypass_mode=false \
+  algorithm.rollout_correction.use_policy_gradient=false \
+  algorithm.rollout_correction.rollout_is_batch_normalize=false \
+  +actor_rollout_ref.model.override_config.torch_dtype=bfloat16 \
+  actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
+  +critic.model.override_config.torch_dtype=bfloat16 \
+  critic.model.fsdp_config.model_dtype=bfloat16 \
   evaluation=snake_evals_128_min_test \
   prompt=snake_128 "$@"
 

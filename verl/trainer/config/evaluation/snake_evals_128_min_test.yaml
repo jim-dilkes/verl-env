@@ -44,6 +44,7 @@ evaluation:
         num_random_snakes: 1
         death_reward: -1
         step_reward: 0
+        print_visualization: false
 
     - name: "FastSnake-Default-StateVisitation"
       n_rollouts: 32

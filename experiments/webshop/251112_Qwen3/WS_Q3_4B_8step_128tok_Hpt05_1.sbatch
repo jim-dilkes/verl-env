@@ -49,7 +49,21 @@ export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 export VERL_PPO_LOGGING_LEVEL=DEBUG
 
 # --- Define model and batch size ---
-model=Qwen/Qwen3-4B-Instruct-2507
+MODEL_ID=Qwen/Qwen3-4B-Instruct-2507
+FOLDER_NAME="models--$(echo "$MODEL_ID" | sed 's/\//--/')"
+SNAPSHOT_DIR="$HF_HOME/hub/$FOLDER_NAME/snapshots"
+
+echo SNAPSHOT_DIR: $SNAPSHOT_DIR
+
+# Automatically pick the first (latest) snapshot folder
+if [ -d "$SNAPSHOT_DIR" ]; then
+    LATEST_SNAPSHOT=$(ls -d $SNAPSHOT_DIR/* | head -n 1)
+    MODEL_PATH="$LATEST_SNAPSHOT"
+    echo "Auto-resolved model path to: $MODEL_PATH"
+else
+    echo "Error: Could not find local cache for $MODEL_ID"
+    exit 1
+fi
 # model=/scratch/jsbd1n24/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct
 micro_batch_size=8
 
@@ -68,13 +82,13 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.tensor_model_parallel_size=$number_of_gpus \
   actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
-  actor_rollout_ref.model.path=$model \
+  actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.rollout.temperature=1.25 \
   actor_rollout_ref.rollout.top_k=-1 \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.max_model_len=2048 \
   actor_rollout_ref.actor.entropy_coeff=0.05 \
-  critic.model.path=$model \
+  critic.model.path=$MODEL_PATH \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
   critic.optim.lr=5e-5 \
   critic.highlight_first=True \
