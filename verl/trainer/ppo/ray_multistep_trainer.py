@@ -42,7 +42,7 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.ray import RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.core_algos import AdvantageEstimator
+from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
@@ -51,6 +51,10 @@ from verl.trainer.ppo.metric_utils import (
     bootstrap_metric,
     calc_maj_val,
     process_validation_metrics,
+)
+from verl.trainer.ppo.rollout_corr_helper import (
+    apply_rollout_correction,
+    compute_rollout_correction_and_add_to_batch,
 )
 from verl.trainer.ppo.multi_env_evaluator import MultiEnvEvaluator
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
@@ -898,6 +902,8 @@ class RayMultistepTrainer(object):
                           config=OmegaConf.to_container(self.config, resolve=True),
                           group=self.config.trainer.get('group', None))
 
+        rollout_corr_config = getattr(self.config.algorithm, "rollout_correction", None)
+
         self.global_steps = 0
 
         # load checkpoint before doing anything
@@ -985,6 +991,7 @@ class RayMultistepTrainer(object):
     
             metrics = {}
             timing_raw = {}
+            bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
             
             is_last_step = self.global_steps >= self.total_training_steps
             
@@ -1234,10 +1241,31 @@ class RayMultistepTrainer(object):
                 # compute global_valid tokens
                 batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
-                # recompute old_log_probs
-                with _timer('old_log_prob', timing_raw):
-                    old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                    batch = batch.union(old_log_prob)
+                # Operating Mode Selection:
+                # - Bypass mode: Uses rollout_log_probs as anchor (no recompute)
+                # - Decoupled mode: Recomputes old_log_probs as proximal anchor
+                if bypass_recomputing_logprobs:
+                    apply_rollout_correction(
+                        batch=batch,
+                        rollout_corr_config=rollout_corr_config,
+                        policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
+                    )
+                else:
+                    # recompute old_log_probs
+                    with _timer('old_log_prob', timing_raw):
+                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        entropys = old_log_prob.batch["entropys"]
+                        response_masks = batch.batch["response_mask"]
+                        actor_config = self.config.actor_rollout_ref.actor
+                        entropy_agg = agg_loss(
+                            loss_mat=entropys,
+                            loss_mask=response_masks,
+                            loss_agg_mode=actor_config.loss_agg_mode,
+                            loss_scale_factor=actor_config.loss_scale_factor,
+                        )
+                        metrics.update({"actor/entropy": entropy_agg.detach().item()})
+                        old_log_prob.batch.pop("entropys")
+                        batch = batch.union(old_log_prob)
 
                 if self.use_reference_policy:
                     # compute reference log_prob
@@ -1267,6 +1295,10 @@ class RayMultistepTrainer(object):
                                                                 kl_ctrl=self.kl_ctrl_in_reward,
                                                                 kl_penalty=self.config.algorithm.kl_penalty)
                         metrics.update(kl_metrics)
+
+                    if rollout_corr_config is not None and 'rollout_log_probs' in batch.batch and not bypass_recomputing_logprobs:
+                        batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
+                        metrics.update(is_metrics)
 
                     # compute advantages, executed on the driver process
                     batch = compute_advantage(batch,

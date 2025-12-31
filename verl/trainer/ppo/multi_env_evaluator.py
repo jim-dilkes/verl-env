@@ -160,8 +160,8 @@ class MultiEnvEvaluator:
         all_metrics = {}
         
         for env_idx, env_config in enumerate(self.eval_environments):
-            env_name = env_config.get('name', f'env_{env_idx}')
-            print(f"Evaluating environment: {env_name}")
+            eval_name = env_config.get('name', f'env_{env_idx}')
+            print(f"Evaluating environment: {eval_name}")
             
             # try:
             # Record start time for this environment
@@ -179,30 +179,30 @@ class MultiEnvEvaluator:
                     render_mode=None
                 ) as val_env:
                     # Run evaluation for this environment
-                    env_metrics, episode_data = self._evaluate_single_env(val_env, env_config, env_name)
+                    env_metrics, episode_data = self._evaluate_single_env(val_env, env_config, eval_name)
                     
                     # Record end time and calculate duration
                     end_time = time.time()
                     eval_time = end_time - start_time
                     
                     # Log episode generation if configured
-                    self._maybe_log_episode_generation(episode_data, env_name, global_step)
+                    self._maybe_log_episode_generation(episode_data, eval_name, global_step)
                     
                     # Add environment-specific prefix to metrics
                     prefixed_metrics = {}
                     for key, value in env_metrics.items():
-                        prefixed_key = f"eval_{env_name}/{key}"
+                        prefixed_key = f"eval_{eval_name}/{key}"
                         prefixed_metrics[prefixed_key] = value
                     
                     all_metrics.update(prefixed_metrics)
-                    print(f"[MultiEnvEvaluator] Added {len(prefixed_metrics)} metrics for {env_name}")
-                    print(f"[MultiEnvEvaluator] Sample metrics for {env_name}: {list(prefixed_metrics.keys())[:5]}")
+                    print(f"[MultiEnvEvaluator] Added {len(prefixed_metrics)} metrics for {eval_name}")
+                    print(f"[MultiEnvEvaluator] Sample metrics for {eval_name}: {list(prefixed_metrics.keys())[:5]}")
                     
                     inference_time = env_metrics.get("inference_time_seconds", 0.0)
-                    print(f"Completed evaluation for {env_name} in {eval_time:.2f}s (inference: {inference_time:.2f}s)")
+                    print(f"Completed evaluation for {eval_name} in {eval_time:.2f}s (inference: {inference_time:.2f}s)")
                     
             except Exception as e:
-                print(f"[ERROR] MultiEnvEvaluator: Failed to evaluate environment {env_name}: {e}")
+                print(f"[ERROR] MultiEnvEvaluator: Failed to evaluate environment {eval_name}: {e}")
                 import traceback
                 print(f"[ERROR] MultiEnvEvaluator: Traceback: {traceback.format_exc()}")
                 raise
@@ -212,7 +212,7 @@ class MultiEnvEvaluator:
             
             # Log memory usage after each environment
             current_memory = process.memory_info().rss / 1024 / 1024  # MB
-            print(f"[MultiEnvEvaluator] Memory usage after {env_name}: {current_memory:.1f} MB (delta: {current_memory - initial_memory:+.1f} MB)")
+            print(f"[MultiEnvEvaluator] Memory usage after {eval_name}: {current_memory:.1f} MB (delta: {current_memory - initial_memory:+.1f} MB)")
         
         # Final memory cleanup and logging
         gc.collect()
@@ -433,24 +433,24 @@ class MultiEnvEvaluator:
         else:
             return return_list
     
-    def _evaluate_single_env(self, val_env, env_config, env_name):
+    def _evaluate_single_env(self, val_env, env_config, eval_name):
         """Run evaluation while preserving tokenizer state."""
         original_padding_side = getattr(self.tokenizer, "padding_side", None)
         self.tokenizer.padding_side = "left"
         try:
-            return self._evaluate_single_env_body(val_env, env_config, env_name)
+            return self._evaluate_single_env_body(val_env, env_config, eval_name)
         finally:
             if original_padding_side is not None:
                 self.tokenizer.padding_side = original_padding_side
 
-    def _evaluate_single_env_body(self, vec_envs, env_config, env_name):
+    def _evaluate_single_env_body(self, vec_envs, env_config, eval_name):
         """
         Run evaluation for a single environment, optionally collecting action entropy metrics.
         
         Args:
             val_env: The vectorized environment to evaluate
             env_config: Environment-specific configuration
-            env_name: Name of the environment for logging
+            eval_name: Name of the environment for logging
             
         Returns:
             tuple: (dict of metrics, dict episode_data)
@@ -461,6 +461,9 @@ class MultiEnvEvaluator:
         if initial_seed is not None:
             initial_seed = int(initial_seed)
         seed_group_size = env_config.get('seed_group_size', n_rollouts)
+        eval_env_name = env_config.get('env_name', None)
+        if eval_env_name is None:
+            raise ValueError(f"[MultiEnvEvaluator] {eval_name}: env_name is not specified")
         obs_vec, info_vec = vec_envs.reset(seed=initial_seed, seed_group_size=seed_group_size, use_incremental_seeds=True)
 
         # Action entropy configuration (if provided)
@@ -490,7 +493,7 @@ class MultiEnvEvaluator:
             pending_entropy_steps = set(entropy_measure_steps)
             active_rollouts = np.ones(env_config['n_rollouts'], dtype=bool)
             print(
-                f"[MultiEnvEvaluator] Action entropy enabled for {env_name} "
+                f"[MultiEnvEvaluator] Action entropy enabled for {eval_name} "
                 f"with measurement steps: {sorted(entropy_measure_steps)}"
             )
 
@@ -534,7 +537,7 @@ class MultiEnvEvaluator:
             )
 
             if entropy_enabled and step_idx in pending_entropy_steps:
-                action_extraction_fn = get_action_extraction_fn(env_name)
+                action_extraction_fn = get_action_extraction_fn(eval_env_name)
                 (
                     entropies,
                     step_action_counts,
@@ -623,18 +626,18 @@ class MultiEnvEvaluator:
 
             # Check that the number of was_valid_list and executed_actions match the number of rollouts
             if len(was_valid_list) != n_rollouts:
-                raise ValueError(f"[MultiEnvEvaluator] {env_name}: len(was_valid_list) != len(executed_actions)")
+                raise ValueError(f"[MultiEnvEvaluator] {eval_name}: len(was_valid_list) != len(executed_actions)")
             if len(executed_actions) != n_rollouts:
-                raise ValueError(f"[MultiEnvEvaluator] {env_name}: len(executed_actions) != len(full_responses)")
+                raise ValueError(f"[MultiEnvEvaluator] {eval_name}: len(executed_actions) != len(full_responses)")
             
             # ALL RETURNED OBJECTS FROM .step() WILL INCLUDE PREVIOUSLY COMPLETED ROLLOUTS
             # Must use end_of_traj to make sure we only track active rollouts
             use_end_of_traj = end_of_traj if end_of_traj is not None else np.zeros(len(full_responses), dtype=bool)
 
             # Debug prints for validity and append behavior
-            print(f"[MultiEnvEvaluator] {env_name}: step {step_idx} use_end_of_traj={use_end_of_traj.tolist() if hasattr(use_end_of_traj, 'tolist') else use_end_of_traj}")
-            print(f"[MultiEnvEvaluator] {env_name}: step {step_idx} was_valid_list={was_valid_list}")
-            print(f"[MultiEnvEvaluator] {env_name}: step {step_idx} executed_actions={executed_actions}")
+            print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} use_end_of_traj={use_end_of_traj.tolist() if hasattr(use_end_of_traj, 'tolist') else use_end_of_traj}")
+            print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} was_valid_list={was_valid_list}")
+            print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} executed_actions={executed_actions}")
 
             total_attempted_actions_this_step = n_rollouts - use_end_of_traj.sum()
             total_attempted_actions += total_attempted_actions_this_step
@@ -775,11 +778,11 @@ class MultiEnvEvaluator:
         if n_groups > 1:
             distinct_state_actions_valid_by_group = [len(set(group_state_actions)) for group_state_actions in group_state_action_texts_valid]
             distinct_state_actions_by_group = [len(set(group_state_actions)) for group_state_actions in group_state_action_texts_all]
-            print(f"[MultiEnvEvaluator] {env_name}: distinct_state_actions_per_group={distinct_state_actions_valid_by_group}")
+            print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_per_group={distinct_state_actions_valid_by_group}")
             # Debug sample of raw state-action strings before set() for the first group
             if group_state_action_texts_valid and group_state_action_texts_valid[0]:
                 sample_sa = group_state_action_texts_valid[0][:5]
-                print(f"[MultiEnvEvaluator] {env_name}: sample state-action strings (group 0): {sample_sa}")
+                print(f"[MultiEnvEvaluator] {eval_name}: sample state-action strings (group 0): {sample_sa}")
             metric_dict.update({
                 "n_distinct_state_actions_valid_mean": np.mean(distinct_state_actions_valid_by_group),
                 "n_distinct_state_actions_valid_std": np.std(distinct_state_actions_valid_by_group),
@@ -789,7 +792,7 @@ class MultiEnvEvaluator:
 
             # Frame counting (per group and total)
             total_frames_per_group = [0.0] * n_groups
-            len_array = np.atleast_1d(len_of_traj)
+            len_array = np.atleast_1d(np.array(len_of_traj, dtype=float))
             for i in range(n_rollouts):
                 group_idx = i // seed_group_size
                 traj_len = len_array[i] if i < len_array.shape[0] else len_array[-1]
@@ -808,9 +811,9 @@ class MultiEnvEvaluator:
                 if n_frames > 0
             ]
 
-            print(f"[MultiEnvEvaluator] {env_name}: total_frames_per_group={total_frames_per_group}")
-            print(f"[MultiEnvEvaluator] {env_name}: distinct_state_actions_per_frame_by_group (incl invalid)={distinct_state_actions_per_frame_by_group}")
-            print(f"[MultiEnvEvaluator] {env_name}: distinct_state_actions_valid_per_frame_by_group={distinct_state_actions_valid_per_frame_by_group}")
+            print(f"[MultiEnvEvaluator] {eval_name}: total_frames_per_group={total_frames_per_group}")
+            print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_per_frame_by_group (incl invalid)={distinct_state_actions_per_frame_by_group}")
+            print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_valid_per_frame_by_group={distinct_state_actions_valid_per_frame_by_group}")
 
             metric_dict.update({
                 "distinct_state_actions_per_frame_mean": np.mean(distinct_state_actions_per_frame_by_group),
@@ -830,8 +833,8 @@ class MultiEnvEvaluator:
                     float(n_distinct_state_actions) / opportunity
                     for n_distinct_state_actions in distinct_state_actions_by_group
                 ]
-                print(f"[MultiEnvEvaluator] {env_name}: distinct_state_action_valid_coverage_by_group={distinct_state_action_valid_coverage_by_group}, opportunity={opportunity}")
-                print(f"[MultiEnvEvaluator] {env_name}: distinct_state_action_coverage_by_group={distinct_state_action_coverage_by_group}, opportunity={opportunity}")
+                print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_valid_coverage_by_group={distinct_state_action_valid_coverage_by_group}, opportunity={opportunity}")
+                print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_coverage_by_group={distinct_state_action_coverage_by_group}, opportunity={opportunity}")
                 metric_dict.update({
                     "distinct_state_actions_valid_coverage_mean": np.mean(distinct_state_action_valid_coverage_by_group),
                     "distinct_state_actions_valid_coverage_std": np.std(distinct_state_action_valid_coverage_by_group),
@@ -839,11 +842,11 @@ class MultiEnvEvaluator:
                     "distinct_state_actions_coverage_std": np.std(distinct_state_action_coverage_by_group),
                 })
             else:
-                print(f"[MultiEnvEvaluator] {env_name} WARNING: opportunity is 0, skipping coverage metrics")
+                print(f"[MultiEnvEvaluator] {eval_name} WARNING: opportunity is 0, skipping coverage metrics")
 
         # Valid action tracking across the episode
         metric_dict.update({
-            "total_len_of_trajs": float(len_of_traj.sum()), # Should match attempted_actions_total?
+            "total_len_of_trajs": float(np.atleast_1d(np.array(len_of_traj, dtype=float)).sum()), # Should match attempted_actions_total?
             "valid_actions_total": float(total_valid_actions),
             "attempted_actions_total": float(total_attempted_actions),
             "valid_action_ratio": float(total_valid_actions) / max(1.0, float(total_attempted_actions)),
@@ -1044,4 +1047,4 @@ class MultiEnvEvaluator:
         probs = np.array(list(counts.values()), dtype=np.float64) / total
         entropy = -np.sum(probs * np.log(probs + 1e-12))
         return float(entropy)
-
+ 

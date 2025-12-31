@@ -85,6 +85,11 @@ def parallel_put(data_list: list[Any], max_workers: Optional[int] = None):
 def get_event_loop():
     try:
         loop = asyncio.get_event_loop()
+        # run_until_complete fails if the loop is already running (e.g. uvloop
+        # started elsewhere). In that case create a fresh loop for blocking use.
+        if loop.is_running():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
