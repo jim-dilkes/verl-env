@@ -709,6 +709,6 @@ class DataParallelPPOActor(BasePPOActor):
 
         # Log final adaptive entropy coefficient for this training step
         if self.use_adaptive_entropy:
-            metrics["actor/entropy_coeff_final"] = self.adaptive_entropy_coeff
+            metrics["actor/entropy_coeff_final"] = [self.adaptive_entropy_coeff]
 
         return metrics
