@@ -676,6 +676,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
         else:
             params = self.actor_module_fsdp.state_dict()
+            # Drop actor-only buffers that rollout models don't expect (e.g., adaptive entropy coeff)
+            params.pop("adaptive_entropy_coeff", None)
 
         params = convert_weight_keys(
             params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)

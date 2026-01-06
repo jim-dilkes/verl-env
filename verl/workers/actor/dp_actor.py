@@ -101,6 +101,26 @@ class DataParallelPPOActor(BasePPOActor):
         else:
             self.scaler = None
 
+        # Adaptive entropy requires all five params (validated in config __post_init__)
+        adaptive_entropy_fully_configured = (
+            self.config.entropy_coeff_low is not None
+            and self.config.entropy_coeff_high is not None
+            and self.config.entropy_low is not None
+            and self.config.entropy_high is not None
+            and self.config.entropy_coeff_lr > 0
+        )
+        if adaptive_entropy_fully_configured:
+            self.use_adaptive_entropy = True
+            # Register buffer with config default; checkpoint load will overwrite if resuming
+            self.actor_module.register_buffer(
+                "adaptive_entropy_coeff",
+                torch.tensor(float(self.config.entropy_coeff), device=get_device_id()),
+                persistent=True,
+            )
+            self.adaptive_entropy_coeff = float(self.config.entropy_coeff)
+        else:
+            self.use_adaptive_entropy = False
+
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False, entropy_top_p=1
     ) -> ActorForwardOutput:
@@ -505,6 +525,15 @@ class DataParallelPPOActor(BasePPOActor):
 
                 self.actor_optimizer.zero_grad()
 
+                # Accumulators for mini-batch level adaptive entropy update
+                mini_batch_entropy_sum = 0.0
+                mini_batch_token_count = 0
+                mini_batch_entropy_ok_count = 0
+
+                # Sync adaptive entropy coeff from buffer once per mini-batch (handles checkpoint restore)
+                if self.use_adaptive_entropy:
+                    self.adaptive_entropy_coeff = float(self.actor_module.adaptive_entropy_coeff.item())
+
                 for micro_batch in micro_batches:
                     micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
@@ -513,9 +542,16 @@ class DataParallelPPOActor(BasePPOActor):
                     old_log_prob = model_inputs["old_log_probs"]
                     advantages = model_inputs["advantages"]
 
-                    entropy_coeff = self.config.entropy_coeff
+                    entropy_coeff = self.adaptive_entropy_coeff if self.use_adaptive_entropy else self.config.entropy_coeff
                     entropy_top_p = getattr(self.config, "entropy_top_p", 1.0)
                     loss_agg_mode = self.config.loss_agg_mode
+
+                    # If coeff ever becomes non-finite, reset to config value
+                    if not torch.isfinite(torch.tensor(entropy_coeff)):
+                        micro_batch_metrics["actor/entropy_coeff_reset"] = 1.0
+                        entropy_coeff = float(self.config.entropy_coeff)
+                    else:
+                        micro_batch_metrics["actor/entropy_coeff_reset"] = 0.0
 
                     calculate_entropy = self.config.calculate_entropy or (entropy_coeff != 0)
 
@@ -583,16 +619,38 @@ class DataParallelPPOActor(BasePPOActor):
 
                     policy_loss = pg_loss
                     if calculate_entropy and entropy is not None:
-                        entropy_agg = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
-                        micro_batch_metrics["actor/entropy"] = entropy_agg.detach().item()
-                        micro_batch_metrics["actor/entropy_loss"] = micro_batch_metrics["actor/entropy"]
-                        if entropy_full is not None:
-                            entropy_full_agg = agg_loss(
-                                loss_mat=entropy_full, loss_mask=response_mask, loss_agg_mode=loss_agg_mode
-                            )
-                            micro_batch_metrics["actor/entropy_full"] = entropy_full_agg.detach().item()
-                        if entropy_coeff != 0:
+                        entropy_ok = False  # Assume failure, explicitly mark success
+
+                        if response_mask.sum() == 0:
+                            micro_batch_metrics["actor/entropy_mask_empty"] = 1.0
+                        else:
+                            micro_batch_metrics["actor/entropy_mask_empty"] = 0.0
+                            entropy_agg = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                            micro_batch_metrics["actor/entropy"] = float(entropy_agg.detach().item())
+                            micro_batch_metrics["actor/entropy_loss"] = micro_batch_metrics["actor/entropy"]
+                            if entropy_full is not None:
+                                entropy_full_agg = agg_loss(
+                                    loss_mat=entropy_full, loss_mask=response_mask, loss_agg_mode=loss_agg_mode
+                                )
+                                micro_batch_metrics["actor/entropy_full"] = float(entropy_full_agg.detach().item())
+                            else:
+                                entropy_full_agg = None
+
+                            if not torch.isfinite(entropy_agg).all():
+                                micro_batch_metrics["actor/entropy_nan"] = 1.0
+                            else:
+                                micro_batch_metrics["actor/entropy_nan"] = 0.0
+                                entropy_ok = True  # Only success path
+
+                        if entropy_ok and entropy_coeff != 0:
                             policy_loss -= entropy_agg * entropy_coeff
+
+                        # Accumulate entropy for mini-batch level adaptive update
+                        if entropy_ok:
+                            token_count = int(response_mask.sum().item())
+                            mini_batch_entropy_sum += float(entropy_agg.detach().item()) * token_count
+                            mini_batch_token_count += token_count
+                            mini_batch_entropy_ok_count += 1
 
                     if self.config.use_kl_loss:
                         ref_log_prob = model_inputs["ref_log_prob"]
@@ -619,8 +677,38 @@ class DataParallelPPOActor(BasePPOActor):
                     micro_batch_metrics["actor/pg_loss"] = pg_loss.detach().item() * loss_scale_factor
                     append_to_dict(metrics, micro_batch_metrics)
 
+                # Mini-batch level adaptive entropy update (once per optimizer step)
+                mini_batch_metrics = {}
+                if self.use_adaptive_entropy and mini_batch_entropy_ok_count > 0:
+                    # Log the coefficient only when entropy was actually applied to loss
+                    mini_batch_metrics["actor/entropy_coeff_used"] = float(self.adaptive_entropy_coeff)
+
+                    # Compute weighted average entropy for the mini-batch
+                    if mini_batch_token_count > 0:
+                        mini_batch_entropy_avg = mini_batch_entropy_sum / mini_batch_token_count
+                    else:
+                        mini_batch_entropy_avg = mini_batch_entropy_sum / mini_batch_entropy_ok_count
+
+                    lower_violation = min(mini_batch_entropy_avg - self.config.entropy_low, 0.0)
+                    upper_violation = min(self.config.entropy_high - mini_batch_entropy_avg, 0.0)
+                    entropy_coeff_update = self.config.entropy_coeff_lr * (lower_violation + upper_violation)
+                    new_coeff = self.adaptive_entropy_coeff - entropy_coeff_update
+                    self.adaptive_entropy_coeff = float(
+                        min(max(new_coeff, self.config.entropy_coeff_low), self.config.entropy_coeff_high)
+                    )
+                    # Keep buffer in sync so checkpointing captures latest value
+                    self.actor_module.adaptive_entropy_coeff.copy_(
+                        torch.tensor(self.adaptive_entropy_coeff, device=self.actor_module.adaptive_entropy_coeff.device)
+                    )
+                    mini_batch_metrics["actor/mini_batch_entropy_avg"] = mini_batch_entropy_avg
+
                 grad_norm = self._optimizer_step()
-                mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}
+                mini_batch_metrics["actor/grad_norm"] = grad_norm.detach().item()
                 append_to_dict(metrics, mini_batch_metrics)
         self.actor_optimizer.zero_grad()
+
+        # Log final adaptive entropy coefficient for this training step
+        if self.use_adaptive_entropy:
+            metrics["actor/entropy_coeff_final"] = self.adaptive_entropy_coeff
+
         return metrics
