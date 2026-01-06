@@ -18,6 +18,7 @@ Single Process Actor
 """
 
 import logging
+import math
 import os
 
 from dataclasses import dataclass
@@ -120,6 +121,46 @@ class DataParallelPPOActor(BasePPOActor):
             self.adaptive_entropy_coeff = float(self.config.entropy_coeff)
         else:
             self.use_adaptive_entropy = False
+
+        # Entropy bounds decay: enabled if both initial AND final bounds are set
+        self.use_entropy_bounds_decay = (
+            self.config.entropy_low is not None
+            and self.config.entropy_high is not None
+            and self.config.entropy_low_final is not None
+            and self.config.entropy_high_final is not None
+        )
+        if self.use_entropy_bounds_decay:
+            if self.config.entropy_low_final > self.config.entropy_low:
+                logger.warning(
+                    f"entropy_low_final ({self.config.entropy_low_final}) > entropy_low ({self.config.entropy_low}). "
+                    "Bounds will increase over training instead of decay."
+                )
+            if self.config.entropy_high_final > self.config.entropy_high:
+                logger.warning(
+                    f"entropy_high_final ({self.config.entropy_high_final}) > entropy_high ({self.config.entropy_high}). "
+                    "Bounds will increase over training instead of decay."
+                )
+
+    def _get_entropy_bounds(self, global_step: int, total_steps: int):
+        """Compute entropy bounds, with optional cosine decay over training.
+
+        Returns:
+            (entropy_low, entropy_high): Current bounds for this training step.
+        """
+        if not self.use_entropy_bounds_decay or total_steps <= 0:
+            return self.config.entropy_low, self.config.entropy_high
+
+        progress = min(global_step / total_steps, 1.0)
+        # Cosine decay: 1 -> 0 over training
+        decay = 0.5 * (1 + math.cos(math.pi * progress))
+
+        entropy_low = self.config.entropy_low_final + decay * (
+            self.config.entropy_low - self.config.entropy_low_final
+        )
+        entropy_high = self.config.entropy_high_final + decay * (
+            self.config.entropy_high - self.config.entropy_high_final
+        )
+        return entropy_low, entropy_high
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False, entropy_top_p=1
@@ -481,6 +522,10 @@ class DataParallelPPOActor(BasePPOActor):
 
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
 
+        # Extract step info for entropy bounds decay
+        global_step = data.meta_info.get("global_step", 0)
+        total_training_steps = data.meta_info.get("total_training_steps", 1)
+
         select_keys = [
             "responses",
             "response_mask",
@@ -689,8 +734,13 @@ class DataParallelPPOActor(BasePPOActor):
                     else:
                         mini_batch_entropy_avg = mini_batch_entropy_sum / mini_batch_entropy_ok_count
 
-                    lower_violation = min(mini_batch_entropy_avg - self.config.entropy_low, 0.0)
-                    upper_violation = min(self.config.entropy_high - mini_batch_entropy_avg, 0.0)
+                    # Get current entropy bounds (may be decayed over training)
+                    current_entropy_low, current_entropy_high = self._get_entropy_bounds(
+                        global_step, total_training_steps
+                    )
+
+                    lower_violation = min(mini_batch_entropy_avg - current_entropy_low, 0.0)
+                    upper_violation = min(current_entropy_high - mini_batch_entropy_avg, 0.0)
                     entropy_coeff_update = self.config.entropy_coeff_lr * (lower_violation + upper_violation)
                     new_coeff = self.adaptive_entropy_coeff - entropy_coeff_update
                     self.adaptive_entropy_coeff = float(
@@ -701,6 +751,10 @@ class DataParallelPPOActor(BasePPOActor):
                         torch.tensor(self.adaptive_entropy_coeff, device=self.actor_module.adaptive_entropy_coeff.device)
                     )
                     mini_batch_metrics["actor/mini_batch_entropy_avg"] = mini_batch_entropy_avg
+                    # Log current bounds if decay is enabled
+                    if self.use_entropy_bounds_decay:
+                        mini_batch_metrics["actor/entropy_low_current"] = current_entropy_low
+                        mini_batch_metrics["actor/entropy_high_current"] = current_entropy_high
 
                 grad_norm = self._optimizer_step()
                 mini_batch_metrics["actor/grad_norm"] = grad_norm.detach().item()
