@@ -135,6 +135,14 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 remote_model_path = os.path.join(local_path, f"model_world_size_{self.world_size}_rank_{self.rank}.pt")
                 local_model_path = copy_to_local(remote_model_path)
                 model_state_dict = torch.load(local_model_path, weights_only=False)
+                # Reconcile optional adaptive entropy buffer to avoid strict load issues across roles
+                has_buffer = hasattr(self.model, "adaptive_entropy_coeff")
+                if "adaptive_entropy_coeff" in model_state_dict and not has_buffer:
+                    model_state_dict.pop("adaptive_entropy_coeff", None)
+                if "adaptive_entropy_coeff" not in model_state_dict and has_buffer:
+                    model_state_dict["adaptive_entropy_coeff"] = torch.zeros_like(
+                        self.model.adaptive_entropy_coeff
+                    )
                 self.model.load_state_dict(model_state_dict)
                 log_with_rank(f"Loaded model from {remote_model_path}", rank=self.rank, logger=logger)
 
