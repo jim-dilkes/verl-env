@@ -1351,6 +1351,9 @@ class RayMultistepTrainer(object):
                 # implement critic warmup
                 if self.critic_warmup_step <= self.global_steps:
                     # update actor
+                    # Pass step info for entropy bounds decay
+                    batch4train.meta_info['global_step'] = self.global_steps
+                    batch4train.meta_info['total_training_steps'] = self.total_training_steps
                     with _timer('update_actor', timing_raw):
                         actor_output = self.actor_rollout_wg.update_actor(batch4train)
                     actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
