@@ -74,6 +74,11 @@ class ActorConfig(BaseConfig):
         loss_scale_factor (Optional[int]): Scale factor for 'seq-mean-token-sum-norm' loss aggregation mode.
             If None, uses response_length. Set to a constant to ensure consistent normalization.
         entropy_coeff (float): Entropy coefficient for regularization.
+        entropy_coeff_lr (float): Learning rate for adaptive entropy coefficient.
+        entropy_low (Optional[float]): Lower bound for adaptive entropy target.
+        entropy_high (Optional[float]): Upper bound for adaptive entropy target.
+        entropy_coeff_low (Optional[float]): Lower bound for adaptive entropy coeff.
+        entropy_coeff_high (Optional[float]): Upper bound for adaptive entropy coeff.
         entropy_top_p (float): AEnt Adaptive Entropy Regularization Top-p clamp proportion.
         use_kl_loss (bool): Whether to use KL divergence loss.
         use_torch_compile (bool): Whether to use torch.compile for optimization.
@@ -113,6 +118,11 @@ class ActorConfig(BaseConfig):
     loss_agg_mode: str = "token-mean"
     loss_scale_factor: Optional[int] = None
     entropy_coeff: float = 0
+    entropy_coeff_lr: float = 0.0
+    entropy_low: Optional[float] = None
+    entropy_high: Optional[float] = None
+    entropy_coeff_low: Optional[float] = None
+    entropy_coeff_high: Optional[float] = None
     entropy_top_p: float = 1.0
     calculate_entropy: bool = False
     use_kl_loss: bool = False
@@ -161,6 +171,29 @@ class ActorConfig(BaseConfig):
         ]
         if self.loss_agg_mode not in valid_loss_agg_modes:
             raise ValueError(f"Invalid loss_agg_mode: {self.loss_agg_mode}")
+
+        # Validate adaptive entropy configuration: all or nothing
+        adaptive_entropy_params = {
+            "entropy_coeff_low": self.entropy_coeff_low,
+            "entropy_coeff_high": self.entropy_coeff_high,
+            "entropy_low": self.entropy_low,
+            "entropy_high": self.entropy_high,
+        }
+        params_set = {k for k, v in adaptive_entropy_params.items() if v is not None}
+        params_unset = set(adaptive_entropy_params.keys()) - params_set
+
+        if params_set and params_unset:
+            raise ValueError(
+                f"[actor] Adaptive entropy requires all parameters to be set together. "
+                f"Set: {sorted(params_set)}. Missing: {sorted(params_unset)}. "
+                f"Also ensure entropy_coeff_lr > 0 for updates to occur."
+            )
+
+        if params_set and self.entropy_coeff_lr <= 0:
+            raise ValueError(
+                f"[actor] Adaptive entropy is configured but entropy_coeff_lr={self.entropy_coeff_lr}. "
+                f"Set entropy_coeff_lr > 0 for adaptive updates to occur, or remove all adaptive entropy params."
+            )
 
     def validate(self, n_gpus: int, train_batch_size: int, model_config: dict = None):
         """Validate actor configuration with runtime parameters."""
