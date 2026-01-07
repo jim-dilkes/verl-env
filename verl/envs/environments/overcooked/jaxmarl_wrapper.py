@@ -6,10 +6,15 @@ from gymnasium import spaces
 import numpy as np
 import jax
 import jax.numpy as jnp
+
+import jaxmarl.environments.overcooked_v2.settings as overcooked_settings
+import jaxmarl.environments.overcooked_v2.overcooked as overcooked_module
 from jaxmarl.environments.overcooked_v2 import OvercookedV2
 from jaxmarl.environments.overcooked_v2.overcooked import Actions, Direction
 
 from verl.envs.environments.overcooked import ACTION_TO_IDX, IDX_TO_ACTION, DIRECTION_NAMES
+
+JAXMARL_DEFAULT_COOK_TIME = 20
 
 
 class OvercookedGymWrapper(gym.Env):
@@ -17,7 +22,17 @@ class OvercookedGymWrapper(gym.Env):
 
     Converts the functional JAX-based environment to a stateful gym interface.
     Supports single-agent mode where the controlled agent is agent_0 and agent_1
-    follows a configurable policy (noop, random, or controlled).
+    follows a configurable policy (noop, random, none).
+
+    Partner policies:
+        - "noop": Partner always stays in place
+        - "random": Partner takes random actions
+        - "none": Solo mode - partner hidden from observations/render
+
+    Game rule customization:
+        - pot_cook_time: Override cooking duration (default 20 ticks)
+
+    Note: JaxMARL enforces 3 ingredients per recipe. This cannot be changed.
     """
 
     metadata = {"render_modes": ["ansi"]}
@@ -32,6 +47,7 @@ class OvercookedGymWrapper(gym.Env):
         shaped_reward: bool = True,
         print_visualization: bool = True,
         print_coordinates: bool = True,
+        pot_cook_time: int = None,
     ):
         super().__init__()
 
@@ -43,9 +59,18 @@ class OvercookedGymWrapper(gym.Env):
         self.shaped_reward = shaped_reward
         self.print_visualization = print_visualization
         self.print_coordinates = print_coordinates
+        self.solo_mode = partner_policy == "none"
 
         if not (print_visualization or print_coordinates):
             raise ValueError("At least one of print_visualization or print_coordinates must be True")
+
+        if pot_cook_time is not None:
+            # Patch both settings and the module that imports it at load time
+            overcooked_settings.POT_COOK_TIME = pot_cook_time
+            overcooked_module.POT_COOK_TIME = pot_cook_time
+            self.pot_cook_time = pot_cook_time
+        else:
+            self.pot_cook_time = JAXMARL_DEFAULT_COOK_TIME
 
         self._env = OvercookedV2(layout=layout, max_steps=max_steps)
         self._key = jax.random.PRNGKey(seed)
@@ -66,7 +91,7 @@ class OvercookedGymWrapper(gym.Env):
         return obs[self.controlled_agent].shape
 
     def _get_partner_action(self):
-        if self.partner_policy == "noop":
+        if self.partner_policy == "noop" or self.partner_policy == "none":
             return 4  # stay
         elif self.partner_policy == "random":
             return np.random.randint(0, 6)
@@ -135,11 +160,13 @@ class OvercookedGymWrapper(gym.Env):
         grid = np.array(self._state.grid)
 
         agent_info = []
-        for i, agent_name in enumerate([self.controlled_agent, self.partner_agent]):
-            pos_x = int(agents.pos.x[i])
-            pos_y = int(agents.pos.y[i])
-            direction = int(agents.dir[i])
-            inventory = int(agents.inventory[i])
+        agent_names = [self.controlled_agent] if self.solo_mode else [self.controlled_agent, self.partner_agent]
+        for i, agent_name in enumerate(agent_names):
+            agent_idx = 0 if agent_name == "agent_0" else 1
+            pos_x = int(agents.pos.x[agent_idx])
+            pos_y = int(agents.pos.y[agent_idx])
+            direction = int(agents.dir[agent_idx])
+            inventory = int(agents.inventory[agent_idx])
 
             agent_info.append({
                 "name": agent_name,
@@ -156,6 +183,7 @@ class OvercookedGymWrapper(gym.Env):
             "recipe": int(self._state.recipe),
             "terminal": bool(self._state.terminal),
             "last_event": self._last_event,
+            "solo_mode": self.solo_mode,
         }
 
     def render(self):
@@ -196,7 +224,10 @@ class OvercookedGymWrapper(gym.Env):
         }
 
         lines.append(f"Kitchen ({self.layout}, {width}x{height}):")
-        lines.append("Legend: #=wall .=floor P=pot S=serve D=dish 0-9=ingredients @=you X=partner")
+        if self.solo_mode:
+            lines.append("Legend: #=wall .=floor P=pot S=serve D=dish 0-9=ingredients @=you")
+        else:
+            lines.append("Legend: #=wall .=floor P=pot S=serve D=dish 0-9=ingredients @=you X=partner")
         for y in range(height):
             row = []
             for x in range(width):

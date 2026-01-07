@@ -21,14 +21,27 @@ class OvercookedLLMAgentsWrapper(gym.Wrapper):
         action_strings = ",\n".join(
             f'"{action}": {description}' for action, description in ACTIONS.items()
         )
+
+        solo_mode = getattr(self.env, "solo_mode", False)
+        cook_time = getattr(self.env, "pot_cook_time", 20)
+
+        if solo_mode:
+            game_desc = "You are playing Overcooked solo. You control the only chef in a kitchen."
+            partner_rule = ""
+        else:
+            game_desc = "You are playing Overcooked, a cooperative cooking game. You control one chef in a kitchen."
+            partner_rule = "\n- Coordinate with your partner for efficiency"
+
+        cook_rule = f"- Soups need {cook_time} ticks to cook before they can be served"
+
         return f"""[Instructions]
-You are playing Overcooked, a cooperative cooking game. You control one chef in a kitchen.
+{game_desc}
 Your goal is to cook and deliver soups as fast as possible to earn rewards.
 
 [How to Cook]
 1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact'
-2. Place ingredients in a pot using 'interact' while facing it
-3. Wait for the soup to cook
+2. Place 3 ingredients in a pot using 'interact' while facing it
+3. Wait for the soup to cook ({cook_time} ticks)
 4. Pick up a dish from the dish pile
 5. Pick up the cooked soup from the pot (with dish in hand)
 6. Deliver the soup to the serving counter using 'interact'
@@ -38,8 +51,8 @@ Your goal is to cook and deliver soups as fast as possible to earn rewards.
 
 [Rules]
 - You can only hold one object at a time
-- Soups need to cook before they can be served
-- Coordinate with your partner for efficiency
+- Each soup requires exactly 3 ingredients
+{cook_rule}{partner_rule}
 - Delivering a completed soup earns +20 reward"""
 
     def get_instruction_prompt(self):
