@@ -750,11 +750,11 @@ class DataParallelPPOActor(BasePPOActor):
                     self.actor_module.adaptive_entropy_coeff.copy_(
                         torch.tensor(self.adaptive_entropy_coeff, device=self.actor_module.adaptive_entropy_coeff.device)
                     )
-                    mini_batch_metrics["actor/mini_batch_entropy_avg"] = mini_batch_entropy_avg
+                    mini_batch_metrics["actor/mini_batch_entropy_avg"] = float(mini_batch_entropy_avg)
                     # Log current bounds if decay is enabled
                     if self.use_entropy_bounds_decay:
-                        mini_batch_metrics["actor/entropy_low_current"] = current_entropy_low
-                        mini_batch_metrics["actor/entropy_high_current"] = current_entropy_high
+                        mini_batch_metrics["actor/entropy_low_current"] = float(current_entropy_low)
+                        mini_batch_metrics["actor/entropy_high_current"] = float(current_entropy_high)
 
                 grad_norm = self._optimizer_step()
                 mini_batch_metrics["actor/grad_norm"] = grad_norm.detach().item()
