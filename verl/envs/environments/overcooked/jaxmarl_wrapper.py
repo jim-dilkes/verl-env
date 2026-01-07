@@ -30,6 +30,8 @@ class OvercookedGymWrapper(gym.Env):
         controlled_agent: str = "agent_0",
         seed: int = 0,
         shaped_reward: bool = True,
+        print_visualization: bool = True,
+        print_coordinates: bool = True,
     ):
         super().__init__()
 
@@ -39,6 +41,11 @@ class OvercookedGymWrapper(gym.Env):
         self.controlled_agent = controlled_agent
         self.partner_agent = "agent_1" if controlled_agent == "agent_0" else "agent_0"
         self.shaped_reward = shaped_reward
+        self.print_visualization = print_visualization
+        self.print_coordinates = print_coordinates
+
+        if not (print_visualization or print_coordinates):
+            raise ValueError("At least one of print_visualization or print_coordinates must be True")
 
         self._env = OvercookedV2(layout=layout, max_steps=max_steps)
         self._key = jax.random.PRNGKey(seed)
@@ -163,13 +170,33 @@ class OvercookedGymWrapper(gym.Env):
 
         grid = info["grid"]
         height, width, _ = grid.shape
+        lines = []
+
+        if self.print_coordinates:
+            lines.extend(self._render_coordinates(info, grid))
+
+        if self.print_visualization:
+            if lines:
+                lines.append("")
+            lines.extend(self._render_grid(info, grid))
+
+        lines.append(f"\nStep: {info['time']}/{self.max_steps}")
+        lines.append(f"Last: {info['last_event']}")
+
+        return "\n".join(lines)
+
+    def _render_grid(self, info, grid):
+        """Render ASCII grid visualization."""
+        height, width, _ = grid.shape
+        lines = []
 
         agent_positions = {
             (a["pos"][0], a["pos"][1]): ("@" if a["is_controlled"] else "X")
             for a in info["agents"]
         }
 
-        lines = [f"Kitchen ({self.layout}, {width}x{height}):"]
+        lines.append(f"Kitchen ({self.layout}, {width}x{height}):")
+        lines.append("Legend: #=wall .=floor P=pot S=serve D=dish 0-9=ingredients @=you X=partner")
         for y in range(height):
             row = []
             for x in range(width):
@@ -180,19 +207,64 @@ class OvercookedGymWrapper(gym.Env):
                     row.append(self._cell_to_char(cell))
             lines.append(" ".join(row))
 
+        return lines
+
+    def _render_coordinates(self, info, grid):
+        """Render text coordinate descriptions."""
+        height, width, _ = grid.shape
+        lines = []
+
+        lines.append(f"Layout: {self.layout} ({width}x{height})")
+        lines.append("Coordinates: (x, y) where x=column, y=row from top-left (0,0)")
+
+        # Agents
         lines.append("")
         for agent in info["agents"]:
-            marker = "(you)" if agent["is_controlled"] else "(partner)"
+            name = "You" if agent["is_controlled"] else "Partner"
             inv_str = self._inventory_to_str(agent["inventory"])
             lines.append(
-                f"Agent {agent['name']} {marker}: pos={agent['pos']}, "
+                f"{name}: pos={agent['pos']}, "
                 f"facing {agent['direction']}, holding: {inv_str}"
             )
 
-        lines.append(f"\nStep: {info['time']}/{self.max_steps}")
-        lines.append(f"Last: {info['last_event']}")
+        # Pots
+        pots = self._get_pot_info(grid)
+        if pots:
+            lines.append("")
+            for pot in pots:
+                pot_status = self._pot_status_str(pot)
+                lines.append(f"Pot at {pot['pos']}: {pot_status}")
 
-        return "\n".join(lines)
+        # Static objects
+        lines.append("")
+        objects = self._get_static_objects(grid)
+        for obj_type, positions in objects.items():
+            if positions:
+                pos_str = ", ".join(str(p) for p in positions)
+                lines.append(f"{obj_type}: {pos_str}")
+
+        return lines
+
+    def _get_static_objects(self, grid):
+        """Get positions of static objects for coordinate display."""
+        height, width, _ = grid.shape
+        objects = {
+            "Serving counter": [],
+            "Dish pile": [],
+            "Ingredient piles": [],
+        }
+        for y in range(height):
+            for x in range(width):
+                static = int(grid[y, x, 0])
+                if static == 4:
+                    objects["Serving counter"].append((x, y))
+                elif static == 9:
+                    objects["Dish pile"].append((x, y))
+                elif static >= 10:
+                    idx = static - 10
+                    name = self._ingredient_name(idx)
+                    objects["Ingredient piles"].append((x, y, name))
+        return objects
 
     def _cell_to_char(self, cell):
         static = cell[0]
@@ -215,12 +287,94 @@ class OvercookedGymWrapper(gym.Env):
             return str(ingredient_idx)  # ingredient pile (0, 1, 2, ...)
         return "?"
 
+    def _decode_item(self, val):
+        """Decode dynamic item encoding to components.
+
+        Encoding: bit 0 = plate, bit 1 = cooked, bits 2-7 = ingredient counts
+        Each ingredient uses 2 bits for count (0-3), shifted by 2*idx from bit 2.
+        """
+        if val == 0:
+            return None
+        plate = bool(val & 1)
+        cooked = bool(val & 2)
+        ingredient_counts = {}
+        for i in range(3):
+            count = (val >> (2 + 2 * i)) & 3
+            if count > 0:
+                ingredient_counts[i] = count
+        return {"plate": plate, "cooked": cooked, "ingredient_counts": ingredient_counts}
+
+    def _ingredient_name(self, idx):
+        """Get ingredient name by index."""
+        names = ["onion", "tomato", "lettuce"]
+        return names[idx] if idx < len(names) else f"ingredient_{idx}"
+
     def _inventory_to_str(self, inv):
-        if inv == 0:
+        """Decode inventory to human-readable string."""
+        decoded = self._decode_item(inv)
+        if decoded is None:
             return "NOTHING"
-        if inv & 1:
-            return "PLATE"
-        return "INGREDIENT"
+
+        ing_counts = decoded["ingredient_counts"]
+        ing_parts = []
+        for idx, count in ing_counts.items():
+            name = self._ingredient_name(idx)
+            if count > 1:
+                ing_parts.append(f"{count}x {name}")
+            else:
+                ing_parts.append(name)
+        ing_str = "+".join(ing_parts)
+
+        if decoded["plate"] and decoded["cooked"] and ing_counts:
+            return f"SOUP ({ing_str}) on plate"
+        elif decoded["plate"] and ing_counts:
+            return f"plate with {ing_str}"
+        elif decoded["plate"]:
+            return "empty plate"
+        elif ing_counts:
+            return ing_str.upper()
+        return "UNKNOWN"
+
+    def _get_pot_info(self, grid):
+        """Get pot status from grid."""
+        pots = []
+        height, width, _ = grid.shape
+        for y in range(height):
+            for x in range(width):
+                if grid[y, x, 0] == 5:  # POT
+                    contents = int(grid[y, x, 1])
+                    timer = int(grid[y, x, 2])
+                    decoded = self._decode_item(contents)
+                    pots.append({
+                        "pos": (x, y),
+                        "contents": decoded,
+                        "timer": timer,
+                    })
+        return pots
+
+    def _pot_status_str(self, pot):
+        """Format pot status as string."""
+        contents = pot["contents"]
+        timer = pot["timer"]
+
+        if contents is None:
+            return "empty"
+
+        ing_counts = contents["ingredient_counts"]
+        total_count = sum(ing_counts.values())
+        ing_parts = []
+        for idx, count in ing_counts.items():
+            name = self._ingredient_name(idx)
+            ing_parts.append(f"{count}x {name}")
+        ing_str = ", ".join(ing_parts)
+
+        if contents["cooked"]:
+            return f"READY! soup ({ing_str}) - pick up with plate"
+        elif timer > 0:
+            return f"cooking ({ing_str}) - {timer} ticks left"
+        elif total_count > 0:
+            return f"{ing_str} ({total_count}/3 ingredients)"
+        return "empty"
 
     @property
     def last_event(self):
