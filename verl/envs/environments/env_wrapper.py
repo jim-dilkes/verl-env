@@ -44,6 +44,8 @@ class EnvWrapper(gym.Wrapper):
             obs = obs
         elif self.env_name == "webshop":
             obs = obs
+        elif self.env_name == "overcooked":
+            obs = obs
         else:
             raise ValueError(f"Unknown environment: {self.env_name}")
 
@@ -82,7 +84,7 @@ class EnvWrapper(gym.Wrapper):
             from verl.envs.environments.crafter import get_instruction_prompt
 
             return get_instruction_prompt(self.env)
-        elif self.env_name in ["fastsnake", "frozenlake", "webshop"]:
+        elif self.env_name in ["fastsnake", "frozenlake", "webshop", "overcooked"]:
             return self.env.get_instruction_prompt()
         else:
             raise ValueError(f"Unknown environment: {self.env_name}")
