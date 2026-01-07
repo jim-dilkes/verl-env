@@ -12,6 +12,8 @@ def make_overcooked_env(env_name, task, config, render_mode=None):
     partner_policy = overcooked_kwargs.get("partner_policy", "noop")
     shaped_reward = overcooked_kwargs.get("shaped_reward", True)
     seed = overcooked_kwargs.get("seed", 0)
+    print_visualization = overcooked_kwargs.get("print_visualization", True)
+    print_coordinates = overcooked_kwargs.get("print_coordinates", True)
 
     base_env = OvercookedGymWrapper(
         layout=layout,
@@ -19,6 +21,8 @@ def make_overcooked_env(env_name, task, config, render_mode=None):
         partner_policy=partner_policy,
         shaped_reward=shaped_reward,
         seed=seed,
+        print_visualization=print_visualization,
+        print_coordinates=print_coordinates,
     )
 
     env_kwargs = dict(config.envs) if hasattr(config, "envs") else {}
