@@ -36,3 +36,11 @@ Located at `/Users/jim/Documents/PhD/Research Projects/4) Exploration in SDM for
 - `{C} Kanban/` - Feature planning board. **EDITABLE** - add implementation notes, design decisions, progress updates to feature files here.
 
 Consult these for research context, experimental rationale, and implementation decisions.
+
+## Kanban Progress Tracking
+Keep `{C} Kanban/` updated throughout work:
+- Starting feature → update status, add implementation notes
+- Significant progress → log decisions, blockers, approaches tried
+- Completing work → mark done, note follow-ups or learnings
+
+Do this proactively; don't wait for user to ask.
