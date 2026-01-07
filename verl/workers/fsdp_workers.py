@@ -676,8 +676,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
         else:
             params = self.actor_module_fsdp.state_dict()
-            # Drop actor-only buffers that rollout models don't expect (e.g., adaptive entropy coeff)
-            params.pop("adaptive_entropy_coeff", None)
 
         params = convert_weight_keys(
             params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
@@ -1048,6 +1046,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
 
+        # Transfer adaptive entropy coeff to checkpoint manager before save
+        if hasattr(self, "actor") and getattr(self.actor, "use_adaptive_entropy", False):
+            self.checkpoint_manager.adaptive_entropy_coeff = self.actor.adaptive_entropy_coeff
+
         self.checkpoint_manager.save_checkpoint(
             local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
         )
@@ -1108,6 +1110,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self.checkpoint_manager.load_checkpoint(
             local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
         )
+
+        # Restore adaptive entropy coeff from checkpoint manager to actor
+        if hasattr(self, "actor") and getattr(self.actor, "use_adaptive_entropy", False):
+            if self.checkpoint_manager.adaptive_entropy_coeff is not None:
+                self.actor.adaptive_entropy_coeff = self.checkpoint_manager.adaptive_entropy_coeff
 
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)

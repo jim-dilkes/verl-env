@@ -94,6 +94,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             processing_class=processing_class,
             checkpoint_config=checkpoint_config,
         )
+        # Optional training state for adaptive entropy (set by worker before save, read after load)
+        self.adaptive_entropy_coeff = None
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
         """
@@ -135,14 +137,6 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                 remote_model_path = os.path.join(local_path, f"model_world_size_{self.world_size}_rank_{self.rank}.pt")
                 local_model_path = copy_to_local(remote_model_path)
                 model_state_dict = torch.load(local_model_path, weights_only=False)
-                # Reconcile optional adaptive entropy buffer to avoid strict load issues across roles
-                has_buffer = hasattr(self.model, "adaptive_entropy_coeff")
-                if "adaptive_entropy_coeff" in model_state_dict and not has_buffer:
-                    model_state_dict.pop("adaptive_entropy_coeff", None)
-                if "adaptive_entropy_coeff" not in model_state_dict and has_buffer:
-                    model_state_dict["adaptive_entropy_coeff"] = torch.zeros_like(
-                        self.model.adaptive_entropy_coeff
-                    )
                 self.model.load_state_dict(model_state_dict)
                 log_with_rank(f"Loaded model from {remote_model_path}", rank=self.rank, logger=logger)
 
@@ -169,6 +163,15 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             if lr_scheduler_state_dict is not None and self.lr_scheduler is not None:
                 self.lr_scheduler.load_state_dict(lr_scheduler_state_dict)
                 log_with_rank(f"Loaded lr_scheduler from {remote_extra_state_path}", rank=self.rank, logger=logger)
+
+            # Restore adaptive entropy coeff if present (backward compat: may not exist in old checkpoints)
+            if "adaptive_entropy_coeff" in extra_state_dict:
+                self.adaptive_entropy_coeff = extra_state_dict["adaptive_entropy_coeff"]
+                log_with_rank(
+                    f"Loaded adaptive_entropy_coeff={self.adaptive_entropy_coeff} from {remote_extra_state_path}",
+                    rank=self.rank,
+                    logger=logger,
+                )
 
         if self.rank == 0 and del_local_after_load:
             try:
@@ -258,6 +261,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                         "lr_scheduler": lr_scheduler_state_dict,
                         "rng": self.get_rng_state(),
                     }
+                    # Include adaptive entropy coeff if set by worker
+                    if self.adaptive_entropy_coeff is not None:
+                        extra_state_dict["adaptive_entropy_coeff"] = self.adaptive_entropy_coeff
                     torch.save(extra_state_dict, extra_path)
                     log_with_rank(f"Saved extra_state to {os.path.abspath(extra_path)}", rank=self.rank, logger=logger)
 
