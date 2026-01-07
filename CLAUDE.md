@@ -1,3 +1,5 @@
+@BRISK.md
+
 <!-- brisk-session-manager -->
 ## Brisk Session Manager
 Always use the AskUserQuestion tool when you need input from the user.
