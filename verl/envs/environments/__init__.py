@@ -54,6 +54,9 @@ def make_env(env_name, task, config, render_mode=None):
     elif env_name == "webshop":
         from verl.envs.environments.webshop.webshop_env import make_webshop_env
         base_env = make_webshop_env(env_name, task, config, render_mode=render_mode)
+    elif env_name == "overcooked":
+        from verl.envs.environments.overcooked.overcooked_env import make_overcooked_env
+        base_env = make_overcooked_env(env_name, task, config, render_mode=render_mode)
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     
@@ -64,6 +67,9 @@ def get_action_extraction_fn(env_name):
     if env_name == "fastsnake":
         from verl.envs.environments.FastSnake.base import FastSnakeLLMAgentsWrapper
         return FastSnakeLLMAgentsWrapper.extract_action
+    elif env_name == "overcooked":
+        from verl.envs.environments.overcooked.base import OvercookedLLMAgentsWrapper
+        return OvercookedLLMAgentsWrapper.extract_action
     else:
         raise ValueError(f"Not accessible action extraction function for {env_name}")
 
