@@ -112,12 +112,7 @@ class DataParallelPPOActor(BasePPOActor):
         )
         if adaptive_entropy_fully_configured:
             self.use_adaptive_entropy = True
-            # Register buffer with config default; checkpoint load will overwrite if resuming
-            self.actor_module.register_buffer(
-                "adaptive_entropy_coeff",
-                torch.tensor(float(self.config.entropy_coeff), device=get_device_id()),
-                persistent=True,
-            )
+            # Store as plain attribute; checkpointed via extra_state_dict (not model buffer)
             self.adaptive_entropy_coeff = float(self.config.entropy_coeff)
         else:
             self.use_adaptive_entropy = False
@@ -575,10 +570,6 @@ class DataParallelPPOActor(BasePPOActor):
                 mini_batch_token_count = 0
                 mini_batch_entropy_ok_count = 0
 
-                # Sync adaptive entropy coeff from buffer once per mini-batch (handles checkpoint restore)
-                if self.use_adaptive_entropy:
-                    self.adaptive_entropy_coeff = float(self.actor_module.adaptive_entropy_coeff.item())
-
                 for micro_batch in micro_batches:
                     micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
@@ -745,10 +736,6 @@ class DataParallelPPOActor(BasePPOActor):
                     new_coeff = self.adaptive_entropy_coeff - entropy_coeff_update
                     self.adaptive_entropy_coeff = float(
                         min(max(new_coeff, self.config.entropy_coeff_low), self.config.entropy_coeff_high)
-                    )
-                    # Keep buffer in sync so checkpointing captures latest value
-                    self.actor_module.adaptive_entropy_coeff.copy_(
-                        torch.tensor(self.adaptive_entropy_coeff, device=self.actor_module.adaptive_entropy_coeff.device)
                     )
                     mini_batch_metrics["actor/mini_batch_entropy_avg"] = float(mini_batch_entropy_avg)
                     # Log current bounds if decay is enabled
