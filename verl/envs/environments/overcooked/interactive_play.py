@@ -42,10 +42,12 @@ def parse_args():
     parser.add_argument('--max-steps', type=int, default=200,
                         help='Maximum steps per episode (default: 200)')
     parser.add_argument('--partner', type=str, default='noop',
-                        choices=['noop', 'random'],
-                        help='Partner policy (default: noop)')
+                        choices=['noop', 'random', 'none'],
+                        help='Partner policy: noop, random, or none for solo (default: noop)')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed (default: 0)')
+    parser.add_argument('--cook-time', type=int, default=None,
+                        help='Override cooking time in ticks (default: 20)')
     parser.add_argument('--list-layouts', action='store_true',
                         help='List available layouts and exit')
     parser.add_argument('--no-grid', action='store_true',
@@ -80,12 +82,14 @@ def play_game(args):
         shaped_reward=True,
         print_visualization=print_viz,
         print_coordinates=print_coords,
+        pot_cook_time=args.cook_time,
     )
 
     print(f"\nGame settings:")
     print(f"  Layout: {args.layout}")
     print(f"  Max steps: {args.max_steps}")
-    print(f"  Partner policy: {args.partner}")
+    print(f"  Partner: {args.partner}" + (" (solo mode)" if args.partner == "none" else ""))
+    print(f"  Cook time: {env.pot_cook_time} ticks")
     print(f"  Seed: {args.seed}")
 
     print("\nControls:")
