@@ -66,6 +66,36 @@ from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 
 
+def _flatten_nested_lists(val):
+    """Flatten nested lists/arrays into a single flat list of scalars.
+
+    Handles jagged arrays that arise when DP workers return metrics with
+    different numbers of items (e.g., due to dynamic batching).
+    """
+    result = []
+
+    def _flatten(item):
+        if isinstance(item, (list, tuple)):
+            for sub_item in item:
+                _flatten(sub_item)
+        elif isinstance(item, np.ndarray):
+            if item.ndim == 0:
+                result.append(item.item())
+            else:
+                for sub_item in item.flat:
+                    _flatten(sub_item)
+        else:
+            result.append(item)
+
+    _flatten(val)
+    return result
+
+
+def _flatten_metrics(metrics: dict) -> dict:
+    """Flatten all metric values to handle jagged arrays from DP workers."""
+    return {key: _flatten_nested_lists(val) for key, val in metrics.items()}
+
+
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl'):
     responses = data.batch['responses']
     response_length = responses.size(1)
@@ -1341,7 +1371,7 @@ class RayMultistepTrainer(object):
                         batch4train.meta_info['critic_micro_batch_size_per_gpu'] = warmup_micro_batch_size
                     with _timer('update_critic', timing_raw):
                         critic_output = self.critic_wg.update_critic(batch4train)
-                    critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
+                    critic_output_metrics = reduce_metrics(_flatten_metrics(critic_output.meta_info['metrics']))
                     metrics.update(critic_output_metrics)
                     if warmup_micro_batch_size is not None:
                         batch4train.meta_info.pop('critic_micro_batch_size_per_gpu', None)
@@ -1356,7 +1386,7 @@ class RayMultistepTrainer(object):
                     batch4train.meta_info['total_training_steps'] = self.total_training_steps
                     with _timer('update_actor', timing_raw):
                         actor_output = self.actor_rollout_wg.update_actor(batch4train)
-                    actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
+                    actor_output_metrics = reduce_metrics(_flatten_metrics(actor_output.meta_info['metrics']))
                     metrics.update(actor_output_metrics)
 
                 # validate
