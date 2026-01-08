@@ -456,6 +456,33 @@ envs:
     # Random seed for selecting shopping goals
     goals_seed: null
 
+  # Additional kwargs forwarded to Overcooked environments
+  overcooked_kwargs:
+
+    # Kitchen layout to load
+    layout_name: cramped_room
+
+    # Maximum number of steps per episode
+    horizon: 200
+
+    # Behavior policy for the partner agent ("noop", "random", or "none")
+    partner_policy: noop
+
+    # Whether to include shaped rewards for intermediate progress
+    shaped_reward: True
+
+    # Random seed for environment initialization
+    seed: 0
+
+    # Whether to include ASCII visualization in observations
+    print_visualization: True
+
+    # Whether to include coordinate descriptions in observations
+    print_coordinates: True
+
+    # Cooking duration in environment ticks
+    pot_cook_time: 20
+
 # profiler configs
 global_profiler:
 
