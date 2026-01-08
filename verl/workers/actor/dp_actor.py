@@ -730,8 +730,10 @@ class DataParallelPPOActor(BasePPOActor):
                         global_step, total_training_steps
                     )
 
+                    # lower_violation ≤ 0 when entropy < low (need to increase coeff)
+                    # upper_violation ≥ 0 when entropy > high (need to decrease coeff)
                     lower_violation = min(mini_batch_entropy_avg - current_entropy_low, 0.0)
-                    upper_violation = min(current_entropy_high - mini_batch_entropy_avg, 0.0)
+                    upper_violation = max(mini_batch_entropy_avg - current_entropy_high, 0.0)
                     entropy_coeff_update = self.config.entropy_coeff_lr * (lower_violation + upper_violation)
                     new_coeff = self.adaptive_entropy_coeff - entropy_coeff_update
                     self.adaptive_entropy_coeff = float(
