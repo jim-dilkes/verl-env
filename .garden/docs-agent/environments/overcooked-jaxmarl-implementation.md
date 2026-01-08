@@ -94,13 +94,53 @@ Accessed via `info["shaped_reward"][agent_name]`
 
 ## JAX CPU Backend
 
-Set before any JAX imports:
+Set before any JAX imports in `jaxmarl_wrapper.py`:
 ```python
 import os
 os.environ.setdefault('JAX_PLATFORM_NAME', 'cpu')
 ```
 
 Required because GPU JAX causes CUDA context issues with verl's async parallel workers.
+
+## VecEnv Multiprocessing: MUST USE SPAWN
+
+**Critical**: Overcooked requires `vec_env_multiprocessing=spawn`, NOT `fork`.
+
+### Why Fork Fails
+
+With `fork` multiprocessing:
+1. Parent process has threads (PyTorch, vLLM, Ray workers)
+2. Fork copies only main thread, leaving mutexes/locks in inconsistent state
+3. Forked workers try to import JAX → JAX initialization deadlocks on internal locks
+4. All workers hang immediately after spawn, before any env interaction
+
+**Confirmed locally**: When parent has background threads and children import JAX, fork causes:
+- On macOS: Crash with "cannot safely call it or ignore it in the fork() child process"
+- On Linux: Silent deadlock (workers hang indefinitely with 0% CPU)
+
+### Symptoms of Fork Deadlock
+
+```
+[Worker 0] Memory at start: 970.22 MB
+[Worker 1] Memory at start: 970.22 MB
+...
+[Worker 49] Memory at start: 970.23 MB
+<-- hangs here, never logs "Memory after env creation" -->
+```
+
+- Workers spawn successfully (all log memory)
+- No "Memory after env creation" logs appear
+- CPU efficiency near 0% (blocking, not computing)
+- Job hangs indefinitely
+
+### Fix
+
+In experiment config:
+```bash
+envs.vec_env_multiprocessing=spawn \  # NOT fork!
+```
+
+Note: `spawn` has slower startup (workers must reimport everything) but avoids JAX deadlock.
 
 ## Agent State Access
 
@@ -169,10 +209,4 @@ python -m verl.envs.environments.overcooked.interactive_play --no-grid
 3. Interact fails silently if facing wrong direction or invalid target
 4. Pot requires exactly 3 ingredients to start cooking
 5. Must hold empty plate to pick up cooked soup
-
-## Next Steps
-
-- [ ] Experiment config for training
-- [ ] Captioner prompts
-- [ ] Cluster test run
-- [ ] Multi-agent mode investigation
+6. **MUST use `spawn` multiprocessing** - `fork` causes JAX deadlock (see above)
