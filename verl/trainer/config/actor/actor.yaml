@@ -93,6 +93,12 @@ entropy_low: null
 # Upper bound for adaptive entropy target
 entropy_high: null
 
+# Final lower bound for entropy target after cosine decay (enables decay)
+entropy_low_final: null
+
+# Final upper bound for entropy target after cosine decay (enables decay)
+entropy_high_final: null
+
 # Lower bound for adaptive entropy coefficient
 entropy_coeff_low: null
 
