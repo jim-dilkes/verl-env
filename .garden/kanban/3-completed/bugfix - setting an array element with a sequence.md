@@ -1,3 +1,29 @@
+# Bugfix: Setting an Array Element with a Sequence
+
+## Status
+- Created: 2026-01-08
+- Completed: 2026-01-08
+
+## Summary
+Fixed `ValueError: setting an array element with a sequence` in `reduce_metrics()`.
+
+## Root Cause
+When DP workers have different micro-batch counts (due to dynamic batching with
+`use_dynamic_bsz=True`), `DataProto.concat()` uses `list_of_dict_to_dict_of_list()`
+which appends metric lists rather than extending them. This creates nested arrays
+like `[[v1, v2], [v3]]` that `np.mean()` cannot handle.
+
+## Fix
+Added `_flatten_metrics()` in `ray_multistep_trainer.py` to recursively flatten
+nested lists before passing to `reduce_metrics()`. This is a workaround for a
+design limitation in verl's core `protocol.py`.
+
+## Files Changed
+- `verl/trainer/ppo/ray_multistep_trainer.py` - Added flatten helpers, updated reduce_metrics calls
+
+---
+
+## Original Error Log
 Key sections from slurm logs below. Please investigate in my local copy of the codebase. 
 
 
