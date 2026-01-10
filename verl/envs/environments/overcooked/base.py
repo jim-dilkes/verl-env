@@ -117,16 +117,16 @@ Your goal is to cook and deliver soups as fast as possible to earn rewards.
 
     def extract_action(self, action):
         full_action = str(action)
-        extracted = OvercookedLLMAgentsWrapper.extract_action_from_xml_tag(full_action)
+        extracted_action = OvercookedLLMAgentsWrapper.extract_action_from_xml_tag(full_action)
 
-        is_valid = extracted in self.language_action_space and extracted is not None
-        valid_action = extracted if is_valid else self.default_action
+        is_valid = extracted_action in self.language_action_space and extracted_action is not None
+        valid_action = extracted_action if is_valid else self.default_action
 
         metrics = {
             "behavior/valid_action_ratio": float(is_valid),
         }
 
-        return full_action, valid_action, is_valid, metrics
+        return full_action, extracted_action, valid_action, is_valid, metrics
 
     def get_stats(self):
         return {}
