@@ -98,7 +98,7 @@ evaluation:
         type: naive
         max_text_history: 0
       overcooked_kwargs:
-        layout_name: asymmetric_advantages
+        layout_name: asymm_advantages
         horizon: 40
         partner_policy: none
         shaped_reward: False
