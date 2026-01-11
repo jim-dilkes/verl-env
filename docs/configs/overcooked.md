@@ -29,9 +29,9 @@ All options are set via `envs.overcooked_kwargs.<option>`:
 | Layout | Description |
 |--------|-------------|
 | `cramped_room` | Compact 5x4 kitchen, basic coordination |
-| `asymmetric_advantages` | Unequal agent positioning |
-| `coordination_ring` | Ring-shaped, requires synchronization |
-| `forced_coordination` | Mandates cooperation to complete tasks |
+| `asymm_advantages` | Unequal agent positioning |
+| `coord_ring` | Ring-shaped, requires synchronization |
+| `forced_coord` | Mandates cooperation to complete tasks |
 | `counter_circuit` | Counter-based setup |
 
 List all layouts:
@@ -98,7 +98,7 @@ envs.overcooked_kwargs.horizon=100 \
 
 ```bash
 envs.env_name=overcooked \
-envs.overcooked_kwargs.layout_name=forced_coordination \
+envs.overcooked_kwargs.layout_name=forced_coord \
 envs.overcooked_kwargs.partner_policy=random \
 envs.overcooked_kwargs.shaped_reward=True \
 ```
@@ -164,7 +164,7 @@ python -m verl.envs.environments.overcooked.interactive_play
 python -m verl.envs.environments.overcooked.interactive_play --partner none --cook-time 5
 
 # Different layout
-python -m verl.envs.environments.overcooked.interactive_play --layout forced_coordination
+python -m verl.envs.environments.overcooked.interactive_play --layout forced_coord
 
 # Controls: W/A/S/D = move, E = interact, Space = stay, Q = quit
 ```
