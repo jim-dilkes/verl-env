@@ -41,6 +41,21 @@ Keep `{C} Kanban/` updated throughout work:
 
 Do this proactively; don't wait for user to ask.
 
+## Feature Testing Requirements
+All new features MUST include a test that runs on cluster login nodes (direct python, not sbatch).
+
+**Baseline test script:** `experiments/snake/test_login_node.sh`
+- Model: Qwen3-0.6B-Base
+- 1 critic warmup step, 3 training steps
+- Tuned for 24GB L4 login nodes (train_batch=16, n_rollouts=4, micro_batch=2)
+- Single GPU, gpu_mem_util=0.30
+
+**Usage:**
+1. If feature doesn't need config changes: just run `bash experiments/snake/test_login_node.sh`
+2. If feature needs specific configs: copy the script, add your overrides, document in PR
+
+This ensures features work before committing to full cluster runs.
+
 <!-- brisk-session-manager -->
 ## Session Guidelines
 Always use the AskUserQuestion tool when you need input from the user.
