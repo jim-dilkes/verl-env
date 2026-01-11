@@ -1,23 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name=FS_PPO_4B_multiact_eps0_1
+#SBATCH --job-name=FS_PPO_4B_multiact_eps0
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=scavenger_mathsa100
-#SBATCH --time=12:00:00
+#SBATCH --partition=swarm_h100,swarm_a100,a100
+#SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
 # --- Define experiment variables ---
-# Multi-action reasoning: model generates reasoning for each action, then picks
-# epsilon=0: no random exploration (model's decision is final)
 project_name=verl_env
 experiment_name=FS_PPO_4B_multiact_eps0
 run_number=1
 number_of_gpus=2
-WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1","multi-action","epsilon:0"]'
+WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1","multi_action","epsilon:0.0"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -81,7 +79,6 @@ else
 fi
 micro_batch_size=16
 
-# Increased response length for multi-action reasoning (more tokens needed)
 max_prompt_length=768
 max_response_length=384
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
@@ -90,7 +87,7 @@ critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
 rollout_max_num_batched_tokens=$((micro_batch_size * max_token_len_per_gpu + 2560))
 rollout_max_num_seqs=$((2048))
 
-PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
+PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
   data.train_batch_size=256 \
@@ -125,8 +122,8 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.load_format=dummy_dtensor \
   actor_rollout_ref.rollout.update_weights_bucket_megabytes=256 \
   +actor_rollout_ref.model.override_config.torch_dtype=bfloat16 \
-  actor_rollout_ref.model.use_remove_padding=False \
-  actor_rollout_ref.model.use_fused_kernels=False \
+  actor_rollout_ref.model.use_remove_padding=True \
+  actor_rollout_ref.model.use_fused_kernels=True \
   actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
   +critic.model.override_config.torch_dtype=bfloat16 \
   critic.model.fsdp_config.model_dtype=bfloat16 \
@@ -157,8 +154,6 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   envs.fastsnake_kwargs.num_random_snakes=1 \
   envs.fastsnake_kwargs.death_reward=-1 \
   envs.vec_env_multiprocessing=fork \
-  prompt.prompt.multi_action_reasoning=True \
-  prompt.prompt.epsilon=0.0 \
   actor_rollout_ref.rollout.calculate_log_probs=true \
   algorithm.rollout_correction.rollout_is=sequence \
   algorithm.rollout_correction.rollout_is_threshold=3.0 \
@@ -189,7 +184,9 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   trainer.tags=$WANDB_TAGS \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
   evaluation=snake_evals \
-  prompt=snake 2>&1 | tee verl_demo.log
+  prompt=snake \
+  prompt.prompt.multi_action_reasoning=True \
+  prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
 
 actual_session_dir="${short_temp_dir}/session_latest"
 readable_log_path="${readable_log_root}/${experiment_run_name}"
@@ -204,3 +201,4 @@ if [ -n "$RAY_HEAD_PID" ]; then
     kill $RAY_HEAD_PID 2>/dev/null || true
     echo "Ray cluster stopped."
 fi
+
