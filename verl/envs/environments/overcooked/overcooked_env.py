@@ -7,8 +7,8 @@ def make_overcooked_env(env_name, task, config, render_mode=None):
 
     Config options (via envs.overcooked_kwargs):
         layout_name: str - Kitchen layout (default: "cramped_room")
-            Options: cramped_room, asymmetric_advantages, coordination_ring,
-                    forced_coordination, counter_circuit
+            Options: cramped_room, asymm_advantages, coord_ring,
+                    forced_coord, counter_circuit
         horizon: int - Max steps per episode (default: 200)
         partner_policy: str - Partner agent behavior (default: "noop")
             Options: "noop" (stays), "random", "none" (solo mode, partner hidden)
