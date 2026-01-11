@@ -1,0 +1,200 @@
+# @package eval
+# Overcooked evals + FastSnake 20-step transfer evals (no visualization)
+
+evaluation:
+  environments:
+    # --- Overcooked Evals ---
+    - name: "Overcooked-CrampedRoom-Greedy"
+      n_rollouts: 50
+      episode_length: 40
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: False
+      initial_seed: 0
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
+        You are playing Overcooked solo. You control the only chef in a kitchen.
+        Your goal is to cook and deliver soups as fast as possible.
+
+        [How to Cook]
+        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact'
+        2. Place 3 ingredients in a pot using 'interact' while facing it
+        3. Wait for the soup to cook
+        4. Pick up a dish from the dish pile
+        5. Pick up the cooked soup from the pot (with dish in hand)
+        6. Deliver the soup to the serving counter using 'interact'
+
+        [Available Actions]
+        "right": move right,
+        "down": move down,
+        "left": move left,
+        "up": move up,
+        "stay": stay in place (wait),
+        "interact": interact with object in front of you (pick up, place, or use)
+
+        [Rules]
+        - You can only hold one object at a time
+        - Each soup requires exactly 3 ingredients
+      captioner:
+        type: naive
+        max_text_history: 0
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 40
+        partner_policy: none
+        shaped_reward: False
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+
+    - name: "Overcooked-AsymmetricAdvantages-Greedy"
+      n_rollouts: 50
+      episode_length: 40
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: False
+      initial_seed: 10000
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
+        You are playing Overcooked solo. You control the only chef in a kitchen.
+        Your goal is to cook and deliver soups as fast as possible.
+
+        [How to Cook]
+        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact'
+        2. Place 3 ingredients in a pot using 'interact' while facing it
+        3. Wait for the soup to cook
+        4. Pick up a dish from the dish pile
+        5. Pick up the cooked soup from the pot (with dish in hand)
+        6. Deliver the soup to the serving counter using 'interact'
+
+        [Available Actions]
+        "right": move right,
+        "down": move down,
+        "left": move left,
+        "up": move up,
+        "stay": stay in place (wait),
+        "interact": interact with object in front of you (pick up, place, or use)
+
+        [Rules]
+        - You can only hold one object at a time
+        - Each soup requires exactly 3 ingredients
+      captioner:
+        type: naive
+        max_text_history: 0
+      overcooked_kwargs:
+        layout_name: asymm_advantages
+        horizon: 40
+        partner_policy: none
+        shaped_reward: False
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+
+    # --- FastSnake 20-Step Evals (Transfer Test) ---
+    - name: "Snake-20Step-Greedy"
+      n_rollouts: 50
+      episode_length: 20
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: False
+      initial_seed: 20000
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: fastsnake
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
+        You are controlling a snake in a multi-player Snake game
+
+        [Available Actions]
+        "up": move your head one space up,
+        "down": move your head one space down,
+        "left": move your head one space left,
+        "right": move your head one space right,
+
+        [Rules]
+        - You can move your head one space up, down, left, or right
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+      captioner:
+        type: naive
+        max_text_history: 0
+      fastsnake_kwargs:
+        num_apples: 5
+        print_visualization: false
+        print_coordinates: true
+        width: 10
+        height: 10
+        max_rounds: 20
+        death_reward: -1
+        step_reward: 0
+
+    - name: "Snake-20Steps-PoisonAppleAndBanana-Greedy"
+      n_rollouts: 50
+      episode_length: 20
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: False
+      initial_seed: 30000
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: fastsnake
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
+        You are controlling a snake in a multi-player Snake game
+
+        [Available Actions]
+        "up": move your head one space up,
+        "down": move your head one space down,
+        "left": move your head one space left,
+        "right": move your head one space right,
+
+        [Rules]
+        - You can move your head one space up, down, left, or right
+        - All apples are poisonous and will hurt you. If you move onto an apple, you *lose* 1 point.
+        - All bananas are healthy and are good for you. If you move onto a banana, you *receive* 1 point and you gain a body segment.
+        - You die if you move into a wall, another snake, or yourself
+      captioner:
+        type: naive
+        max_text_history: 0
+      fastsnake_kwargs:
+        num_apples: 3
+        num_bananas: 3
+        apple_reward: -1
+        banana_reward: 1
+        width: 10
+        height: 10
+        print_coordinates: true
+        max_rounds: 20
+        death_reward: -1
+        step_reward: 0
+        print_visualization: false

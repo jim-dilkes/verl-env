@@ -1,24 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name=OC_from_FS_PPO_4B_1
+#SBATCH --job-name=OC_PPO_14B_fromscratch_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=swarm_h100,swarm_a100,a100
+#SBATCH --partition=dual_h200,quad_h200
 #SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
 # --- Define experiment variables ---
 project_name=verl_env
-experiment_name=OC_tranFS_PPO_4B
+experiment_name=OC_PPO_14B_fromscratch
 run_number=1
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","transfer:fastsnake"]'
-
-# Resume from FastSnake checkpoint (global_step_1000)
-resume_checkpoint=/scratch/jsbd1n24/checkpoints/verl_env/FS_PPO_4B_Hpt001_respHist_run11/global_step_1000
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","14B","from_scratch"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -65,7 +62,7 @@ export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=false
 export VERL_PPO_LOGGING_LEVEL=DEBUG
 
-MODEL_ID=Qwen/Qwen3-4B-Instruct-2507
+MODEL_ID=Qwen/Qwen3-14B
 FOLDER_NAME="models--$(echo "$MODEL_ID" | sed 's/\//--/')"
 SNAPSHOT_DIR="$HF_HOME/hub/$FOLDER_NAME/snapshots"
 
@@ -80,7 +77,7 @@ else
     echo "Error: Could not find local cache for $MODEL_ID"
     exit 1
 fi
-micro_batch_size=32
+micro_batch_size=16
 
 max_prompt_length=768
 max_response_length=256
@@ -98,6 +95,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.val_files=examples/data/placeholder.parquet \
   actor_rollout_ref.actor.ppo_mini_batch_size=128 \
   actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$micro_batch_size \
+  actor_rollout_ref.actor.optim.lr=5e-6 \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$max_token_len_per_gpu \
@@ -106,7 +104,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.max_num_seqs=$rollout_max_num_seqs \
   actor_rollout_ref.rollout.max_num_batched_tokens=$rollout_max_num_batched_tokens \
   actor_rollout_ref.rollout.engine_kwargs.vllm.max_seq_len_to_capture=$((max_token_len_per_gpu + critic_max_token_len_per_gpu)) \
-  actor_rollout_ref.rollout.gpu_memory_utilization=0.40 \
+  actor_rollout_ref.rollout.gpu_memory_utilization=0.38 \
   actor_rollout_ref.rollout.max_model_len=$max_token_len_per_gpu \
   actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.rollout.temperature=1.25 \
@@ -114,6 +112,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.mode=sync \
+  actor_rollout_ref.rollout.calculate_log_probs=true \
   actor_rollout_ref.actor.entropy_coeff=0.001 \
   actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$max_token_len_per_gpu \
@@ -132,6 +131,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   critic.model.fsdp_config.model_dtype=bfloat16 \
   critic.model.path=$MODEL_PATH \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
+  critic.optim.lr=5e-5 \
   critic.ppo_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   critic.forward_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   algorithm.step_gamma=0.99 \
@@ -149,7 +149,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.binary_reward=False \
   envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
-  envs.captioner.max_cot_history=0 \
+  envs.captioner.max_cot_history=1 \
   envs.overcooked_kwargs.layout_name=cramped_room \
   envs.overcooked_kwargs.horizon=20 \
   envs.overcooked_kwargs.partner_policy=none \
@@ -158,7 +158,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.overcooked_kwargs.print_visualization=false \
   envs.overcooked_kwargs.print_coordinates=true \
   envs.vec_env_multiprocessing=spawn \
-  actor_rollout_ref.rollout.calculate_log_probs=true \
   algorithm.rollout_correction.rollout_is=sequence \
   algorithm.rollout_correction.rollout_is_threshold=3.0 \
   algorithm.rollout_correction.rollout_rs=null \
@@ -185,8 +184,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.default_local_dir=/scratch/${user_name}/checkpoints/${project_name}/${experiment_name}_run${run_number} \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
-  trainer.resume_mode=resume_path \
-  trainer.resume_from_path=${resume_checkpoint} \
   trainer.tags=$WANDB_TAGS \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
   evaluation=overcooked_with_snake_evals \
@@ -205,3 +202,4 @@ if [ -n "$RAY_HEAD_PID" ]; then
     kill $RAY_HEAD_PID 2>/dev/null || true
     echo "Ray cluster stopped."
 fi
+
