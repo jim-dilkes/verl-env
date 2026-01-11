@@ -55,4 +55,5 @@ class MiniHackLLMAgentsWrapper(gym.Wrapper):
             "behavior/backtrack_length": total_but_occurrences
         }
         
-        return full_action, valid_action, is_valid, metrics
+        extracted_action = lower_action  # action after parsing but before validation
+        return full_action, extracted_action, valid_action, is_valid, metrics

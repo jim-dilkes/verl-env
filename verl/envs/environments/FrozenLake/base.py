@@ -90,7 +90,8 @@ You are navigating the surface of a frozen lake. You must reach the goal.
             "behavior/valid_action_ratio": is_valid * 1.0,
         }
 
-        return full_action, valid_action, is_valid, metrics
+        extracted_action = action  # action after parsing but before validation
+        return full_action, extracted_action, valid_action, is_valid, metrics
 
     def get_stats(self):
         return {}
