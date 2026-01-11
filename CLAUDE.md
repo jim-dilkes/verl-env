@@ -23,6 +23,13 @@ Only modify files in:
 - `verl/envs/captioners/` (all files)
 - `experiments/` (config files)
 
+## Config Registration
+New config parameters must be registered in the appropriate YAML before use in sbatch overrides.
+- Prompt configs: `verl/trainer/config/prompt/<env>.yaml` (e.g., `snake.yaml`)
+- Hydra will reject overrides for unregistered keys
+
+Example: To add `prompt.prompt.my_new_param=True`, first add `my_new_param: false` to the prompt yaml.
+
 ## External Resources
 - FastSnake repo: `github.com/jim-dilkes/FastSnake` (cloned to `verl/envs/environments/FastSnake/`)
 
