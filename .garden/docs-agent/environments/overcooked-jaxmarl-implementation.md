@@ -180,9 +180,9 @@ config.envs.overcooked_kwargs = {
 
 From JaxMARL:
 - cramped_room (5x4, simple)
-- asymmetric_advantages
-- coordination_ring
-- forced_coordination
+- asymm_advantages
+- coord_ring
+- forced_coord
 - counter_circuit
 - Many more via `overcooked_v2_layouts.keys()`
 
@@ -196,7 +196,7 @@ python -m verl.envs.environments.overcooked.interactive_play
 python -m verl.envs.environments.overcooked.interactive_play --list-layouts
 
 # Specific layout with random partner
-python -m verl.envs.environments.overcooked.interactive_play --layout forced_coordination --partner random
+python -m verl.envs.environments.overcooked.interactive_play --layout forced_coord --partner random
 
 # Coordinates only (no grid)
 python -m verl.envs.environments.overcooked.interactive_play --no-grid
