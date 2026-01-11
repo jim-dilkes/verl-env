@@ -5,6 +5,12 @@
 # To use this config, specify: prompt=example
 
 prompt:
+  # Multi-action reasoning mode: model generates reasoning for each action
+  multi_action_reasoning: false
+
+  # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
+  epsilon: 0.0
+
   # Captioner instruction for NaiveCaptioner
   naive_instruction: |
     Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
