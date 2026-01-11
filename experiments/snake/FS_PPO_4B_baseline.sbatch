@@ -1,19 +1,19 @@
 #!/bin/bash
-#SBATCH --job-name=FS_PPO_4B_Hpt001_101
+#SBATCH --job-name=FS_PPO_4B_Hpt001_respHist_11
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=scavenger_mathsa100
-#SBATCH --time=12:00:00
+#SBATCH --partition=swarm_h100,swarm_a100,a100
+#SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
 # --- Define experiment variables ---
 project_name=verl_env
-experiment_name=FS_PPO_4B_Hpt001
-run_number=101
+experiment_name=FS_PPO_4B_Hpt001_respHist
+run_number=11
 number_of_gpus=2
 WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1"]'
 
@@ -87,7 +87,7 @@ critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
 rollout_max_num_batched_tokens=$((micro_batch_size * max_token_len_per_gpu + 2560))
 rollout_max_num_seqs=$((2048))
 
-PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
+PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
   data.train_batch_size=256 \
@@ -122,8 +122,8 @@ PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.load_format=dummy_dtensor \
   actor_rollout_ref.rollout.update_weights_bucket_megabytes=256 \
   +actor_rollout_ref.model.override_config.torch_dtype=bfloat16 \
-  actor_rollout_ref.model.use_remove_padding=False \
-  actor_rollout_ref.model.use_fused_kernels=False \
+  actor_rollout_ref.model.use_remove_padding=True \
+  actor_rollout_ref.model.use_fused_kernels=True \
   actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
   +critic.model.override_config.torch_dtype=bfloat16 \
   critic.model.fsdp_config.model_dtype=bfloat16 \
