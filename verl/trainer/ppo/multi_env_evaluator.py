@@ -659,7 +659,11 @@ class MultiEnvEvaluator:
             
             if track_standard_metrics:
                 # NOTE: scores are always the cumulative score for the entire episode, not the score for the current step
-                score_values = self._extract_from_info(info_vec, "score", as_array=True, array_dtype=np.float64)
+                # Use default=None so envs without score tracking don't crash
+                try:
+                    score_values = self._extract_from_info(info_vec, "score", as_array=True, array_dtype=np.float64)
+                except ValueError:
+                    score_values = None
 
                 if end_of_traj is None:
                     end_of_traj = np.logical_or(terminated_vec, truncated_vec)
