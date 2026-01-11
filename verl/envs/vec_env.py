@@ -290,6 +290,7 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
         try:
             full_action, extracted_action, executed_action, is_valid, metrics = env.extract_action(action)
             env_obs, reward, terminated, truncated, info = env.step(executed_action, is_valid)
+            info["action_was_valid"] = is_valid
             if executed_action is not None:
                 info["executed_action_text"] = executed_action
             

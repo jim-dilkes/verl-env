@@ -143,13 +143,13 @@ class WebShopLLMAgentsWrapper(gym.Wrapper):
             action: Raw LLM output string
         
         Returns:
-            tuple: (full_action, executed_action, is_valid, metrics)
+            tuple: (full_action, extracted_action, valid_action, is_valid, metrics)
         """
         full_action = str(action)
-        
+
         # Extract action from XML tags
         extracted_action = WebShopLLMAgentsWrapper.extract_action_from_xml_tag(full_action)
-        
+
         if extracted_action is None:
             # No valid XML tag found
             is_valid = False
@@ -157,24 +157,24 @@ class WebShopLLMAgentsWrapper(gym.Wrapper):
             metrics = {
                 "behavior/valid_action_ratio": 0.0,
             }
-            return full_action, valid_action, is_valid, metrics
-        
+            return full_action, extracted_action, valid_action, is_valid, metrics
+
         # Normalize action (lowercase, strip whitespace)
         extracted_action = extracted_action.strip().lower()
-        
+
         # Check if it's a valid action format
         is_valid = self._is_valid_action(extracted_action)
-        
+
         if is_valid:
             valid_action = extracted_action
         else:
             valid_action = self.default_action
-        
+
         metrics = {
             "behavior/valid_action_ratio": 1.0 if is_valid else 0.0,
         }
-        
-        return full_action, valid_action, is_valid, metrics
+
+        return full_action, extracted_action, valid_action, is_valid, metrics
     
     def _is_valid_action(self, action: str) -> bool:
         """Check if an action is valid given current environment state.
