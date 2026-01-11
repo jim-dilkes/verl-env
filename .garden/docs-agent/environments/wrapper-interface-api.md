@@ -147,6 +147,11 @@ def extract_action_from_xml_tag(text: str, tag: str = "action") -> str:
         return None
 ```
 
+## Optional Info Dict Keys
+
+The evaluator looks for these optional keys in info:
+- `score`: Cumulative episode score (if not present, evaluator skips score tracking)
+
 ## Common Bugs to Avoid
 
 1. **Wrong extract_action signature**: Must return 5 values, not 4
