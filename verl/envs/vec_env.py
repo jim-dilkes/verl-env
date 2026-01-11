@@ -288,7 +288,10 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
     
     def env_step(action):
         try:
-            full_action, extracted_action, executed_action, is_valid, metrics = env.extract_action(action)
+            # Use extract_action_instance if available (for multi-action/epsilon support)
+            # Otherwise fall back to extract_action
+            extract_fn = getattr(env, 'extract_action_instance', env.extract_action)
+            full_action, extracted_action, executed_action, is_valid, metrics = extract_fn(action)
             env_obs, reward, terminated, truncated, info = env.step(executed_action, is_valid)
             info["action_was_valid"] = is_valid
             if executed_action is not None:
