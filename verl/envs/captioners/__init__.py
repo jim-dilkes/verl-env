@@ -23,5 +23,8 @@ def make_captioner(config):
     elif config.envs.captioner.type == "cot":
         from .cot import COTCaptioner
         return COTCaptioner(prompt_builder, env_name)
+    elif config.envs.captioner.type == "multi_action":
+        from .multi_action import MultiActionCaptioner
+        return MultiActionCaptioner(prompt_builder, env_name)
     else:
-        raise ValueError(f"Unknown captioner type: {config.captioner.type}")
+        raise ValueError(f"Unknown captioner type: {config.envs.captioner.type}")
