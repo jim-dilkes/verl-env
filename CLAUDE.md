@@ -11,6 +11,9 @@
 
 Read these at session start for project context.
 
+## Environment
+- Conda environment: `conda activate verlog`
+
 ## Scope of Work
 Only modify files in:
 - `verl/trainer/ppo/ray_multistep_trainer.py`
