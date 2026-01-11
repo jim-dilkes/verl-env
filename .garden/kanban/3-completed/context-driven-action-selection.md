@@ -3,7 +3,7 @@
 ## Status
 - Created: 2026-01-11
 - Started: 2026-01-11
-- Completed:
+- Completed: 2026-01-11
 
 ## Scope
 **In scope:**
