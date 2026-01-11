@@ -13,6 +13,7 @@ Read these at session start for project context.
 
 ## Environment
 - Conda environment: `conda activate verlog`
+- SLURM jobs: Run on iridis via `ssh iridis3`, repo at `~/verl-env`, then `./submit_sbatch <dir>`
 
 ## Scope of Work
 Only modify files in:
