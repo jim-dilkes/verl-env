@@ -107,7 +107,7 @@ class MultiEnvEvaluator:
     interface for the RayPPOTrainer to perform multi-environment evaluation.
     """
     
-    def __init__(self, config, tokenizer, actor_rollout_wg, val_reward_fn, eval_config=None):
+    def __init__(self, config, tokenizer, actor_rollout_wg, val_reward_fn, eval_config=None, debug: Optional[bool] = None):
         """
         Initialize the MultiEnvEvaluator.
         
@@ -122,6 +122,14 @@ class MultiEnvEvaluator:
         self.tokenizer = tokenizer
         self.actor_rollout_wg = actor_rollout_wg
         self.val_reward_fn = val_reward_fn
+
+        # Controls noisy debug prints like "[MultiEnvEvaluator] ...".
+        # Default is OFF; can be enabled via env var or constructor arg.
+        self._debug = self._parse_env_flag(
+            "VERL_MULTIENV_EVALUATOR_DEBUG",
+            default=False,
+            override=debug,
+        )
         
         # Initialize validation generations logger
         self.validation_generations_logger = ValidationGenerationsLogger()
@@ -135,9 +143,27 @@ class MultiEnvEvaluator:
         if not self.eval_environments:
             raise ValueError("No evaluation environments found in evaluation config")
         
-        print(f"MultiEnvEvaluator initialized with {len(self.eval_environments)} evaluation environments")
+        self._dbg_print(f"MultiEnvEvaluator initialized with {len(self.eval_environments)} evaluation environments")
         for i, env_config in enumerate(self.eval_environments):
-            print(f"  Environment {i}: {env_config.get('name', f'env_{i}')}")
+            self._dbg_print(f"  Environment {i}: {env_config.get('name', f'env_{i}')} ")
+
+    @staticmethod
+    def _parse_env_flag(name: str, default: bool, override: Optional[bool] = None) -> bool:
+        if override is not None:
+            return bool(override)
+        raw = os.environ.get(name)
+        if raw is None:
+            return default
+        raw = raw.strip().lower()
+        if raw in {"0", "false", "no", "off"}:
+            return False
+        if raw in {"1", "true", "yes", "on"}:
+            return True
+        return default
+
+    def _dbg_print(self, msg: str) -> None:
+        if self._debug:
+            print(msg, flush=True)
     
     def evaluate(self, global_step):
         """
@@ -149,19 +175,19 @@ class MultiEnvEvaluator:
         Returns:
             dict: Combined metrics from all evaluation environments
         """
-        print(f"[MultiEnvEvaluator] Starting evaluation at global_step={global_step}")
-        print(f"[MultiEnvEvaluator] Number of environments to evaluate: {len(self.eval_environments)}")
+        self._dbg_print(f"[MultiEnvEvaluator] Starting evaluation at global_step={global_step}")
+        self._dbg_print(f"[MultiEnvEvaluator] Number of environments to evaluate: {len(self.eval_environments)}")
         
         # Log initial memory usage
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
-        print(f"[MultiEnvEvaluator] Initial memory usage: {initial_memory:.1f} MB")
+        self._dbg_print(f"[MultiEnvEvaluator] Initial memory usage: {initial_memory:.1f} MB")
         
         all_metrics = {}
         
         for env_idx, env_config in enumerate(self.eval_environments):
             eval_name = env_config.get('name', f'env_{env_idx}')
-            print(f"Evaluating environment: {eval_name}")
+            self._dbg_print(f"Evaluating environment: {eval_name}")
             
             # try:
             # Record start time for this environment
@@ -195,8 +221,8 @@ class MultiEnvEvaluator:
                         prefixed_metrics[prefixed_key] = value
                     
                     all_metrics.update(prefixed_metrics)
-                    print(f"[MultiEnvEvaluator] Added {len(prefixed_metrics)} metrics for {eval_name}")
-                    print(f"[MultiEnvEvaluator] Sample metrics for {eval_name}: {list(prefixed_metrics.keys())[:5]}")
+                    self._dbg_print(f"[MultiEnvEvaluator] Added {len(prefixed_metrics)} metrics for {eval_name}")
+                    self._dbg_print(f"[MultiEnvEvaluator] Sample metrics for {eval_name}: {list(prefixed_metrics.keys())[:5]}")
                     
                     inference_time = env_metrics.get("inference_time_seconds", 0.0)
                     print(f"Completed evaluation for {eval_name} in {eval_time:.2f}s (inference: {inference_time:.2f}s)")
@@ -212,16 +238,22 @@ class MultiEnvEvaluator:
             
             # Log memory usage after each environment
             current_memory = process.memory_info().rss / 1024 / 1024  # MB
-            print(f"[MultiEnvEvaluator] Memory usage after {eval_name}: {current_memory:.1f} MB (delta: {current_memory - initial_memory:+.1f} MB)")
+            self._dbg_print(
+                f"[MultiEnvEvaluator] Memory usage after {eval_name}: {current_memory:.1f} MB "
+                f"(delta: {current_memory - initial_memory:+.1f} MB)"
+            )
         
         # Final memory cleanup and logging
         gc.collect()
         final_memory = process.memory_info().rss / 1024 / 1024  # MB
-        print(f"[MultiEnvEvaluator] Final memory usage: {final_memory:.1f} MB (total delta: {final_memory - initial_memory:+.1f} MB)")
+        self._dbg_print(
+            f"[MultiEnvEvaluator] Final memory usage: {final_memory:.1f} MB "
+            f"(total delta: {final_memory - initial_memory:+.1f} MB)"
+        )
         
-        print(f"[MultiEnvEvaluator] Evaluation completed. Total metrics collected: {len(all_metrics)}")
-        print(f"[MultiEnvEvaluator] All metric keys: {list(all_metrics.keys())}")
-        print(f"[MultiEnvEvaluator] Sample metric values: {dict(list(all_metrics.items())[:3])}")
+        self._dbg_print(f"[MultiEnvEvaluator] Evaluation completed. Total metrics collected: {len(all_metrics)}")
+        self._dbg_print(f"[MultiEnvEvaluator] All metric keys: {list(all_metrics.keys())}")
+        self._dbg_print(f"[MultiEnvEvaluator] Sample metric values: {dict(list(all_metrics.items())[:3])}")
         
         return all_metrics
     
@@ -237,10 +269,10 @@ class MultiEnvEvaluator:
         """
         from omegaconf import OmegaConf, open_dict
         
-        print(f"[MultiEnvEvaluator] Creating config for environment: {env_config.get('name', 'unknown')}")
-        print(f"[MultiEnvEvaluator] Original env_config: {env_config}")
-        print(f"[MultiEnvEvaluator] Training config n_rollouts: {self.config.envs.n_rollouts}")
-        print(f"[MultiEnvEvaluator] Evaluation env_config n_rollouts: {env_config['n_rollouts']}")
+        self._dbg_print(f"[MultiEnvEvaluator] Creating config for environment: {env_config.get('name', 'unknown')}")
+        self._dbg_print(f"[MultiEnvEvaluator] Original env_config: {env_config}")
+        self._dbg_print(f"[MultiEnvEvaluator] Training config n_rollouts: {self.config.envs.n_rollouts}")
+        self._dbg_print(f"[MultiEnvEvaluator] Evaluation env_config n_rollouts: {env_config['n_rollouts']}")
         
         # Create a proper copy using OmegaConf methods to avoid struct mode issues
         # Convert to container, modify, then recreate OmegaConf object
@@ -261,32 +293,36 @@ class MultiEnvEvaluator:
             # Handle instruction_prompt from evaluation config
             if 'instruction_prompt' in env_config:
                 temp_config.envs.instruction_prompt = env_config['instruction_prompt']
-                print(f"[MultiEnvEvaluator] Set instruction_prompt from eval config (length: {len(env_config['instruction_prompt']) if env_config['instruction_prompt'] else 0} chars)")
+                self._dbg_print(
+                    f"[MultiEnvEvaluator] Set instruction_prompt from eval config (length: {len(env_config['instruction_prompt']) if env_config['instruction_prompt'] else 0} chars)"
+                )
             
-            print(f"[MultiEnvEvaluator] After basic overrides - n_rollouts: {temp_config.envs.n_rollouts}, task: {temp_config.envs.task}, env_name: {temp_config.envs.env_name}")
+            self._dbg_print(
+                f"[MultiEnvEvaluator] After basic overrides - n_rollouts: {temp_config.envs.n_rollouts}, task: {temp_config.envs.task}, env_name: {temp_config.envs.env_name}"
+            )
             
             # Handle captioner configuration
             if 'captioner' in env_config:
-                print(f"[MultiEnvEvaluator] Original captioner config: {self.config.envs.captioner}")
-                print(f"[MultiEnvEvaluator] Environment captioner config: {env_config['captioner']}")
+                self._dbg_print(f"[MultiEnvEvaluator] Original captioner config: {self.config.envs.captioner}")
+                self._dbg_print(f"[MultiEnvEvaluator] Environment captioner config: {env_config['captioner']}")
                 
                 # Merge captioner config with defaults to ensure all required fields are present
                 captioner_config = OmegaConf.to_container(self.config.envs.captioner)
                 captioner_config.update(env_config['captioner'])
                 temp_config.envs.captioner = captioner_config
                 
-                print(f"[MultiEnvEvaluator] Final captioner config: {temp_config.envs.captioner}")
+                self._dbg_print(f"[MultiEnvEvaluator] Final captioner config: {temp_config.envs.captioner}")
             
             # Handle environment-specific kwargs
             env_name = env_config['env_name']
             if f'{env_name}_kwargs' in env_config:
-                print(f"[MultiEnvEvaluator] Setting {env_name}_kwargs: {env_config[f'{env_name}_kwargs']}")
+                self._dbg_print(f"[MultiEnvEvaluator] Setting {env_name}_kwargs: {env_config[f'{env_name}_kwargs']}")
                 temp_config.envs[f'{env_name}_kwargs'] = env_config[f'{env_name}_kwargs']
             
             # Set initial seed if specified
             if 'initial_seed' in env_config:
                 temp_config.envs.group_initial_seed = env_config['initial_seed']
-                print(f"[MultiEnvEvaluator] Set initial_seed: {env_config['initial_seed']}")
+                self._dbg_print(f"[MultiEnvEvaluator] Set initial_seed: {env_config['initial_seed']}")
 
             # Force epsilon=0 for evaluation unless explicitly overridden in eval config
             # Epsilon-greedy exploration should only happen during training, not evaluation
@@ -295,15 +331,15 @@ class MultiEnvEvaluator:
                 if 'epsilon' in env_config:
                     # Explicit override in eval config - use that value
                     temp_config.prompt.prompt.epsilon = env_config['epsilon']
-                    print(f"[MultiEnvEvaluator] Epsilon explicitly set in eval config: {env_config['epsilon']}")
+                    self._dbg_print(f"[MultiEnvEvaluator] Epsilon explicitly set in eval config: {env_config['epsilon']}")
                 else:
                     # Force epsilon=0 for evaluation
                     temp_config.prompt.prompt.epsilon = 0.0
                     if original_epsilon > 0:
-                        print(f"[MultiEnvEvaluator] Forcing epsilon=0 for evaluation (training had epsilon={original_epsilon})")
+                        self._dbg_print(f"[MultiEnvEvaluator] Forcing epsilon=0 for evaluation (training had epsilon={original_epsilon})")
         
-        print(f"[MultiEnvEvaluator] Final temp_config.envs.n_rollouts: {temp_config.envs.n_rollouts}")
-        print(f"[MultiEnvEvaluator] Final temp_config.envs keys: {list(temp_config.envs.keys())}")
+        self._dbg_print(f"[MultiEnvEvaluator] Final temp_config.envs.n_rollouts: {temp_config.envs.n_rollouts}")
+        self._dbg_print(f"[MultiEnvEvaluator] Final temp_config.envs keys: {list(temp_config.envs.keys())}")
         return temp_config
     
     def _get_generation_config(self, env_config):
@@ -324,7 +360,7 @@ class MultiEnvEvaluator:
         # Check if generation config is specified in env_config
         if 'generation' in env_config:
             gen_config_from_env = env_config['generation']
-            print(f"[MultiEnvEvaluator] Using generation config from env_config: {gen_config_from_env}")
+            self._dbg_print(f"[MultiEnvEvaluator] Using generation config from env_config: {gen_config_from_env}")
             
             # Map generation parameters to meta_info keys
             # Note: vLLM supports min_p but not top_a
@@ -346,7 +382,7 @@ class MultiEnvEvaluator:
                 rollout_config = self.config.actor_rollout_ref.rollout
                 if hasattr(rollout_config, 'val_kwargs'):
                     val_kwargs = rollout_config.val_kwargs
-                    print(f"[MultiEnvEvaluator] Using generation config from val_kwargs: {val_kwargs}")
+                    self._dbg_print(f"[MultiEnvEvaluator] Using generation config from val_kwargs: {val_kwargs}")
                     
                     if hasattr(val_kwargs, 'temperature'):
                         gen_config['temperature'] = val_kwargs.temperature
@@ -364,7 +400,7 @@ class MultiEnvEvaluator:
         # Always set validate flag
         gen_config['validate'] = True
         
-        print(f"[MultiEnvEvaluator] Final generation config: {gen_config}")
+        self._dbg_print(f"[MultiEnvEvaluator] Final generation config: {gen_config}")
         return gen_config
     
     def _maybe_log_episode_generation(self, episode_data, env_name, global_step):
@@ -382,7 +418,7 @@ class MultiEnvEvaluator:
             return
         
         if episode_data is None:
-            print(f"[MultiEnvEvaluator] No episode data to log for {env_name}")
+            self._dbg_print(f"[MultiEnvEvaluator] No episode data to log for {env_name}")
             return
         
         # Format the episode data for logging
@@ -391,7 +427,7 @@ class MultiEnvEvaluator:
         total_score = episode_data['total_score']
         score_log_value = "N/A" if total_score is None else total_score
         if total_score is None:
-            print(f"[MultiEnvEvaluator] Episode score unavailable for {env_name}; logging 'N/A'.")
+            self._dbg_print(f"[MultiEnvEvaluator] Episode score unavailable for {env_name}; logging 'N/A'.")
         
         # Create sample tuple (input, output, score) as expected by ValidationGenerationsLogger
         sample = (formatted_input, formatted_output, score_log_value)
@@ -400,7 +436,7 @@ class MultiEnvEvaluator:
         logger_backends = getattr(self.config.trainer, 'logger', ['console'])
         self.validation_generations_logger.log(logger_backends, [sample], global_step, table_name=f"eval_{env_name}_gen/generations")
         
-        print(f"[MultiEnvEvaluator] Logged episode generation for {env_name} at step {global_step}")
+        self._dbg_print(f"[MultiEnvEvaluator] Logged episode generation for {env_name} at step {global_step}")
     
     def _format_episode(self, ep_content_list):
         """
@@ -649,9 +685,11 @@ class MultiEnvEvaluator:
             use_end_of_traj = end_of_traj if end_of_traj is not None else np.zeros(len(full_responses), dtype=bool)
 
             # Debug prints for validity and append behavior
-            print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} use_end_of_traj={use_end_of_traj.tolist() if hasattr(use_end_of_traj, 'tolist') else use_end_of_traj}")
-            print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} was_valid_list={was_valid_list}")
-            print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} executed_actions={executed_actions}")
+            self._dbg_print(
+                f"[MultiEnvEvaluator] {eval_name}: step {step_idx} use_end_of_traj={use_end_of_traj.tolist() if hasattr(use_end_of_traj, 'tolist') else use_end_of_traj}"
+            )
+            self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} was_valid_list={was_valid_list}")
+            self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} executed_actions={executed_actions}")
 
             total_attempted_actions_this_step = n_rollouts - use_end_of_traj.sum()
             total_attempted_actions += total_attempted_actions_this_step
@@ -796,11 +834,11 @@ class MultiEnvEvaluator:
         if n_groups > 1:
             distinct_state_actions_valid_by_group = [len(set(group_state_actions)) for group_state_actions in group_state_action_texts_valid]
             distinct_state_actions_by_group = [len(set(group_state_actions)) for group_state_actions in group_state_action_texts_all]
-            print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_per_group={distinct_state_actions_valid_by_group}")
+            self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_per_group={distinct_state_actions_valid_by_group}")
             # Debug sample of raw state-action strings before set() for the first group
             if group_state_action_texts_valid and group_state_action_texts_valid[0]:
                 sample_sa = group_state_action_texts_valid[0][:5]
-                print(f"[MultiEnvEvaluator] {eval_name}: sample state-action strings (group 0): {sample_sa}")
+                self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: sample state-action strings (group 0): {sample_sa}")
             metric_dict.update({
                 "n_distinct_state_actions_valid_mean": np.mean(distinct_state_actions_valid_by_group),
                 "n_distinct_state_actions_valid_std": np.std(distinct_state_actions_valid_by_group),
@@ -829,9 +867,13 @@ class MultiEnvEvaluator:
                 if n_frames > 0
             ]
 
-            print(f"[MultiEnvEvaluator] {eval_name}: total_frames_per_group={total_frames_per_group}")
-            print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_per_frame_by_group (incl invalid)={distinct_state_actions_per_frame_by_group}")
-            print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_valid_per_frame_by_group={distinct_state_actions_valid_per_frame_by_group}")
+            self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: total_frames_per_group={total_frames_per_group}")
+            self._dbg_print(
+                f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_per_frame_by_group (incl invalid)={distinct_state_actions_per_frame_by_group}"
+            )
+            self._dbg_print(
+                f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_valid_per_frame_by_group={distinct_state_actions_valid_per_frame_by_group}"
+            )
 
             metric_dict.update({
                 "distinct_state_actions_per_frame_mean": np.mean(distinct_state_actions_per_frame_by_group),
@@ -851,8 +893,12 @@ class MultiEnvEvaluator:
                     float(n_distinct_state_actions) / opportunity
                     for n_distinct_state_actions in distinct_state_actions_by_group
                 ]
-                print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_valid_coverage_by_group={distinct_state_action_valid_coverage_by_group}, opportunity={opportunity}")
-                print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_coverage_by_group={distinct_state_action_coverage_by_group}, opportunity={opportunity}")
+                self._dbg_print(
+                    f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_valid_coverage_by_group={distinct_state_action_valid_coverage_by_group}, opportunity={opportunity}"
+                )
+                self._dbg_print(
+                    f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_coverage_by_group={distinct_state_action_coverage_by_group}, opportunity={opportunity}"
+                )
                 metric_dict.update({
                     "distinct_state_actions_valid_coverage_mean": np.mean(distinct_state_action_valid_coverage_by_group),
                     "distinct_state_actions_valid_coverage_std": np.std(distinct_state_action_valid_coverage_by_group),
@@ -860,7 +906,7 @@ class MultiEnvEvaluator:
                     "distinct_state_actions_coverage_std": np.std(distinct_state_action_coverage_by_group),
                 })
             else:
-                print(f"[MultiEnvEvaluator] {eval_name} WARNING: opportunity is 0, skipping coverage metrics")
+                self._dbg_print(f"[MultiEnvEvaluator] {eval_name} WARNING: opportunity is 0, skipping coverage metrics")
 
         # Valid action tracking across the episode
         metric_dict.update({
