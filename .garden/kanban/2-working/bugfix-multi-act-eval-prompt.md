@@ -16,8 +16,8 @@
 - New captioner types
 
 ## Goals
-- [ ] Fix eval to use correct multi-act prompt
-- [ ] Test with 25% epsilon (much higher than current)
+- [x] Fix eval to use correct multi-act prompt
+- [ ] Test with 25% epsilon (much higher than current) - requires cluster run
 
 ## Problem Analysis
 When training with `envs.captioner.type=multi_action` and `prompt.prompt.multi_action_reasoning=True`:
@@ -34,9 +34,9 @@ Two-part fix:
 2. **Optional explicit override**: Eval configs can still set `captioner.type: <value>` when intentionally testing different format
 
 ## Acceptance Criteria
-- [ ] Training with `multi_action` captioner uses same captioner in evals (when eval doesn't override)
-- [ ] Eval configs can still explicitly set different captioner type when desired
-- [ ] Logged eval generations show correct multi-action format
+- [x] Training with `multi_action` captioner uses same captioner in evals (when eval doesn't override)
+- [x] Eval configs can still explicitly set different captioner type when desired
+- [ ] Logged eval generations show correct multi-action format - verify on cluster
 
 ## Test Cases
 1. Run `test_login_node_multi_action.sh` - verify eval uses multi_action format
