@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=FS_PPO_4B_MA_eps0
+#SBATCH --job-name=FS_PPO_4B_multiact_eps0_10
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
@@ -12,8 +12,8 @@
 
 # --- Define experiment variables ---
 project_name=verl_env
-experiment_name=FS_PPO_4B_MA_eps0
-run_number=1
+experiment_name=FS_PPO_4B_multiact_eps0
+run_number=10
 number_of_gpus=2
 WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1","multi_action","epsilon:0.0"]'
 
@@ -183,9 +183,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.max_critic_ckpt_to_keep=1 \
   trainer.tags=$WANDB_TAGS \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=snake_evals \
-  prompt=snake \
-  prompt.prompt.multi_action_reasoning=True \
+  evaluation=snake_evals_multi_action \
+  prompt=snake_multi_action \
   prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
 
 actual_session_dir="${short_temp_dir}/session_latest"
@@ -201,4 +200,3 @@ if [ -n "$RAY_HEAD_PID" ]; then
     kill $RAY_HEAD_PID 2>/dev/null || true
     echo "Ray cluster stopped."
 fi
-

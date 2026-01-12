@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=FS_PPO_4B_MA_eps0
+#SBATCH --job-name=OC_PPO_4B_multiact_eps0_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
@@ -12,10 +12,10 @@
 
 # --- Define experiment variables ---
 project_name=verl_env
-experiment_name=FS_PPO_4B_MA_eps0
+experiment_name=OC_PPO_4B_multiact_eps0
 run_number=1
 number_of_gpus=2
-WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1","multi_action","epsilon:0.0"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi_action","epsilon:0.0"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -80,7 +80,7 @@ fi
 micro_batch_size=16
 
 max_prompt_length=768
-max_response_length=384
+max_response_length=512
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
 critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
 
@@ -141,19 +141,20 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.n_rollouts=32 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
-  envs.env_name=fastsnake \
+  envs.env_name=overcooked \
   envs.format_penalty=1 \
   envs.binary_reward=False \
   envs.captioner.type=multi_action \
   envs.captioner.max_text_history=0 \
   envs.captioner.max_cot_history=0 \
-  envs.fastsnake_kwargs.width=10 \
-  envs.fastsnake_kwargs.height=10 \
-  envs.fastsnake_kwargs.max_rounds=8 \
-  envs.fastsnake_kwargs.num_external_snakes=1 \
-  envs.fastsnake_kwargs.num_random_snakes=1 \
-  envs.fastsnake_kwargs.death_reward=-1 \
-  envs.vec_env_multiprocessing=fork \
+  envs.overcooked_kwargs.layout_name=cramped_room \
+  envs.overcooked_kwargs.horizon=20 \
+  envs.overcooked_kwargs.partner_policy=none \
+  envs.overcooked_kwargs.shaped_reward=False \
+  envs.overcooked_kwargs.pot_cook_time=3 \
+  envs.overcooked_kwargs.print_visualization=false \
+  envs.overcooked_kwargs.print_coordinates=true \
+  envs.vec_env_multiprocessing=spawn \
   actor_rollout_ref.rollout.calculate_log_probs=true \
   algorithm.rollout_correction.rollout_is=sequence \
   algorithm.rollout_correction.rollout_is_threshold=3.0 \
@@ -183,9 +184,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.max_critic_ckpt_to_keep=1 \
   trainer.tags=$WANDB_TAGS \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=snake_evals \
-  prompt=snake \
-  prompt.prompt.multi_action_reasoning=True \
+  evaluation=overcooked_evals_multi_action \
+  prompt=overcooked_multi_action \
   prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
 
 actual_session_dir="${short_temp_dir}/session_latest"
@@ -201,4 +201,3 @@ if [ -n "$RAY_HEAD_PID" ]; then
     kill $RAY_HEAD_PID 2>/dev/null || true
     echo "Ray cluster stopped."
 fi
-
