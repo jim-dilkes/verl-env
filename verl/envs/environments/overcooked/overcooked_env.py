@@ -44,6 +44,17 @@ def make_overcooked_env(env_name, task, config, render_mode=None):
 
     env_kwargs = dict(config.envs) if hasattr(config, "envs") else {}
 
+    # Check for multi-action reasoning mode and epsilon
+    multi_action_reasoning = False
+    epsilon = 0.0
+    if hasattr(config, "prompt") and hasattr(config.prompt, "prompt"):
+        multi_action_reasoning = getattr(config.prompt.prompt, "multi_action_reasoning", False)
+        epsilon = getattr(config.prompt.prompt, "epsilon", 0.0)
+
+    env_kwargs["multi_action_reasoning"] = multi_action_reasoning
+    env_kwargs["epsilon"] = epsilon
+
+    # Config instruction always overrides wrapper default when provided
     if hasattr(config, "prompt") and hasattr(config.prompt, "prompt"):
         environment_instruction = getattr(config.prompt.prompt, "environment_instruction", None)
         if environment_instruction is not None:

@@ -1,15 +1,38 @@
 # @package prompt
 
 # Overcooked environment prompt configuration
-# To use this config, specify: prompt=overcooked
+# To use: prompt=overcooked
 
 prompt:
+  # Multi-action reasoning mode: model generates reasoning for each action
+  # When true, uses <decision> tag; when false, uses <action> tag
+  multi_action_reasoning: false
+
+  # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
+  epsilon: 0.0
+
+  # Captioner instruction for NaiveCaptioner (standard mode)
   naive_instruction: |
     Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
     [Response Template]
     <plan>{Think about what you need to do next to make and deliver soups. Consider your position, what you're holding, and pot status.}</plan>
     <action>{Your selected action from the list above}</action>
 
+  # Captioner instruction for multi-action reasoning mode
+  multi_action_naive_instruction: |
+    You must reason about EACH available action, then make a decision. Stop responding after the </decision> tag.
+    [Response Template]
+    <actions>
+    <action name="right">Your reasoning about moving right...</action>
+    <action name="down">Your reasoning about moving down...</action>
+    <action name="left">Your reasoning about moving left...</action>
+    <action name="up">Your reasoning about moving up...</action>
+    <action name="stay">Your reasoning about staying...</action>
+    <action name="interact">Your reasoning about interacting...</action>
+    </actions>
+    <decision>{Your selected action}</decision>
+
+  # Environment instruction for Overcooked (standard mode)
   environment_instruction: |
     [Instructions]
     You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
@@ -35,3 +58,48 @@ prompt:
     [Rules]
     - You can only hold one object at a time
     - Each soup requires exactly 3 ingredients
+
+  # Environment instruction for Overcooked (multi-action reasoning mode)
+  # Set environment_instruction to this value when multi_action_reasoning=true
+  multi_action_environment_instruction: |
+    [Instructions]
+    You are playing Overcooked solo. You control the only chef in a kitchen.
+    Your goal is to cook and deliver soups as fast as possible to earn rewards. Your maximum response length: 400 words.
+
+    [How to Cook]
+    1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact'
+    2. Place 3 ingredients in a pot using 'interact' while facing it
+    3. Wait for the soup to cook
+    4. Pick up a dish from the dish pile
+    5. Pick up the cooked soup from the pot (with dish in hand)
+    6. Deliver the soup to the serving counter using 'interact'
+
+    [Available Actions]
+    "right": move right,
+    "down": move down,
+    "left": move left,
+    "up": move up,
+    "stay": stay in place (wait),
+    "interact": interact with object in front of you (pick up, place, or use)
+
+    [Response Format]
+    You must reason about EACH available action, then make a decision.
+
+    First, analyze each action by generating an <action> tag for each:
+    <actions>
+    <action name="right">Your reasoning about moving right...</action>
+    <action name="down">Your reasoning about moving down...</action>
+    <action name="left">Your reasoning about moving left...</action>
+    <action name="up">Your reasoning about moving up...</action>
+    <action name="stay">Your reasoning about staying...</action>
+    <action name="interact">Your reasoning about interacting...</action>
+    </actions>
+
+    Then, output your final decision:
+    <decision>your_chosen_action</decision>
+
+    [Rules]
+    - You can only hold one object at a time
+    - Each soup requires exactly 3 ingredients
+    - Delivering a completed soup earns +20 reward
+    - You must output reasoning for ALL six actions before making your decision
