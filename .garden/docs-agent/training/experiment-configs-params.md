@@ -24,9 +24,16 @@ envs.group_rollout_size: null  # For GRPO grouping
 envs.group_initial_seed: random | <int>
 
 # Captioner
-envs.captioner.type: naive | cot
+envs.captioner.type: naive | cot | multi_action
+#   naive: Appends response template (think/plan/action XML)
+#   cot: Chain-of-thought format
+#   multi_action: Relies on instruction_prompt for format (no appended template)
 envs.captioner.max_text_history: 0-16
 envs.captioner.max_image_history: 0-1
+
+# Prompt (multi-action mode)
+prompt.prompt.multi_action_reasoning: false  # Enable multi-action reasoning format
+prompt.prompt.epsilon: 0.0  # Epsilon-greedy exploration (0=deterministic)
 
 # Algorithm
 algorithm.adv_estimator: GAE | GRPO | RLOO | REINFORCE_PLUS_PLUS
