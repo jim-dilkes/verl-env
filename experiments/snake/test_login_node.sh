@@ -49,6 +49,10 @@ rollout_max_num_batched_tokens=$((micro_batch_size * max_token_len_per_gpu + 512
 rollout_max_num_seqs=128
 
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
+  +ray_kwargs.ray_init._node_ip_address=127.0.0.1 \
+  +ray_kwargs.ray_init.include_dashboard=false \
+  ray_kwargs.ray_init.num_cpus=$ray_num_cpus \
+  ray_kwargs.ray_init.num_gpus=$number_of_gpus \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
   data.train_batch_size=16 \
