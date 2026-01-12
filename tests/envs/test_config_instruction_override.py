@@ -4,7 +4,8 @@ Verifies that:
 1. Config environment_instruction always overrides wrapper default when provided
 2. When config doesn't specify instruction, wrapper generates appropriate default
 3. Multi-action reasoning mode uses <decision> tag for action extraction
-4. Epsilon-greedy exploration works in both envs
+
+Note: Epsilon-greedy exploration is centralized in vec_env.py, not in wrappers.
 """
 
 import pytest
@@ -38,11 +39,10 @@ class TestFastSnakeConfigOverride:
         """Factory to create FastSnake env with given config."""
         from verl.envs.environments.FastSnake.fastsnake_env import make_fastsnake_env
 
-        def _make(multi_action=False, epsilon=0.0, env_instruction=None):
+        def _make(multi_action=False, env_instruction=None):
             # Build config namespace mimicking hydra config
             prompt_config = SimpleNamespace(
                 multi_action_reasoning=multi_action,
-                epsilon=epsilon,
             )
             if env_instruction is not None:
                 prompt_config.environment_instruction = env_instruction
@@ -126,10 +126,9 @@ class TestOvercookedConfigOverride:
         """Factory to create Overcooked env with given config."""
         from verl.envs.environments.overcooked.overcooked_env import make_overcooked_env
 
-        def _make(multi_action=False, epsilon=0.0, env_instruction=None):
+        def _make(multi_action=False, env_instruction=None):
             prompt_config = SimpleNamespace(
                 multi_action_reasoning=multi_action,
-                epsilon=epsilon,
             )
             if env_instruction is not None:
                 prompt_config.environment_instruction = env_instruction
@@ -202,51 +201,6 @@ class TestOvercookedConfigOverride:
         assert extracted == "interact"
         assert valid == "interact"
         assert is_valid
-
-
-class TestEpsilonGreedy:
-    """Test epsilon-greedy exploration in both envs."""
-
-    def test_fastsnake_epsilon_zero_no_exploration(self):
-        """With epsilon=0, should never explore."""
-        from verl.envs.environments.FastSnake.fastsnake_env import make_fastsnake_env
-
-        config = DictableNamespace(
-            envs=DictableNamespace(
-                fastsnake_kwargs={"width": 10, "height": 10, "num_external_snakes": 0}
-            ),
-            prompt=SimpleNamespace(
-                prompt=SimpleNamespace(multi_action_reasoning=False, epsilon=0.0)
-            ),
-        )
-        env = make_fastsnake_env("fastsnake", None, config)
-
-        # Run many times, should never explore
-        llm_output = "<action>up</action>"
-        for _ in range(100):
-            _, _, valid, _, metrics = env.extract_action_instance(llm_output)
-            assert valid == "up"
-            assert metrics["behavior/epsilon_explored"] == 0.0
-
-    def test_overcooked_epsilon_zero_no_exploration(self):
-        """With epsilon=0, should never explore."""
-        from verl.envs.environments.overcooked.overcooked_env import make_overcooked_env
-
-        config = DictableNamespace(
-            envs=DictableNamespace(
-                overcooked_kwargs={"layout_name": "cramped_room", "horizon": 50}
-            ),
-            prompt=SimpleNamespace(
-                prompt=SimpleNamespace(multi_action_reasoning=False, epsilon=0.0)
-            ),
-        )
-        env = make_overcooked_env("overcooked", None, config)
-
-        llm_output = "<action>interact</action>"
-        for _ in range(100):
-            _, _, valid, _, metrics = env.extract_action_instance(llm_output)
-            assert valid == "interact"
-            assert metrics["behavior/epsilon_explored"] == 0.0
 
 
 if __name__ == "__main__":

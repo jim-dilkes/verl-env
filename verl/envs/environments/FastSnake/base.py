@@ -1,4 +1,3 @@
-import random
 import gymnasium as gym
 from verl.envs.environments.FastSnake import ACTIONS
 
@@ -15,9 +14,6 @@ class FastSnakeLLMAgentsWrapper(gym.Wrapper):
     def __init__(self, env, vlm=False, **kwargs):
         super().__init__(env)
         self.format_penalty = kwargs.get('format_penalty', 0.1)
-
-        # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
-        self.epsilon = kwargs.get('epsilon', 0.0)
 
         # Whether to use multi-action reasoning format
         self.multi_action_reasoning = kwargs.get('multi_action_reasoning', False)
@@ -199,16 +195,8 @@ You are controlling a snake in a multi-player Snake game
         is_valid = extracted in self.language_action_space
         valid_action = extracted if is_valid else self.default_action
 
-        # Epsilon-greedy exploration: with probability epsilon, override with random action
-        explored = False
-        if self.epsilon > 0 and random.random() < self.epsilon:
-            valid_action = random.choice(self.language_action_space)
-            explored = True
-
-        metrics = {
-            "behavior/valid_action_ratio": is_valid * 1.0,
-            "behavior/epsilon_explored": explored * 1.0,
-        }
+        # Epsilon-greedy is handled centrally in vec_env.py
+        metrics = {"behavior/valid_action_ratio": is_valid * 1.0}
 
         return full_action, extracted, valid_action, is_valid, metrics
 

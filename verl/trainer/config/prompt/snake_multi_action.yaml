@@ -1,0 +1,54 @@
+# @package prompt
+
+# Snake/FastSnake prompt configuration (multi-action reasoning mode)
+# To use: prompt=snake_multi_action
+# Model outputs reasoning for each action, then <decision>X</decision>
+
+prompt:
+  # Multi-action reasoning mode enabled
+  multi_action_reasoning: true
+
+  # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
+  epsilon: 0.0
+
+  # Captioner instruction for NaiveCaptioner (multi-action mode)
+  naive_instruction: |
+    You must reason about EACH available action, then make a decision. Stop responding after the </decision> tag.
+    [Response Template]
+    <actions>
+    <action name="up">Your reasoning about moving up...</action>
+    <action name="down">Your reasoning about moving down...</action>
+    <action name="left">Your reasoning about moving left...</action>
+    <action name="right">Your reasoning about moving right...</action>
+    </actions>
+    <decision>{Your selected action}</decision>
+
+  # Environment instruction for FastSnake (multi-action mode)
+  environment_instruction: |
+    [Instructions]
+    You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
+
+    [Available Actions]
+    "up": move your head one space up,
+    "down": move your head one space down,
+    "left": move your head one space left,
+    "right": move your head one space right,
+
+    [Response Format]
+    You must reason about EACH available action, then make a decision.
+
+    First, analyze each action by generating an <action> tag for each:
+    <actions>
+    <action name="up">Your reasoning about why moving up might be good or bad...</action>
+    <action name="down">Your reasoning about why moving down might be good or bad...</action>
+    <action name="left">Your reasoning about why moving left might be good or bad...</action>
+    <action name="right">Your reasoning about why moving right might be good or bad...</action>
+    </actions>
+
+    Then, output your final decision:
+    <decision>your_chosen_action</decision>
+
+    [Rules]
+    - Eat apples to grow and score points
+    - Avoid walls, your own body, and enemy snakes
+    - You must output reasoning for ALL four actions before making your decision
