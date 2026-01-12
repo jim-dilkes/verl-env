@@ -19,12 +19,12 @@
 - New prompt formats
 
 ## Goals
-- [ ] Fix fastsnake_env.py: config instruction always overrides when provided
-- [ ] Add multi_action_instruction to snake.yaml (copy from FastSnake wrapper default)
-- [ ] Add multi_action_instruction to overcooked.yaml
-- [ ] Add multi_action support to Overcooked wrapper (epsilon, decision parsing)
-- [ ] Create local feature test to verify override logic
-- [ ] Test both envs
+- [x] Fix fastsnake_env.py: config instruction always overrides when provided
+- [x] Add multi_action_instruction to snake.yaml (copy from FastSnake wrapper default)
+- [x] Add multi_action_instruction to overcooked.yaml
+- [x] Add multi_action support to Overcooked wrapper (epsilon, decision parsing)
+- [x] Create local feature test to verify override logic
+- [x] Test both envs
 
 ## Acceptance Criteria
 - When `environment_instruction` is set in prompt config, it's used regardless of `multi_action_reasoning` setting

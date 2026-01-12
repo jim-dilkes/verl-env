@@ -31,13 +31,11 @@ def make_fastsnake_env(env_name, task, config, render_mode=None):
     env_kwargs['multi_action_reasoning'] = multi_action_reasoning
     env_kwargs['epsilon'] = epsilon
 
-    # Only use environment_instruction from config if NOT using multi-action reasoning
-    # When multi_action_reasoning=True, let the wrapper generate its own prompt
-    if not multi_action_reasoning:
-        if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt'):
-            environment_instruction = getattr(config.prompt.prompt, 'environment_instruction', None)
-            if environment_instruction is not None:
-                env_kwargs['instruction_prompt'] = environment_instruction
+    # Config instruction always overrides wrapper default when provided
+    if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt'):
+        environment_instruction = getattr(config.prompt.prompt, 'environment_instruction', None)
+        if environment_instruction is not None:
+            env_kwargs['instruction_prompt'] = environment_instruction
 
     env = FastSnakeLLMAgentsWrapper(env, **env_kwargs)
 

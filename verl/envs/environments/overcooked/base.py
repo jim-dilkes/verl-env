@@ -1,3 +1,4 @@
+import random
 import gymnasium as gym
 from verl.envs.environments.overcooked import ACTIONS, ACTION_TO_IDX
 
@@ -6,12 +7,23 @@ class OvercookedLLMAgentsWrapper(gym.Wrapper):
     """LLM-friendly wrapper for Overcooked environment.
 
     Converts grid observations to text and handles action extraction from LLM output.
+
+    Supports two modes:
+    1. Standard mode: Model outputs <action>X</action>
+    2. Multi-action reasoning mode: Model outputs reasoning for each action,
+       then <decision>X</decision>
     """
 
     def __init__(self, env, vlm=False, **kwargs):
         super().__init__(env)
         self.language_action_space = list(ACTIONS.keys())
         self.format_penalty = kwargs.get("format_penalty", 0.1)
+
+        # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
+        self.epsilon = kwargs.get("epsilon", 0.0)
+
+        # Whether to use multi-action reasoning format
+        self.multi_action_reasoning = kwargs.get("multi_action_reasoning", False)
 
         self.instruction_prompt = kwargs.get("instruction_prompt", None)
         if self.instruction_prompt is None:
@@ -34,7 +46,46 @@ class OvercookedLLMAgentsWrapper(gym.Wrapper):
 
         cook_rule = f"- Soups need {cook_time} ticks to cook before they can be served"
 
-        return f"""[Instructions]
+        if self.multi_action_reasoning:
+            return f"""[Instructions]
+{game_desc}
+Your goal is to cook and deliver soups as fast as possible to earn rewards. Your maximum response length: 400 words.
+
+[How to Cook]
+1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact'
+2. Place 3 ingredients in a pot using 'interact' while facing it
+3. Wait for the soup to cook ({cook_time} ticks)
+4. Pick up a dish from the dish pile
+5. Pick up the cooked soup from the pot (with dish in hand)
+6. Deliver the soup to the serving counter using 'interact'
+
+[Available Actions]
+{action_strings}
+
+[Response Format]
+You must reason about EACH available action, then make a decision.
+
+First, analyze each action by generating an <action> tag for each:
+<actions>
+<action name="right">Your reasoning about moving right...</action>
+<action name="down">Your reasoning about moving down...</action>
+<action name="left">Your reasoning about moving left...</action>
+<action name="up">Your reasoning about moving up...</action>
+<action name="stay">Your reasoning about staying...</action>
+<action name="interact">Your reasoning about interacting...</action>
+</actions>
+
+Then, output your final decision:
+<decision>your_chosen_action</decision>
+
+[Rules]
+- You can only hold one object at a time
+- Each soup requires exactly 3 ingredients
+{cook_rule}{partner_rule}
+- Delivering a completed soup earns +20 reward
+- You must output reasoning for ALL six actions before making your decision"""
+        else:
+            return f"""[Instructions]
 {game_desc}
 Your goal is to cook and deliver soups as fast as possible to earn rewards.
 
@@ -115,7 +166,19 @@ Your goal is to cook and deliver soups as fast as possible to earn rewards.
         except (IndexError, AttributeError):
             return None
 
+    @staticmethod
+    def extract_decision_from_xml(text: str) -> str:
+        """Extract decision from <decision>X</decision> tag."""
+        try:
+            return text.split("<decision>")[1].split("</decision>")[0].strip().lower()
+        except (IndexError, AttributeError):
+            return None
+
     def extract_action(self, action):
+        """Parse LLM output (standard mode, no epsilon-greedy).
+
+        Used by evaluator. For training with multi-action/epsilon, use extract_action_instance().
+        """
         full_action = str(action)
         extracted_action = OvercookedLLMAgentsWrapper.extract_action_from_xml_tag(full_action)
 
@@ -127,6 +190,45 @@ Your goal is to cook and deliver soups as fast as possible to earn rewards.
         }
 
         return full_action, extracted_action, valid_action, is_valid, metrics
+
+    def extract_action_instance(self, action):
+        """Parse LLM output with instance-specific config (multi-action, epsilon).
+
+        This is the instance method version used during training.
+        Uses self.multi_action_reasoning and self.epsilon.
+
+        Returns:
+            full_action: Original LLM output
+            extracted_action: Parsed action before validation
+            valid_action: Action to execute (may be random if epsilon-greedy triggered)
+            is_valid: Whether extraction succeeded
+            metrics: Dict with validity ratio and exploration flag
+        """
+        full_action = str(action)
+
+        # Parse based on mode
+        if self.multi_action_reasoning:
+            extracted = self.extract_decision_from_xml(full_action)
+        else:
+            extracted = self.extract_action_from_xml_tag(full_action)
+
+        if extracted is None:
+            extracted = "__invalid__"
+        is_valid = extracted in self.language_action_space
+        valid_action = extracted if is_valid else self.default_action
+
+        # Epsilon-greedy exploration: with probability epsilon, override with random action
+        explored = False
+        if self.epsilon > 0 and random.random() < self.epsilon:
+            valid_action = random.choice(self.language_action_space)
+            explored = True
+
+        metrics = {
+            "behavior/valid_action_ratio": is_valid * 1.0,
+            "behavior/epsilon_explored": explored * 1.0,
+        }
+
+        return full_action, extracted, valid_action, is_valid, metrics
 
     def get_stats(self):
         return {}
