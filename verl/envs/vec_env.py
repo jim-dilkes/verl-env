@@ -36,12 +36,19 @@ class CloudpickleWrapper(object):
         self.x = pickle.loads(ob)
 
 class VecEnv:
-    
+
     def __init__(self, env_name, config, env_fns, captioner_fns):
-        
+
         self.config = config
         self.n_rollouts = config.envs.n_rollouts
         assert len(env_fns) == self.n_rollouts, "Number of env_fns must match n_rollouts"
+
+        # Extract epsilon for epsilon-greedy exploration (centralized here, not per-env)
+        self.epsilon = 0.0
+        if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt'):
+            self.epsilon = getattr(config.prompt.prompt, 'epsilon', 0.0)
+        if self.epsilon > 0:
+            print(f"[VecEnv] Epsilon-greedy exploration enabled: epsilon={self.epsilon}")
         
         # Get multiprocessing method from config, default to 'spawn' for safety
         # 'spawn' avoids CUDA segfaults when forking (fork copies parent's CUDA state)
@@ -57,7 +64,7 @@ class VecEnv:
         for rank, (work_remote, remote, env_fn, captioner_fn) in enumerate(zip(self.work_remotes, self.remotes, env_fns, captioner_fns)):
             p = self.mp_context.Process(
                 target=worker,
-                args=(rank, work_remote, remote, env_name, CloudpickleWrapper(env_fn), CloudpickleWrapper(captioner_fn)),
+                args=(rank, work_remote, remote, env_name, CloudpickleWrapper(env_fn), CloudpickleWrapper(captioner_fn), self.epsilon),
             )
             p.daemon = True  # if the main process crashes, we should not cause things to hang
             p.start()
@@ -256,7 +263,7 @@ class VecEnv:
  
 
     
-def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_wrapper):
+def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_wrapper, epsilon=0.0):
     random.seed(rank)
     np.random.seed(rank)
     
@@ -288,15 +295,23 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
     
     def env_step(action):
         try:
-            # Use extract_action_instance if available (for multi-action/epsilon support)
+            # Use extract_action_instance if available (for multi-action support)
             # Otherwise fall back to extract_action
             extract_fn = getattr(env, 'extract_action_instance', env.extract_action)
             full_action, extracted_action, executed_action, is_valid, metrics = extract_fn(action)
+
+            # Epsilon-greedy exploration (centralized here, not per-environment)
+            explored = False
+            if epsilon > 0 and random.random() < epsilon:
+                executed_action = random.choice(env.language_action_space)
+                explored = True
+            metrics["behavior/epsilon_explored"] = explored * 1.0
+
             env_obs, reward, terminated, truncated, info = env.step(executed_action, is_valid)
             info["action_was_valid"] = is_valid
             if executed_action is not None:
                 info["executed_action_text"] = executed_action
-            
+
             image = env_obs.get("image", None)
             instructions = env_obs["mission"]  if env_name == "babyai" else None
             inst_prompt = env.get_instruction_prompt(instructions=instructions, info=info)
