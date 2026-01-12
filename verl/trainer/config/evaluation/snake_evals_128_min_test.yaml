@@ -34,7 +34,7 @@ evaluation:
         - If you move onto an apple, you get 1 point and you gain a body segment
         - You die if you move into a wall, another snake, or yourself
       captioner:
-        type: naive
+        # type: inherits from training config (e.g., naive or multi_action)
         max_text_history: 0
       fastsnake_kwargs:
         width: 10
@@ -78,7 +78,7 @@ evaluation:
         - If you move onto an apple, you get 1 point and you gain a body segment
         - You die if you move into a wall, another snake, or yourself
       captioner:
-        type: naive
+        # type: inherits from training config (e.g., naive or multi_action)
         max_text_history: 0
       fastsnake_kwargs:
         width: 10
