@@ -1,16 +1,5 @@
 @BRISK.md
 
-## Scratchpad
-`.brisk/scratchpad/` contains persistent notes for cross-session context:
-- `project-overview.md` - Research focus, key questions, novel contributions
-- `codebase-structure.md` - Files we modify vs read-only, PhD notes location
-- `environment-interface.md` - LLMAgentsWrapper interface, observation format, factory functions
-- `exploration-metrics.md` - State visitation, action entropy, validity tracking metrics
-- `experimental-configs.md` - Active experiments, key params, ideas to try
-- `fastsnake-env.md` - FastSnake env details and TODO
-
-Read these at session start for project context.
-
 ## Environment
 - Conda environment: `conda activate verlog`
 - SLURM jobs: Run on iridis via `ssh iridis3`, repo at `~/verl-env`, then `./submit_sbatch <dir>`
@@ -66,26 +55,3 @@ All new features MUST include a test that runs on cluster login nodes (direct py
 2. If feature needs specific configs: copy the script, add your overrides, document in PR
 
 This ensures features work before committing to full cluster runs.
-
-<!-- brisk-session-manager -->
-## Session Guidelines
-Always use the AskUserQuestion tool when you need input from the user.
-Never ask questions in plain text output.
-
-## Project Documentation
-- **SPEC.md**: Contains the project specification and requirements. Read this
-  at the start of each session to understand the project goals and constraints.
-- **PROGRESS.md**: Track your work here. Update this file when completing
-  significant tasks or milestones. Check it at session start to see what's
-  been done and what remains.
-
-## Scratchpad
-A `.brisk/scratchpad/` directory exists for your working notes. Use it to:
-- Track findings and insights as you explore the codebase
-- Note decisions and their rationale
-- Keep context that would be useful across conversation turns
-- Draft plans before implementation
-
-Files in scratchpad are gitignored and persist across session restarts.
-Write notes proactively—they help you maintain context.
-<!-- /brisk-session-manager -->
