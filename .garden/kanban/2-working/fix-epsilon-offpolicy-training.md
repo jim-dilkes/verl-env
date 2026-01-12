@@ -3,7 +3,7 @@
 ## Status
 - Created: 2026-01-12
 - Started: 2026-01-12
-- Completed: pending cluster test
+- Completed: 2026-01-12 (login node test passed)
 
 ## Problem Statement
 
@@ -260,8 +260,11 @@ To update after epsilon modification:
 - [x] Handles `<decision>` tag format (multi-action mode only)
 - [x] Works with `freeze_completed_episodes=True` (frozen env handling)
 - [x] Metrics track epsilon exploration rate (`epsilon_retokenized`, `epsilon_retokenize_failed`)
-- [ ] No regression in non-epsilon training (pending cluster test)
-- [ ] Login node test passes: `experiments/snake/test_login_node_epsilon.sh` (pending)
+- [x] No regression in non-epsilon training (verified: training completes, no crashes)
+- [x] Login node test passes: `experiments/snake/test_login_node_epsilon.sh`
+  - epsilon_explored ~0.5 as expected
+  - epsilon_retokenize_failed expected (base model doesn't generate `<decision>` tags)
+  - Training completes 3 steps, checkpoints saved
 
 ## Explicit Non-Goals (for now)
 
