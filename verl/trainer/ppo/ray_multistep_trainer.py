@@ -125,7 +125,6 @@ def retokenize_epsilon_sample(
     prompt_position_ids: torch.Tensor,
     max_response_length: int,
     device: torch.device,
-    debug: bool = False,
 ) -> dict:
     """Re-tokenize a modified response and rebuild all tensors.
 
@@ -137,7 +136,6 @@ def retokenize_epsilon_sample(
         prompt_position_ids: Original prompt position ids [prompt_length]
         max_response_length: Max response length for padding/truncation
         device: Device to place tensors on
-        debug: Whether to print debug info
 
     Returns:
         Dict with new 'responses', 'input_ids', 'attention_mask', 'position_ids'
@@ -149,9 +147,6 @@ def retokenize_epsilon_sample(
         return_tensors='pt',
     )
     new_response_ids = tokenized['input_ids'].squeeze(0)  # [new_response_length]
-
-    if debug:
-        print(f"[DEBUG] retokenize_epsilon_sample: new_response_ids shape = {new_response_ids.shape}")
 
     # Get pad token id, with fallback for models without one
     pad_token_id = tokenizer.pad_token_id
@@ -184,11 +179,6 @@ def retokenize_epsilon_sample(
         dtype=prompt_position_ids.dtype
     )
     new_position_ids = torch.cat([prompt_position_ids, response_position_ids], dim=0)
-
-    if debug:
-        print(f"[DEBUG] retokenize_epsilon_sample: new_response shape = {new_response_ids.shape}, "
-              f"new_input_ids shape = {new_input_ids.shape}, "
-              f"new_attention_mask shape = {new_attention_mask.shape}")
 
     return {
         'responses': new_response_ids.to(device),
@@ -1269,15 +1259,6 @@ class RayMultistepTrainer(object):
                             # Re-tokenize and update tensors
                             max_response_length = self.config.data.max_response_length
                             device = batch_output_ref.batch['responses'].device
-                            debug_mode = (epsilon_retokenize_count == 0)  # Debug first one only
-
-                            if debug_mode:
-                                print(f"[DEBUG] Epsilon re-tokenization: orig_idx={orig_idx}, "
-                                      f"original_action in response, executed_action={executed_action}")
-                                print(f"[DEBUG] Original response length: {len(original_response)}, "
-                                      f"new response length: {len(new_response)}")
-                                print(f"[DEBUG] Before: responses shape = {batch_output_ref.batch['responses'].shape}, "
-                                      f"input_ids shape = {batch_output_ref.batch['input_ids'].shape}")
 
                             new_tensors = retokenize_epsilon_sample(
                                 tokenizer=self.tokenizer,
@@ -1287,7 +1268,6 @@ class RayMultistepTrainer(object):
                                 prompt_position_ids=prompt_position_ids,
                                 max_response_length=max_response_length,
                                 device=device,
-                                debug=debug_mode,
                             )
 
                             # Update tensors in batch output
@@ -1295,10 +1275,6 @@ class RayMultistepTrainer(object):
                             batch_output_ref.batch['input_ids'][batch_idx] = new_tensors['input_ids']
                             batch_output_ref.batch['attention_mask'][batch_idx] = new_tensors['attention_mask']
                             batch_output_ref.batch['position_ids'][batch_idx] = new_tensors['position_ids']
-
-                            if debug_mode:
-                                print(f"[DEBUG] After: responses shape = {batch_output_ref.batch['responses'].shape}, "
-                                      f"input_ids shape = {batch_output_ref.batch['input_ids'].shape}")
 
                             # Update actions list for consistency (used in logging/debugging)
                             actions[orig_idx] = new_response
@@ -1465,7 +1441,6 @@ class RayMultistepTrainer(object):
                 # Force recompute logprobs if epsilon modifications occurred
                 # Epsilon-modified samples have different tokens than rollout_log_probs were computed on
                 if any_epsilon_retokenized and bypass_recomputing_logprobs:
-                    print(f"[DEBUG] Forcing logprob recompute due to epsilon modifications")
                     bypass_recomputing_logprobs = False
 
                 # Operating Mode Selection:
