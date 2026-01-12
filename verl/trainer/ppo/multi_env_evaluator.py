@@ -287,6 +287,20 @@ class MultiEnvEvaluator:
             if 'initial_seed' in env_config:
                 temp_config.envs.group_initial_seed = env_config['initial_seed']
                 print(f"[MultiEnvEvaluator] Set initial_seed: {env_config['initial_seed']}")
+
+            # Force epsilon=0 for evaluation unless explicitly overridden in eval config
+            # Epsilon-greedy exploration should only happen during training, not evaluation
+            if hasattr(temp_config, 'prompt') and hasattr(temp_config.prompt, 'prompt'):
+                original_epsilon = getattr(temp_config.prompt.prompt, 'epsilon', 0.0)
+                if 'epsilon' in env_config:
+                    # Explicit override in eval config - use that value
+                    temp_config.prompt.prompt.epsilon = env_config['epsilon']
+                    print(f"[MultiEnvEvaluator] Epsilon explicitly set in eval config: {env_config['epsilon']}")
+                else:
+                    # Force epsilon=0 for evaluation
+                    temp_config.prompt.prompt.epsilon = 0.0
+                    if original_epsilon > 0:
+                        print(f"[MultiEnvEvaluator] Forcing epsilon=0 for evaluation (training had epsilon={original_epsilon})")
         
         print(f"[MultiEnvEvaluator] Final temp_config.envs.n_rollouts: {temp_config.envs.n_rollouts}")
         print(f"[MultiEnvEvaluator] Final temp_config.envs keys: {list(temp_config.envs.keys())}")
