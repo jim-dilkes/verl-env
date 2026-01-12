@@ -144,7 +144,6 @@ class TestRetokenizeEpsilonSample:
             prompt_position_ids=prompt_position_ids,
             max_response_length=max_response_length,
             device=torch.device('cpu'),
-            debug=True,
         )
 
         prompt_len = len(prompt_ids)
