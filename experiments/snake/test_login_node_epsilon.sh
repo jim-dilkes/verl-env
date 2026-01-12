@@ -1,12 +1,13 @@
 #!/bin/bash
-# Test multi-action reasoning format on login nodes
-# Tests: captioner.type=multi_action, multi_action_reasoning=True, epsilon=0.1
-# Usage: bash experiments/snake/test_login_node_multi_action.sh
+# Test epsilon-greedy re-tokenization for on-policy training
+# Usage: bash experiments/snake/test_login_node_epsilon.sh
+# Runs: 1 critic warmup step, 3 training steps with epsilon=0.5 (high rate for testing)
+# Requires multi-action mode (<decision> tag) for epsilon re-tokenization
 
 set -e
 
 project_name=verl_env
-experiment_name=test_multi_action
+experiment_name=test_login_node_epsilon
 run_number=1
 number_of_gpus=1
 
@@ -40,14 +41,18 @@ eval "$(conda shell.bash hook)"
 conda activate verl
 
 # Tuned for 24GB L4 GPUs (login nodes)
-# Increased response length for multi-action reasoning
+# Increased response length for multi-action reasoning format
 micro_batch_size=2
 max_prompt_length=384
-max_response_length=256  # Increased from 96 for multi-action reasoning
+max_response_length=192  # Increased for multi-action format (reasoning per action)
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
 critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 64))
 rollout_max_num_batched_tokens=$((micro_batch_size * max_token_len_per_gpu + 512))
 rollout_max_num_seqs=128
+
+# Ray defaults num_cpus=None which makes it try to use *all* visible CPUs.
+# On login nodes / SLURM-managed environments, cpuset/cgroup constraints can make that brittle.
+ray_num_cpus=${SLURM_CPUS_PER_TASK:-4}
 
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   +ray_kwargs.ray_init._node_ip_address=127.0.0.1 \
@@ -143,9 +148,18 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.render=False \
   trainer.total_epochs=1000 \
   trainer.total_training_steps=3 \
-  evaluation=snake_evals \
+  evaluation=snake_evals_login_node \
   prompt=snake \
-  prompt.prompt.multi_action_reasoning=True \
-  prompt.prompt.epsilon=0.1 2>&1 | tee test_multi_action.log
+  prompt.prompt.epsilon=0.5 \
+  prompt.prompt.multi_action_reasoning=true \
+  2>&1 | tee test_login_node_epsilon.log
 
-echo "Multi-action test complete!"
+echo ""
+echo "=== Test Summary ==="
+echo "Look for the following in the log:"
+echo "  1. [DEBUG] Epsilon re-tokenization: - confirms epsilon triggered and re-tokenization happened"
+echo "  2. behavior/epsilon_explored metric ~= 0.5 - confirms epsilon exploration rate"
+echo "  3. epsilon_retokenized metric > 0 - confirms samples were re-tokenized"
+echo "  4. No shape mismatch errors - confirms tensor updates are correct"
+echo ""
+echo "Test run complete!"
