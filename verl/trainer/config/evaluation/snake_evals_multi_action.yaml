@@ -14,9 +14,9 @@ evaluation:
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: False
+        do_sample: false
       initial_seed: 0
-      freeze_completed_episodes: True
+      freeze_completed_episodes: true
       duplication_mode: none
       env_name: fastsnake
       task: none
@@ -72,9 +72,9 @@ evaluation:
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: False
+        do_sample: false
       initial_seed: 10000
-      freeze_completed_episodes: True
+      freeze_completed_episodes: true
       duplication_mode: none
       env_name: fastsnake
       task: none
@@ -131,9 +131,9 @@ evaluation:
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: False
+        do_sample: false
       initial_seed: 20000
-      freeze_completed_episodes: True
+      freeze_completed_episodes: true
       duplication_mode: none
       env_name: fastsnake
       task: none
@@ -195,9 +195,9 @@ evaluation:
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: False
+        do_sample: false
       initial_seed: 30000
-      freeze_completed_episodes: True
+      freeze_completed_episodes: true
       duplication_mode: none
       env_name: fastsnake
       task: none
@@ -263,10 +263,10 @@ evaluation:
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: True
+        do_sample: true
       initial_seed: 40000
       seed_group_size: 20
-      freeze_completed_episodes: True
+      freeze_completed_episodes: true
       duplication_mode: none
       env_name: fastsnake
       task: none
