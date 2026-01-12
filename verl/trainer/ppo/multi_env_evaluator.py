@@ -596,10 +596,13 @@ class MultiEnvEvaluator:
             )
 
             if entropy_enabled and step_idx in pending_entropy_steps:
-                # Determine multi-action mode: eval config overrides training config
-                multi_action = env_config.get('multi_action_reasoning', False)
-                if not multi_action and hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt'):
+                # Determine multi-action mode: eval config overrides training config (check key presence, not truthiness)
+                if 'multi_action_reasoning' in env_config:
+                    multi_action = env_config['multi_action_reasoning']
+                elif hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt'):
                     multi_action = getattr(self.config.prompt.prompt, 'multi_action_reasoning', False)
+                else:
+                    multi_action = False
                 action_extraction_fn = get_action_extraction_fn(eval_env_name, multi_action=multi_action)
                 (
                     entropies,
@@ -1010,6 +1013,7 @@ class MultiEnvEvaluator:
             action_counter: Counter of normalized actions across all samples
             total_probe_time: total inference time
             unique_texts_count: number of distinct raw response strings across all samples
+            unique_valid_texts_count: number of distinct raw response strings that yielded valid actions
             unique_executed_actions_count: number of distinct executed action strings across all samples
             unique_valid_actions_count: number of distinct valid generated action strings across all samples
         """
@@ -1025,7 +1029,7 @@ class MultiEnvEvaluator:
             prompt_owner.extend([idx] * n_samples)
 
         if not prompts:
-            return [], Counter(), 0.0, 0, 0, 0
+            return [], Counter(), 0.0, 0, 0, 0, 0
 
         chunk_size = entropy_cfg['max_batch_size']
         probe_meta = dict(self._current_gen_config)
@@ -1035,8 +1039,8 @@ class MultiEnvEvaluator:
 
         action_counter: Counter = Counter()
         valid_action_counter: Counter = Counter()
-        all_responses: List[str] = []
-        all_valid_responses: List[str] = []
+        all_responses: List[str] = []  # All raw response texts
+        all_valid_response_texts: List[str] = []  # Raw response texts that yielded valid actions
         rollout_samples: Dict[int, List[str]] = {}
         total_probe_time = 0.0
 
@@ -1059,7 +1063,7 @@ class MultiEnvEvaluator:
                 action_counter[executed_action] += 1  # Count instances of actually executed actions (with default replacements for invalid actions)
                 if is_valid:
                     valid_action_counter[executed_action] += 1  # Count instances of correctly generated actions
-                    all_valid_responses.append(executed_action)
+                    all_valid_response_texts.append(response)  # Store full response text, not action
                 rollout_samples.setdefault(owner_idx, []).append(executed_action)
 
         entropies = [
@@ -1067,7 +1071,7 @@ class MultiEnvEvaluator:
             for samples in rollout_samples.values()
         ]
         unique_texts_count = len(set(all_responses))
-        unique_valid_texts_count = len(set(all_valid_responses))
+        unique_valid_texts_count = len(set(all_valid_response_texts))
         unique_executed_actions_count = len(set(action_counter.keys()))
         unique_valid_actions_count = len(set(valid_action_counter.keys()))
         return entropies, action_counter, total_probe_time, unique_texts_count, unique_valid_texts_count, unique_executed_actions_count, unique_valid_actions_count

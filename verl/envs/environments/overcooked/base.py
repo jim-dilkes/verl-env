@@ -170,22 +170,39 @@ Your goal is to cook and deliver soups as fast as possible to earn rewards.
         except (IndexError, AttributeError):
             return None
 
-    def extract_action(self, action):
-        """Parse LLM output (standard mode, no epsilon-greedy).
+    @classmethod
+    def extract_action(cls, action):
+        """Parse LLM output (classmethod for evaluator compatibility).
 
-        Used by evaluator. For training with multi-action/epsilon, use extract_action_instance().
+        This is the classmethod version used by the evaluator. It uses standard
+        action parsing (no multi-action reasoning, no epsilon-greedy).
+
+        For training with multi-action/epsilon, use extract_action_instance().
+
+        Returns:
+            full_action: Original LLM output
+            extracted_action: Parsed action before validation
+            valid_action: Action to execute
+            is_valid: Whether extraction succeeded
+            metrics: Dict with validity ratio
         """
         full_action = str(action)
-        extracted_action = OvercookedLLMAgentsWrapper.extract_action_from_xml_tag(full_action)
 
-        is_valid = extracted_action in self.language_action_space and extracted_action is not None
-        valid_action = extracted_action if is_valid else self.default_action
+        # Standard mode: extract from <action>X</action>
+        extracted = OvercookedLLMAgentsWrapper.extract_action_from_xml_tag(full_action)
+
+        if extracted is None:
+            extracted = "__invalid__"
+        valid_actions = list(ACTIONS.keys())
+        is_valid = extracted in valid_actions
+        # Keep historical fallback behavior: default invalid actions to "stay".
+        valid_action = extracted if is_valid else ("stay" if "stay" in valid_actions else valid_actions[0])
 
         metrics = {
-            "behavior/valid_action_ratio": float(is_valid),
+            "behavior/valid_action_ratio": is_valid * 1.0,
         }
 
-        return full_action, extracted_action, valid_action, is_valid, metrics
+        return full_action, extracted, valid_action, is_valid, metrics
 
     def extract_action_instance(self, action):
         """Parse LLM output with instance-specific config (multi-action support).
