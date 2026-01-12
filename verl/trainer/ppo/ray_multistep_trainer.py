@@ -17,6 +17,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import os
+import re
 import uuid
 from contextlib import contextmanager
 from copy import deepcopy
@@ -94,6 +95,107 @@ def _flatten_nested_lists(val):
 def _flatten_metrics(metrics: dict) -> dict:
     """Flatten all metric values to handle jagged arrays from DP workers."""
     return {key: _flatten_nested_lists(val) for key, val in metrics.items()}
+
+
+def rewrite_decision_tag(response_text: str, new_action: str) -> tuple[str, bool]:
+    """Replace the LAST <decision>X</decision> tag with the new action.
+
+    Only supports multi-action mode with <decision> tags.
+    Replaces the last occurrence (the final selection) rather than the first.
+    Returns (modified_text, success).
+    """
+    pattern = r'<decision>[^<]*</decision>'
+    matches = list(re.finditer(pattern, response_text))
+
+    if not matches:
+        return response_text, False
+
+    # Replace the last match (the final decision/selection)
+    last_match = matches[-1]
+    replacement = f'<decision>{new_action}</decision>'
+    new_text = response_text[:last_match.start()] + replacement + response_text[last_match.end():]
+    return new_text, True
+
+
+def retokenize_epsilon_sample(
+    tokenizer,
+    new_response_text: str,
+    prompt_ids: torch.Tensor,
+    prompt_attention_mask: torch.Tensor,
+    prompt_position_ids: torch.Tensor,
+    max_response_length: int,
+    device: torch.device,
+    debug: bool = False,
+) -> dict:
+    """Re-tokenize a modified response and rebuild all tensors.
+
+    Args:
+        tokenizer: The tokenizer to use
+        new_response_text: The modified response text
+        prompt_ids: Original prompt token ids [prompt_length]
+        prompt_attention_mask: Original prompt attention mask [prompt_length]
+        prompt_position_ids: Original prompt position ids [prompt_length]
+        max_response_length: Max response length for padding/truncation
+        device: Device to place tensors on
+        debug: Whether to print debug info
+
+    Returns:
+        Dict with new 'responses', 'input_ids', 'attention_mask', 'position_ids'
+    """
+    # Tokenize using __call__ which properly supports return_tensors
+    tokenized = tokenizer(
+        new_response_text,
+        add_special_tokens=False,
+        return_tensors='pt',
+    )
+    new_response_ids = tokenized['input_ids'].squeeze(0)  # [new_response_length]
+
+    if debug:
+        print(f"[DEBUG] retokenize_epsilon_sample: new_response_ids shape = {new_response_ids.shape}")
+
+    # Get pad token id, with fallback for models without one
+    pad_token_id = tokenizer.pad_token_id
+    if pad_token_id is None:
+        pad_token_id = tokenizer.eos_token_id if tokenizer.eos_token_id is not None else 0
+
+    # Truncate or pad response to max_response_length
+    actual_response_len = new_response_ids.shape[0]
+    if actual_response_len > max_response_length:
+        new_response_ids = new_response_ids[:max_response_length]
+        actual_response_len = max_response_length
+    elif actual_response_len < max_response_length:
+        pad_length = max_response_length - actual_response_len
+        padding = torch.full((pad_length,), pad_token_id, dtype=new_response_ids.dtype)
+        new_response_ids = torch.cat([new_response_ids, padding], dim=0)
+
+    # Rebuild input_ids = prompt + response
+    new_input_ids = torch.cat([prompt_ids, new_response_ids], dim=0)
+
+    # Build response attention mask: 1 for real tokens, 0 for padding
+    response_attention = torch.zeros(max_response_length, dtype=prompt_attention_mask.dtype)
+    response_attention[:actual_response_len] = 1
+    new_attention_mask = torch.cat([prompt_attention_mask, response_attention], dim=0)
+
+    # Build response position_ids: continue from last prompt position
+    last_prompt_pos = prompt_position_ids[-1].item()
+    response_position_ids = torch.arange(
+        last_prompt_pos + 1,
+        last_prompt_pos + 1 + max_response_length,
+        dtype=prompt_position_ids.dtype
+    )
+    new_position_ids = torch.cat([prompt_position_ids, response_position_ids], dim=0)
+
+    if debug:
+        print(f"[DEBUG] retokenize_epsilon_sample: new_response shape = {new_response_ids.shape}, "
+              f"new_input_ids shape = {new_input_ids.shape}, "
+              f"new_attention_mask shape = {new_attention_mask.shape}")
+
+    return {
+        'responses': new_response_ids.to(device),
+        'input_ids': new_input_ids.to(device),
+        'attention_mask': new_attention_mask.to(device),
+        'position_ids': new_position_ids.to(device),
+    }
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl'):
@@ -1022,7 +1124,8 @@ class RayMultistepTrainer(object):
             metrics = {}
             timing_raw = {}
             bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
-            
+            any_epsilon_retokenized = False  # Track if any epsilon modifications occurred
+
             is_last_step = self.global_steps >= self.total_training_steps
             
             batch: DataProto = DataProto.from_single_dict(batch_dict)
@@ -1123,6 +1226,94 @@ class RayMultistepTrainer(object):
                         
                         with _timer_accumulate('env_step', timing_raw):
                             obs_vec, reward_vec, terminated_vec, truncated_vec, info_vec = self.env.step(actions)
+
+                        # Handle epsilon-greedy re-tokenization for on-policy training
+                        # When epsilon triggers, we need to update the response tokens to match executed action
+                        epsilon_retokenize_count = 0
+                        epsilon_retokenize_failed = 0
+                        for orig_idx, (active_flag, info) in enumerate(zip(active_envs, info_vec)):
+                            if not active_flag:
+                                continue
+                            if not info.get('epsilon_explored', False):
+                                continue
+
+                            executed_action = info.get('executed_action_text')
+                            if not executed_action:
+                                epsilon_retokenize_failed += 1
+                                continue
+
+                            # Rewrite <decision>X</decision> tag with executed action
+                            original_response = actions[orig_idx]
+                            new_response, success = rewrite_decision_tag(original_response, executed_action)
+                            if not success:
+                                # No <decision> tag found (single-action mode not supported)
+                                epsilon_retokenize_failed += 1
+                                continue
+
+                            # Get prompt tokens and masks from gen_batch (the input to generation)
+                            if self.freeze_completed_episodes and 'active_gen_batch' in locals():
+                                # Map original index to active index
+                                active_idx = sum(active_envs[:orig_idx])
+                                prompt_ids = active_gen_batch.batch['input_ids'][active_idx]
+                                prompt_attention_mask = active_gen_batch.batch['attention_mask'][active_idx]
+                                prompt_position_ids = active_gen_batch.batch['position_ids'][active_idx]
+                                batch_output_ref = active_gen_batch_output
+                                batch_idx = active_idx
+                            else:
+                                prompt_ids = gen_batch.batch['input_ids'][orig_idx]
+                                prompt_attention_mask = gen_batch.batch['attention_mask'][orig_idx]
+                                prompt_position_ids = gen_batch.batch['position_ids'][orig_idx]
+                                batch_output_ref = gen_batch_output
+                                batch_idx = orig_idx
+
+                            # Re-tokenize and update tensors
+                            max_response_length = self.config.data.max_response_length
+                            device = batch_output_ref.batch['responses'].device
+                            debug_mode = (epsilon_retokenize_count == 0)  # Debug first one only
+
+                            if debug_mode:
+                                print(f"[DEBUG] Epsilon re-tokenization: orig_idx={orig_idx}, "
+                                      f"original_action in response, executed_action={executed_action}")
+                                print(f"[DEBUG] Original response length: {len(original_response)}, "
+                                      f"new response length: {len(new_response)}")
+                                print(f"[DEBUG] Before: responses shape = {batch_output_ref.batch['responses'].shape}, "
+                                      f"input_ids shape = {batch_output_ref.batch['input_ids'].shape}")
+
+                            new_tensors = retokenize_epsilon_sample(
+                                tokenizer=self.tokenizer,
+                                new_response_text=new_response,
+                                prompt_ids=prompt_ids,
+                                prompt_attention_mask=prompt_attention_mask,
+                                prompt_position_ids=prompt_position_ids,
+                                max_response_length=max_response_length,
+                                device=device,
+                                debug=debug_mode,
+                            )
+
+                            # Update tensors in batch output
+                            batch_output_ref.batch['responses'][batch_idx] = new_tensors['responses']
+                            batch_output_ref.batch['input_ids'][batch_idx] = new_tensors['input_ids']
+                            batch_output_ref.batch['attention_mask'][batch_idx] = new_tensors['attention_mask']
+                            batch_output_ref.batch['position_ids'][batch_idx] = new_tensors['position_ids']
+
+                            if debug_mode:
+                                print(f"[DEBUG] After: responses shape = {batch_output_ref.batch['responses'].shape}, "
+                                      f"input_ids shape = {batch_output_ref.batch['input_ids'].shape}")
+
+                            # Update actions list for consistency (used in logging/debugging)
+                            actions[orig_idx] = new_response
+                            epsilon_retokenize_count += 1
+
+                        # Track epsilon re-tokenization metrics
+                        if epsilon_retokenize_count > 0:
+                            any_epsilon_retokenized = True
+                            if 'epsilon_retokenized' not in metrics:
+                                metrics['epsilon_retokenized'] = []
+                            metrics['epsilon_retokenized'].append(epsilon_retokenize_count)
+                        if epsilon_retokenize_failed > 0:
+                            if 'epsilon_retokenize_failed' not in metrics:
+                                metrics['epsilon_retokenize_failed'] = []
+                            metrics['epsilon_retokenize_failed'].append(epsilon_retokenize_failed)
 
                         # Collect metrics from each environment's info for this step
                         # Later these are used to calculate mean value of the metrics per executed step across all environments
@@ -1270,6 +1461,12 @@ class RayMultistepTrainer(object):
 
                 # compute global_valid tokens
                 batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
+
+                # Force recompute logprobs if epsilon modifications occurred
+                # Epsilon-modified samples have different tokens than rollout_log_probs were computed on
+                if any_epsilon_retokenized and bypass_recomputing_logprobs:
+                    print(f"[DEBUG] Forcing logprob recompute due to epsilon modifications")
+                    bypass_recomputing_logprobs = False
 
                 # Operating Mode Selection:
                 # - Bypass mode: Uses rollout_log_probs as anchor (no recompute)

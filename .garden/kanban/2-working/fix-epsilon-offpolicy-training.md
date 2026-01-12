@@ -257,7 +257,7 @@ To update after epsilon modification:
 - [ ] When epsilon triggers, **decoded response text** used for training matches `executed_action_text`
 - [ ] All dependent tensors remain consistent: `responses`, `input_ids`, `attention_mask`, `position_ids`
 - [ ] Log probs are computed against the modified tokens (verified via logging)
-- [ ] Handles both `<action>` and `<decision>` tag formats
+- [ ] Handles `<decision>` tag format (multi-action mode only)
 - [ ] Works with `freeze_completed_episodes=True` (frozen env handling)
 - [ ] Metrics track epsilon exploration rate
 - [ ] No regression in non-epsilon training
@@ -265,8 +265,18 @@ To update after epsilon modification:
 
 ## Explicit Non-Goals (for now)
 
-- We do not attempt to make the reasoning prefix “true” in standard `<think>/<plan>/<action>` mode.
+- We do not attempt to make the reasoning prefix "true" in standard `<think>/<plan>/<action>` mode.
 - We do not implement full off-policy correction for epsilon steps via IS/RS here; this is an on-policy consistency fix.
+
+## Clarifications (from discussion 2026-01-12)
+
+1. **bypass_recomputing_logprobs handling:** Force recompute when epsilon modifications occur (don't mask).
+
+2. **Tag format support:** Only support multi-action mode (`<decision>` tag). Single-action mode (`<action>` tag) not supported for epsilon re-tokenization - if used with epsilon, will skip re-tokenization and log metric.
+
+3. **Malformed/missing tag handling:** Leave unchanged + add `epsilon_retokenize_failed` metric (don't mask).
+
+4. **Debug logging in tests:** Add DEBUG prints showing tensor shapes before/after re-tokenization to verify correctness.
 
 ## Files to Modify
 
