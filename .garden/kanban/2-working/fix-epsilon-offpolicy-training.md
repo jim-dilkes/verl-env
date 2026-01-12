@@ -2,8 +2,8 @@
 
 ## Status
 - Created: 2026-01-12
-- Started:
-- Completed:
+- Started: 2026-01-12
+- Completed: pending cluster test
 
 ## Problem Statement
 
@@ -254,14 +254,14 @@ To update after epsilon modification:
 
 ## Acceptance Criteria
 
-- [ ] When epsilon triggers, **decoded response text** used for training matches `executed_action_text`
-- [ ] All dependent tensors remain consistent: `responses`, `input_ids`, `attention_mask`, `position_ids`
-- [ ] Log probs are computed against the modified tokens (verified via logging)
-- [ ] Handles `<decision>` tag format (multi-action mode only)
-- [ ] Works with `freeze_completed_episodes=True` (frozen env handling)
-- [ ] Metrics track epsilon exploration rate
-- [ ] No regression in non-epsilon training
-- [ ] Login node test passes: `experiments/snake/test_login_node_epsilon.sh`
+- [x] When epsilon triggers, **decoded response text** used for training matches `executed_action_text`
+- [x] All dependent tensors remain consistent: `responses`, `input_ids`, `attention_mask`, `position_ids`
+- [x] Log probs are computed against the modified tokens (force recompute when epsilon triggers)
+- [x] Handles `<decision>` tag format (multi-action mode only)
+- [x] Works with `freeze_completed_episodes=True` (frozen env handling)
+- [x] Metrics track epsilon exploration rate (`epsilon_retokenized`, `epsilon_retokenize_failed`)
+- [ ] No regression in non-epsilon training (pending cluster test)
+- [ ] Login node test passes: `experiments/snake/test_login_node_epsilon.sh` (pending)
 
 ## Explicit Non-Goals (for now)
 
@@ -311,3 +311,42 @@ Epsilon centralization is already implemented but uncommitted:
 - Text rewrite + re-tokenization
 - Full tensor update
 - bypass_recomputing_logprobs handling
+
+## Implementation Notes (2026-01-12)
+
+### Files Modified
+
+1. **`verl/envs/vec_env.py`** (lines 305-313)
+   - Fixed `is_valid` bug: set `is_valid = True` when epsilon triggers (actions from `language_action_space` are always valid)
+   - Added `info["epsilon_explored"] = explored` flag for trainer-side detection
+
+2. **`verl/trainer/ppo/ray_multistep_trainer.py`**
+   - Added `rewrite_decision_tag()` helper (lines 100-117): Replaces LAST `<decision>` tag using regex
+   - Added `retokenize_epsilon_sample()` helper (lines 120-198): Re-tokenizes response, copies prompt attention_mask/position_ids from original
+   - Added epsilon re-tokenization logic after `env.step()` (lines 1207-1310)
+   - Added `any_epsilon_retokenized` tracking to force logprob recompute (lines 1105, 1437-1441)
+
+3. **`experiments/snake/test_login_node_epsilon.sh`** - Test script with epsilon=0.5, multi-action mode
+
+4. **`tests/trainer/ppo/test_epsilon_retokenization.py`** - 21 unit tests for helpers
+
+### Key Implementation Decisions
+
+1. **Replace LAST decision tag**: Multi-action format may have examples/intermediate tags; final `<decision>` is the selection
+2. **Copy prompt tensors, don't recompute**: Original prompt attention_mask and position_ids are preserved exactly
+3. **pad_token_id fallback**: Uses `eos_token_id` if `pad_token_id` is None, then falls back to 0
+4. **Force recompute on epsilon**: When `bypass_recomputing_logprobs=True` but epsilon modified samples, override to force recompute
+5. **Single-action mode unsupported**: `<action>` tag re-tokenization not implemented; logs `epsilon_retokenize_failed` metric
+
+### Metrics Added
+
+- `epsilon_retokenized`: Count of samples successfully re-tokenized per step
+- `epsilon_retokenize_failed`: Count of samples that failed re-tokenization (no `<decision>` tag)
+- `behavior/epsilon_explored`: Already existed, now also exposed in `info["epsilon_explored"]`
+
+### Test Coverage
+
+Unit tests cover:
+- Tag rewriting (8 tests): valid replacement, multiple tags (last replaced), empty/whitespace, malformed
+- Re-tokenization (11 tests): shapes, padding, truncation, attention mask, position IDs, left-padded prompts
+- End-to-end (2 tests): full flow, tensor consistency
