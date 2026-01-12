@@ -1,4 +1,3 @@
-import random
 import gymnasium as gym
 from verl.envs.environments.overcooked import ACTIONS, ACTION_TO_IDX
 
@@ -18,9 +17,6 @@ class OvercookedLLMAgentsWrapper(gym.Wrapper):
         super().__init__(env)
         self.language_action_space = list(ACTIONS.keys())
         self.format_penalty = kwargs.get("format_penalty", 0.1)
-
-        # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
-        self.epsilon = kwargs.get("epsilon", 0.0)
 
         # Whether to use multi-action reasoning format
         self.multi_action_reasoning = kwargs.get("multi_action_reasoning", False)
@@ -192,17 +188,18 @@ Your goal is to cook and deliver soups as fast as possible to earn rewards.
         return full_action, extracted_action, valid_action, is_valid, metrics
 
     def extract_action_instance(self, action):
-        """Parse LLM output with instance-specific config (multi-action, epsilon).
+        """Parse LLM output with instance-specific config (multi-action support).
 
         This is the instance method version used during training.
-        Uses self.multi_action_reasoning and self.epsilon.
+        Uses self.multi_action_reasoning for tag selection.
+        Epsilon-greedy is handled centrally in vec_env.py.
 
         Returns:
             full_action: Original LLM output
             extracted_action: Parsed action before validation
-            valid_action: Action to execute (may be random if epsilon-greedy triggered)
+            valid_action: Action to execute
             is_valid: Whether extraction succeeded
-            metrics: Dict with validity ratio and exploration flag
+            metrics: Dict with validity ratio
         """
         full_action = str(action)
 
@@ -217,16 +214,8 @@ Your goal is to cook and deliver soups as fast as possible to earn rewards.
         is_valid = extracted in self.language_action_space
         valid_action = extracted if is_valid else self.default_action
 
-        # Epsilon-greedy exploration: with probability epsilon, override with random action
-        explored = False
-        if self.epsilon > 0 and random.random() < self.epsilon:
-            valid_action = random.choice(self.language_action_space)
-            explored = True
-
-        metrics = {
-            "behavior/valid_action_ratio": is_valid * 1.0,
-            "behavior/epsilon_explored": explored * 1.0,
-        }
+        # Epsilon-greedy is handled centrally in vec_env.py
+        metrics = {"behavior/valid_action_ratio": is_valid * 1.0}
 
         return full_action, extracted, valid_action, is_valid, metrics
 

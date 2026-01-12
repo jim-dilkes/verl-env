@@ -21,15 +21,12 @@ def make_fastsnake_env(env_name, task, config, render_mode=None):
     # Prepare kwargs for the wrapper
     env_kwargs = dict(config.envs)
 
-    # Check for multi-action reasoning mode and epsilon first
+    # Check for multi-action reasoning mode (epsilon is handled centrally in vec_env.py)
     multi_action_reasoning = False
-    epsilon = 0.0
     if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt'):
         multi_action_reasoning = getattr(config.prompt.prompt, 'multi_action_reasoning', False)
-        epsilon = getattr(config.prompt.prompt, 'epsilon', 0.0)
 
     env_kwargs['multi_action_reasoning'] = multi_action_reasoning
-    env_kwargs['epsilon'] = epsilon
 
     # Config instruction always overrides wrapper default when provided
     if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt'):

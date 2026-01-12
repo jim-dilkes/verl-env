@@ -337,11 +337,11 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
             full_action, extracted_action, executed_action, is_valid, metrics = extract_fn(action)
 
             # Epsilon-greedy exploration (centralized here, not per-environment)
+            # Only explore if model produced valid output - invalid format is a training signal
             explored = False
-            if epsilon > 0 and random.random() < epsilon:
+            if epsilon > 0 and is_valid and random.random() < epsilon:
                 executed_action = random.choice(env.language_action_space)
                 explored = True
-                is_valid = True  # Actions from language_action_space are always valid
             metrics["behavior/epsilon_explored"] = explored * 1.0
 
             env_obs, reward, terminated, truncated, info = env.step(executed_action, is_valid)

@@ -1,7 +1,8 @@
 # @package prompt
 
-# Snake/FastSnake prompt configuration
+# Snake/FastSnake prompt configuration (standard mode)
 # To use: prompt=snake
+# For multi-action reasoning mode, use: prompt=snake_multi_action
 
 prompt:
   # Multi-action reasoning mode: model generates reasoning for each action
@@ -11,27 +12,14 @@ prompt:
   # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
   epsilon: 0.0
 
-  # Captioner instruction for NaiveCaptioner (standard mode)
+  # Captioner instruction for NaiveCaptioner
   naive_instruction: |
     Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
     [Response Template]
     <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
     <action>{Your selected action from the list above}</action>
 
-  # Captioner instruction for multi-action reasoning mode
-  multi_action_naive_instruction: |
-    You must reason about EACH available action, then make a decision. Stop responding after the </decision> tag.
-    [Response Template]
-    <actions>
-    <action name="up">Your reasoning about moving up...</action>
-    <action name="down">Your reasoning about moving down...</action>
-    <action name="left">Your reasoning about moving left...</action>
-    <action name="right">Your reasoning about moving right...</action>
-    </actions>
-    <decision>{Your selected action}</decision>
-
-  # Environment instruction for FastSnake (standard mode)
-  # Used when multi_action_reasoning=false, or override with multi_action_environment_instruction
+  # Environment instruction for FastSnake
   environment_instruction: |
     [Instructions]
     You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
@@ -47,35 +35,3 @@ prompt:
     - You can move your head one space up, down, left, or right
     - If you move onto an apple, you get 1 point and you gain a body segment
     - You die if you move into a wall, another snake, or yourself
-
-  # Environment instruction for FastSnake (multi-action reasoning mode)
-  # Set environment_instruction to this value when multi_action_reasoning=true
-  multi_action_environment_instruction: |
-    [Instructions]
-    You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
-
-    [Available Actions]
-    "up": move your head one space up,
-    "down": move your head one space down,
-    "left": move your head one space left,
-    "right": move your head one space right,
-
-    [Response Format]
-    You must reason about EACH available action, then make a decision.
-
-    First, analyze each action by generating an <action> tag for each:
-    <actions>
-    <action name="up">Your reasoning about why moving up might be good or bad...</action>
-    <action name="down">Your reasoning about why moving down might be good or bad...</action>
-    <action name="left">Your reasoning about why moving left might be good or bad...</action>
-    <action name="right">Your reasoning about why moving right might be good or bad...</action>
-    </actions>
-
-    Then, output your final decision:
-    <decision>your_chosen_action</decision>
-
-    [Rules]
-    - Eat apples to grow and score points
-    - Avoid walls, your own body, and enemy snakes
-    - You must output reasoning for ALL four actions before making your decision
-
