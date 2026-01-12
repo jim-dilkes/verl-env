@@ -124,6 +124,7 @@ ENV/
 
 # data
 *.parquet
+!examples/data/placeholder.parquet
 
 
 # local logs
