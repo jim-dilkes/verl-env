@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_14B_fromscratch_1
+#SBATCH --job-name=OC_PPO_14B_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
@@ -12,7 +12,7 @@
 
 # --- Define experiment variables ---
 project_name=verl_env
-experiment_name=OC_PPO_14B_fromscratch
+experiment_name=OC_PPO_14B
 run_number=1
 number_of_gpus=2
 WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","14B","from_scratch"]'
