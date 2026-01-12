@@ -3,10 +3,8 @@
 
 import numpy as np
 import os
-import torch
 import multiprocessing
 import random
-import psutil
 
 from collections import defaultdict
 
@@ -14,9 +12,24 @@ from collections import defaultdict
 
 def get_process_memory_mb():
     """Get current process memory usage in MB"""
+    import psutil
     process = psutil.Process(os.getpid())
     mem_info = process.memory_info()
     return mem_info.rss / 1024 / 1024  # Convert bytes to MB
+
+
+def _parse_env_flag(name: str, default: bool, override: bool | None = None) -> bool:
+    if override is not None:
+        return bool(override)
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    raw = raw.strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    return default
 
 
 class CloudpickleWrapper(object):
@@ -37,7 +50,7 @@ class CloudpickleWrapper(object):
 
 class VecEnv:
 
-    def __init__(self, env_name, config, env_fns, captioner_fns):
+    def __init__(self, env_name, config, env_fns, captioner_fns, worker_debug: bool | None = None):
 
         self.config = config
         self.n_rollouts = config.envs.n_rollouts
@@ -58,13 +71,20 @@ class VecEnv:
         
         self.mp_context = multiprocessing.get_context(mp_method)
         print(f"[VecEnv] Using multiprocessing method: {mp_method}")
+
+        # Controls noisy worker memory prints like "[Worker X] Memory ...".
+        self.worker_debug = _parse_env_flag(
+            "VERL_VEC_ENV_WORKER_DEBUG",
+            default=False,
+            override=worker_debug,
+        )
         
         self.remotes, self.work_remotes = zip(*[self.mp_context.Pipe() for _ in range(self.n_rollouts)])
         self.processes = []
         for rank, (work_remote, remote, env_fn, captioner_fn) in enumerate(zip(self.work_remotes, self.remotes, env_fns, captioner_fns)):
             p = self.mp_context.Process(
                 target=worker,
-                args=(rank, work_remote, remote, env_name, CloudpickleWrapper(env_fn), CloudpickleWrapper(captioner_fn), self.epsilon),
+                args=(rank, work_remote, remote, env_name, CloudpickleWrapper(env_fn), CloudpickleWrapper(captioner_fn), self.epsilon, self.worker_debug),
             )
             p.daemon = True  # if the main process crashes, we should not cause things to hang
             p.start()
@@ -263,29 +283,45 @@ class VecEnv:
  
 
     
-def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_wrapper, epsilon=0.0):
+def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_wrapper, epsilon=0.0, debug: bool = True):
     random.seed(rank)
     np.random.seed(rank)
     
     parent_remote.close()
     
-    # Memory tracking
-    mem_start = get_process_memory_mb()
-    print(f"[Worker {rank}] Memory at start: {mem_start:.2f} MB")
+    # Memory tracking (optional; can be expensive and requires psutil)
+    mem_start = None
+    if debug:
+        mem_start = get_process_memory_mb()
+        print(f"[Worker {rank}] Memory at start: {mem_start:.2f} MB", flush=True)
     
     try:
         env = env_fn_wrapper.x()
-        mem_after_env = get_process_memory_mb()
-        print(f"[Worker {rank}] Memory after env creation: {mem_after_env:.2f} MB (delta: +{mem_after_env - mem_start:.2f} MB)")
+        if debug:
+            mem_after_env = get_process_memory_mb()
+            delta = (mem_after_env - mem_start) if mem_start is not None else 0.0
+            print(
+                f"[Worker {rank}] Memory after env creation: {mem_after_env:.2f} MB "
+                f"(delta: +{delta:.2f} MB)",
+                flush=True,
+            )
     except Exception as e:
         print(f"[ERROR] Worker {rank}: Failed to create environment: {e}")
         raise
     
     try:
         captioner = captioner_fn_wrapper.x()
-        mem_after_captioner = get_process_memory_mb()
-        print(f"[Worker {rank}] Memory after captioner creation: {mem_after_captioner:.2f} MB (delta: +{mem_after_captioner - mem_after_env:.2f} MB)")
-        print(f"[Worker {rank}] Total memory used: {mem_after_captioner:.2f} MB")
+        if debug:
+            mem_after_captioner = get_process_memory_mb()
+            # Recompute mem_after_env if we didn't measure it above
+            mem_after_env = mem_after_env if 'mem_after_env' in locals() else (mem_start or mem_after_captioner)
+            delta = mem_after_captioner - mem_after_env
+            print(
+                f"[Worker {rank}] Memory after captioner creation: {mem_after_captioner:.2f} MB "
+                f"(delta: +{delta:.2f} MB)",
+                flush=True,
+            )
+            print(f"[Worker {rank}] Total memory used: {mem_after_captioner:.2f} MB", flush=True)
     except Exception as e:
         print(f"[ERROR] Worker {rank}: Failed to create captioner: {e}")
         raise
@@ -339,8 +375,9 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
         # Log memory on first reset
         reset_count += 1
         if reset_count == 1:
-            mem_after_reset = get_process_memory_mb()
-            print(f"[Worker {rank}] Memory after first reset: {mem_after_reset:.2f} MB")
+            if debug:
+                mem_after_reset = get_process_memory_mb()
+                print(f"[Worker {rank}] Memory after first reset: {mem_after_reset:.2f} MB", flush=True)
         
         return captioner.get_obs(env_obs), info, image
         
