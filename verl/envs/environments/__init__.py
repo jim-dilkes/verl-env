@@ -63,12 +63,44 @@ def make_env(env_name, task, config, render_mode=None):
     return EnvWrapper(base_env, env_name, task)
 
 
-def get_action_extraction_fn(env_name):
+def get_action_extraction_fn(env_name, multi_action=False):
+    """Get action extraction function for a given environment.
+
+    Args:
+        env_name: Name of the environment
+        multi_action: If True, parse <decision> tags; if False, parse <action> tags
+
+    Returns:
+        Callable that extracts actions from LLM output
+    """
     if env_name == "fastsnake":
         from verl.envs.environments.FastSnake.base import FastSnakeLLMAgentsWrapper
+        if multi_action:
+            # Create wrapper that uses <decision> tag extraction
+            def extract_multi_action(response):
+                extracted = FastSnakeLLMAgentsWrapper.extract_decision_from_xml(response)
+                if extracted is None:
+                    extracted = "__invalid__"
+                is_valid = extracted in ["up", "down", "left", "right"]
+                valid_action = extracted if is_valid else "up"  # default action
+                metrics = {"behavior/valid_action_ratio": is_valid * 1.0}
+                return response, extracted, valid_action, is_valid, metrics
+            return extract_multi_action
         return FastSnakeLLMAgentsWrapper.extract_action
     elif env_name == "overcooked":
         from verl.envs.environments.overcooked.base import OvercookedLLMAgentsWrapper
+        if multi_action:
+            # Create wrapper that uses <decision> tag extraction
+            def extract_multi_action(response):
+                extracted = OvercookedLLMAgentsWrapper.extract_decision_from_xml(response)
+                if extracted is None:
+                    extracted = "__invalid__"
+                valid_actions = ["right", "down", "left", "up", "stay", "interact"]
+                is_valid = extracted in valid_actions
+                valid_action = extracted if is_valid else "stay"  # default action
+                metrics = {"behavior/valid_action_ratio": is_valid * 1.0}
+                return response, extracted, valid_action, is_valid, metrics
+            return extract_multi_action
         return OvercookedLLMAgentsWrapper.extract_action
     else:
         raise ValueError(f"Not accessible action extraction function for {env_name}")

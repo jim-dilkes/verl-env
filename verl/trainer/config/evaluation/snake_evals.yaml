@@ -140,6 +140,7 @@ evaluation:
         print_visualization: false
 
     # --- Config 10: FastSnake Entropy Probe ---
+    # Uses inherit_training_epsilon to measure policy entropy with same exploration as training
     - name: "FastSnake-Entropy-Check"
       n_rollouts: 50
       episode_length: 1
@@ -155,6 +156,7 @@ evaluation:
       env_name: fastsnake
       task: none
       format_penalty: 0.0
+      inherit_training_epsilon: true
       instruction_prompt: | 
         [Instructions]
         You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
@@ -193,6 +195,7 @@ evaluation:
 
 
 
+    # Uses inherit_training_epsilon to measure exploration with same epsilon as training
     - name: "FastSnake-Default-StateVisitation"
       n_rollouts: 400
       episode_length: 8
@@ -209,6 +212,7 @@ evaluation:
       env_name: fastsnake
       task: none
       format_penalty: 0.0
+      inherit_training_epsilon: true
       instruction_prompt: | 
         [Instructions]
         You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)

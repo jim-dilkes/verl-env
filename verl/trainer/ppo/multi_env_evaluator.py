@@ -324,19 +324,28 @@ class MultiEnvEvaluator:
                 temp_config.envs.group_initial_seed = env_config['initial_seed']
                 self._dbg_print(f"[MultiEnvEvaluator] Set initial_seed: {env_config['initial_seed']}")
 
-            # Force epsilon=0 for evaluation unless explicitly overridden in eval config
-            # Epsilon-greedy exploration should only happen during training, not evaluation
+            # Handle prompt.prompt overrides for evaluation
             if hasattr(temp_config, 'prompt') and hasattr(temp_config.prompt, 'prompt'):
+                # Epsilon handling:
+                # - If 'epsilon' explicitly set in eval config, use that value
+                # - If 'inherit_training_epsilon: true', keep training epsilon (for entropy/exploration metrics)
+                # - Otherwise, force epsilon=0 for evaluation
                 original_epsilon = getattr(temp_config.prompt.prompt, 'epsilon', 0.0)
                 if 'epsilon' in env_config:
-                    # Explicit override in eval config - use that value
                     temp_config.prompt.prompt.epsilon = env_config['epsilon']
                     self._dbg_print(f"[MultiEnvEvaluator] Epsilon explicitly set in eval config: {env_config['epsilon']}")
+                elif env_config.get('inherit_training_epsilon', False):
+                    # Keep original training epsilon for exploration measurement
+                    self._dbg_print(f"[MultiEnvEvaluator] Inheriting training epsilon: {original_epsilon}")
                 else:
-                    # Force epsilon=0 for evaluation
                     temp_config.prompt.prompt.epsilon = 0.0
                     if original_epsilon > 0:
                         self._dbg_print(f"[MultiEnvEvaluator] Forcing epsilon=0 for evaluation (training had epsilon={original_epsilon})")
+
+                # Allow multi_action_reasoning override in eval config
+                if 'multi_action_reasoning' in env_config:
+                    temp_config.prompt.prompt.multi_action_reasoning = env_config['multi_action_reasoning']
+                    self._dbg_print(f"[MultiEnvEvaluator] multi_action_reasoning set from eval config: {env_config['multi_action_reasoning']}")
         
         self._dbg_print(f"[MultiEnvEvaluator] Final temp_config.envs.n_rollouts: {temp_config.envs.n_rollouts}")
         self._dbg_print(f"[MultiEnvEvaluator] Final temp_config.envs keys: {list(temp_config.envs.keys())}")
@@ -587,7 +596,11 @@ class MultiEnvEvaluator:
             )
 
             if entropy_enabled and step_idx in pending_entropy_steps:
-                action_extraction_fn = get_action_extraction_fn(eval_env_name)
+                # Determine multi-action mode: eval config overrides training config
+                multi_action = env_config.get('multi_action_reasoning', False)
+                if not multi_action and hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt'):
+                    multi_action = getattr(self.config.prompt.prompt, 'multi_action_reasoning', False)
+                action_extraction_fn = get_action_extraction_fn(eval_env_name, multi_action=multi_action)
                 (
                     entropies,
                     step_action_counts,
