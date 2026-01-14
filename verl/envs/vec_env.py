@@ -344,9 +344,18 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
     
     def env_step(action):
         try:
-            # Use extract_action_instance if available (for multi-action support)
-            # Otherwise fall back to extract_action
-            extract_fn = getattr(env, 'extract_action_instance', env.extract_action)
+            # Use extract_action_instance if available (for multi-action support).
+            # In multi-action mode, do NOT silently fall back: that would parse <action>
+            # instead of <decision> and can produce 0% valid-action ratio despite correct tags.
+            requires_instance = bool(getattr(env, "multi_action_reasoning", False))
+            extract_fn = getattr(env, "extract_action_instance", None)
+            if requires_instance and extract_fn is None:
+                raise RuntimeError(
+                    "Environment has multi_action_reasoning=True but no extract_action_instance(); "
+                    "cannot parse multi-action <decision> outputs"
+                )
+            if extract_fn is None:
+                extract_fn = env.extract_action
             full_action, extracted_action, executed_action, is_valid, metrics = extract_fn(action)
 
             # Epsilon-greedy exploration (centralized here, not per-environment)

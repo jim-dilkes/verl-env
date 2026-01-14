@@ -108,3 +108,22 @@ class EnvWrapper(gym.Wrapper):
     
     def extract_action(self, action):
         return self.env.extract_action(action)
+
+    def extract_action_instance(self, action):
+        """Parse LLM output using instance-specific extraction if available.
+
+        VecEnv's worker prefers `extract_action_instance` when present. Without this
+        forwarder, the outer EnvWrapper would hide the inner environment's instance
+        method and force the fallback `extract_action` path.
+        """
+        extract_fn = getattr(self.env, "extract_action_instance", None)
+        if extract_fn is None:
+            # Fail fast in multi-action mode rather than silently using the wrong parser.
+            # The production symptom otherwise is: correct <decision> tags but 0% valid ratio.
+            if bool(getattr(self.env, "multi_action_reasoning", False)):
+                raise RuntimeError(
+                    "multi_action_reasoning=True but env has no extract_action_instance(); "
+                    "refusing to fall back to extract_action"
+                )
+            return self.env.extract_action(action)
+        return extract_fn(action)
