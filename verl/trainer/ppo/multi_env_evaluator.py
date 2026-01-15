@@ -188,52 +188,36 @@ class MultiEnvEvaluator:
         for env_idx, env_config in enumerate(self.eval_environments):
             eval_name = env_config.get('name', f'env_{env_idx}')
             self._dbg_print(f"Evaluating environment: {eval_name}")
-            
-            # try:
-            # Record start time for this environment
+
             start_time = time.time()
-            
-            # Create a temporary config for this environment
-            temp_config = self._create_env_config(env_config)
-            
-            # Create vectorized environment for this evaluation using context manager
+
+            # Run evaluation (VecEnv creation now happens inside _evaluate_single_env_body)
             try:
-                with VecEnvContextManager(
-                    env_config['env_name'],
-                    temp_config.envs.task,
-                    temp_config,
-                    render_mode=None
-                ) as val_env:
-                    # Run evaluation for this environment
-                    env_metrics, episode_data = self._evaluate_single_env(val_env, env_config, eval_name)
-                    
-                    # Record end time and calculate duration
-                    end_time = time.time()
-                    eval_time = end_time - start_time
-                    
-                    # Log episode generation if configured
-                    self._maybe_log_episode_generation(episode_data, eval_name, global_step)
-                    
-                    # Add environment-specific prefix to metrics
-                    prefixed_metrics = {}
-                    for key, value in env_metrics.items():
-                        prefixed_key = f"eval_{eval_name}/{key}"
-                        prefixed_metrics[prefixed_key] = value
-                    
-                    all_metrics.update(prefixed_metrics)
-                    self._dbg_print(f"[MultiEnvEvaluator] Added {len(prefixed_metrics)} metrics for {eval_name}")
-                    self._dbg_print(f"[MultiEnvEvaluator] Sample metrics for {eval_name}: {list(prefixed_metrics.keys())[:5]}")
-                    
-                    inference_time = env_metrics.get("inference_time_seconds", 0.0)
-                    print(f"Completed evaluation for {eval_name} in {eval_time:.2f}s (inference: {inference_time:.2f}s)")
-                    
+                env_metrics, episode_data = self._evaluate_single_env(env_config, eval_name)
+
+                end_time = time.time()
+                eval_time = end_time - start_time
+
+                self._maybe_log_episode_generation(episode_data, eval_name, global_step)
+
+                prefixed_metrics = {}
+                for key, value in env_metrics.items():
+                    prefixed_key = f"eval_{eval_name}/{key}"
+                    prefixed_metrics[prefixed_key] = value
+
+                all_metrics.update(prefixed_metrics)
+                self._dbg_print(f"[MultiEnvEvaluator] Added {len(prefixed_metrics)} metrics for {eval_name}")
+                self._dbg_print(f"[MultiEnvEvaluator] Sample metrics for {eval_name}: {list(prefixed_metrics.keys())[:5]}")
+
+                inference_time = env_metrics.get("inference_time_seconds", 0.0)
+                print(f"Completed evaluation for {eval_name} in {eval_time:.2f}s (inference: {inference_time:.2f}s)")
+
             except Exception as e:
                 print(f"[ERROR] MultiEnvEvaluator: Failed to evaluate environment {eval_name}: {e}")
                 import traceback
                 print(f"[ERROR] MultiEnvEvaluator: Traceback: {traceback.format_exc()}")
                 raise
-            
-            # Force garbage collection after each environment to free memory
+
             gc.collect()
             
             # Log memory usage after each environment
@@ -257,22 +241,26 @@ class MultiEnvEvaluator:
         
         return all_metrics
     
-    def _create_env_config(self, env_config):
+    def _create_env_config(self, env_config, n_rollouts_override: Optional[int] = None):
         """
         Create a temporary config object for a specific environment.
-        
+
         Args:
             env_config: Environment-specific configuration
-            
+            n_rollouts_override: If provided, use this instead of env_config['n_rollouts'].
+                               Used for batched evaluation where each batch has fewer rollouts.
+
         Returns:
             OmegaConf object: Temporary config for the environment
         """
         from omegaconf import OmegaConf, open_dict
-        
+
+        n_rollouts = n_rollouts_override if n_rollouts_override is not None else env_config['n_rollouts']
+
         self._dbg_print(f"[MultiEnvEvaluator] Creating config for environment: {env_config.get('name', 'unknown')}")
         self._dbg_print(f"[MultiEnvEvaluator] Original env_config: {env_config}")
         self._dbg_print(f"[MultiEnvEvaluator] Training config n_rollouts: {self.config.envs.n_rollouts}")
-        self._dbg_print(f"[MultiEnvEvaluator] Evaluation env_config n_rollouts: {env_config['n_rollouts']}")
+        self._dbg_print(f"[MultiEnvEvaluator] Evaluation n_rollouts: {n_rollouts} (override={n_rollouts_override})")
         
         # Create a proper copy using OmegaConf methods to avoid struct mode issues
         # Convert to container, modify, then recreate OmegaConf object
@@ -281,7 +269,7 @@ class MultiEnvEvaluator:
         # Use open_dict to allow modifications even if struct mode was enabled
         with open_dict(temp_config):
             # Override environment-specific settings
-            temp_config.envs.n_rollouts = env_config['n_rollouts']
+            temp_config.envs.n_rollouts = n_rollouts
             temp_config.envs.episode_length = env_config['episode_length']
             temp_config.envs.env_name = env_config['env_name']
             temp_config.envs.task = env_config.get('task', None)  # Set the task from env_config
@@ -492,45 +480,111 @@ class MultiEnvEvaluator:
         else:
             return return_list
     
-    def _evaluate_single_env(self, val_env, env_config, eval_name):
+    def _evaluate_single_env(self, env_config, eval_name):
         """Run evaluation while preserving tokenizer state."""
         original_padding_side = getattr(self.tokenizer, "padding_side", None)
         self.tokenizer.padding_side = "left"
         try:
-            return self._evaluate_single_env_body(val_env, env_config, eval_name)
+            return self._evaluate_single_env_body(env_config, eval_name)
         finally:
             if original_padding_side is not None:
                 self.tokenizer.padding_side = original_padding_side
 
-    def _evaluate_single_env_body(self, vec_envs, env_config, eval_name):
+    def _evaluate_single_env_body(self, env_config, eval_name):
         """
-        Run evaluation for a single environment, optionally collecting action entropy metrics.
-        
+        Run evaluation for a single environment with optional batching.
+
+        Supports batched evaluation to prevent OOM: if batch_size is set in env_config,
+        rollouts are processed in batches with VecEnv recreated per batch.
+
         Args:
-            val_env: The vectorized environment to evaluate
             env_config: Environment-specific configuration
             eval_name: Name of the environment for logging
-            
+
         Returns:
             tuple: (dict of metrics, dict episode_data)
         """
         max_seq_len = self.config.data.max_prompt_length
         n_rollouts = env_config.get('n_rollouts')
+        if n_rollouts is None or n_rollouts <= 0:
+            raise ValueError(f"[MultiEnvEvaluator] {eval_name}: n_rollouts must be > 0")
+
+        batch_size = env_config.get('batch_size')
+        if batch_size is not None and batch_size <= 0:
+            raise ValueError(f"[MultiEnvEvaluator] {eval_name}: batch_size must be > 0 if provided")
+        if batch_size is None or batch_size >= n_rollouts:
+            batch_size = n_rollouts  # No batching needed
+
         initial_seed = env_config.get('initial_seed', None)
         if initial_seed is not None:
             initial_seed = int(initial_seed)
         seed_group_size = env_config.get('seed_group_size', n_rollouts)
+        if seed_group_size is None:
+            # Treat explicit None as the default (single group).
+            seed_group_size = n_rollouts
+        seed_group_size = int(seed_group_size)
         eval_env_name = env_config.get('env_name', None)
         if eval_env_name is None:
             raise ValueError(f"[MultiEnvEvaluator] {eval_name}: env_name is not specified")
-        obs_vec, info_vec = vec_envs.reset(seed=initial_seed, seed_group_size=seed_group_size, use_incremental_seeds=True)
 
-        # Action entropy configuration (if provided)
+        # Action entropy configuration
         action_entropy_cfg = env_config.get('action_entropy') or {}
         entropy_enabled = bool(action_entropy_cfg.get('enabled', False))
         entropy_cfg = None
         entropy_measure_steps: Sequence[int] = []
-        pending_entropy_steps = set()
+
+        if entropy_enabled:
+            entropy_cfg = self._validate_action_entropy_config(action_entropy_cfg)
+            entropy_measure_steps = self._compute_entropy_measurement_steps(
+                entropy_cfg,
+                env_config['episode_length'],
+                initial_seed,
+            )
+            print(
+                f"[MultiEnvEvaluator] Action entropy enabled for {eval_name} "
+                f"with measurement steps: {sorted(entropy_measure_steps)}"
+            )
+
+        exclusive_entropy_metrics = bool(entropy_cfg['exclusive_metric']) if entropy_enabled else False
+        track_standard_metrics = not (entropy_enabled and exclusive_entropy_metrics)
+
+        # Get generation config for this environment (once per environment)
+        self._current_gen_config = self._get_generation_config(env_config)
+
+        # Validate seed_group_size
+        if seed_group_size <= 0:
+            raise ValueError(f"[MultiEnvEvaluator] {eval_name}: seed_group_size must be > 0")
+        if n_rollouts % seed_group_size != 0:
+            raise ValueError(f"n_rollouts must be divisible by seed_group_size")
+        n_groups = n_rollouts // seed_group_size
+
+        # Compute full seed sequence upfront for determinism
+        all_seeds = self._compute_seed_sequence(initial_seed, n_rollouts, seed_group_size)
+
+        # =========== ACCUMULATORS (global across all batches) ===========
+        # Per-rollout arrays (will be concatenated across batches)
+        all_rew_of_traj = []
+        all_len_of_traj = []
+        all_score_of_traj = []
+        all_pos_rew_of_traj = []
+
+        # Per-group state-action tracking (global indexing)
+        group_state_action_texts_valid = [[] for _ in range(n_groups)]
+        group_state_action_texts_all = [[] for _ in range(n_groups)]
+
+        # Scalars accumulated across batches
+        total_tokens_generated = 0
+        total_inference_time = 0.0
+        total_attempted_actions = 0
+        total_valid_actions = 0
+
+        # Episode tracking (first rollout only, from first batch)
+        episode_inputs = []
+        episode_outputs = []
+        episode_total_score = None
+        episode_tracked = False
+
+        # Entropy accumulators
         entropy_measurements: List[float] = []
         entropy_unique_executed_actions_per_unique_text: List[float] = []
         entropy_unique_valid_actions_per_unique_valid_text: List[float] = []
@@ -540,270 +594,288 @@ class MultiEnvEvaluator:
         entropy_unique_executed_actions: List[int] = []
         entropy_unique_valid_actions: List[int] = []
         entropy_probe_time = 0.0
-        active_rollouts = None
 
-        if entropy_enabled:
-            entropy_cfg = self._validate_action_entropy_config(action_entropy_cfg)
-            entropy_measure_steps = self._compute_entropy_measurement_steps(
-                entropy_cfg,
-                env_config['episode_length'],
-                initial_seed,
-            )
-            pending_entropy_steps = set(entropy_measure_steps)
-            active_rollouts = np.ones(env_config['n_rollouts'], dtype=bool)
-            print(
-                f"[MultiEnvEvaluator] Action entropy enabled for {eval_name} "
-                f"with measurement steps: {sorted(entropy_measure_steps)}"
-            )
+        # Track per-rollout output token counts for the *last generated step*.
+        # This keeps toks_out_mean/std invariant to batch_size (concat batches -> n_rollouts).
+        response_n_tokens_last_step: List[Optional[int]] = [None] * n_rollouts
 
-        exclusive_entropy_metrics = bool(entropy_cfg['exclusive_metric']) if entropy_enabled else False
-        track_standard_metrics = not (entropy_enabled and exclusive_entropy_metrics)
+        n_batches = (n_rollouts + batch_size - 1) // batch_size
+        if n_batches > 1:
+            print(f"[MultiEnvEvaluator] {eval_name}: Running {n_batches} batches (batch_size={batch_size}, n_rollouts={n_rollouts})")
 
-        # Lists to collect samples for logging (only populated when tracking metrics)
-        sample_scores = []
-        end_of_traj = None
-        rew_of_traj = 0.
-        score_of_traj = None
-        len_of_traj = 0.
-        total_tokens_generated = 0
-        total_inference_time = 0.0
-        
-        # Track one full episode for logging (first rollout)
-        episode_inputs = []
-        episode_outputs = []
-        episode_total_score = None
-        episode_tracked = False
+        # =========== BATCH LOOP ===========
+        for batch_idx in range(n_batches):
+            batch_start = batch_idx * batch_size
+            batch_end = min(batch_start + batch_size, n_rollouts)
+            batch_n = batch_end - batch_start
+            batch_seeds = all_seeds[batch_start:batch_end]
 
-        # Get generation config for this environment (once per environment)
-        self._current_gen_config = self._get_generation_config(env_config)
-        response_n_tokens = None
+            if n_batches > 1:
+                self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: Starting batch {batch_idx + 1}/{n_batches} (rollouts {batch_start}-{batch_end - 1})")
 
-        # Validity tracking across the episode
-        total_attempted_actions = 0
-        total_valid_actions = 0
+            # Create temp config with batch_n rollouts
+            temp_config = self._create_env_config(env_config, n_rollouts_override=batch_n)
 
-        if n_rollouts % seed_group_size != 0:
-            raise ValueError(f"n_rollouts must be divisible by seed_group_size")
-        n_groups = n_rollouts // seed_group_size
+            # Create VecEnv for this batch
+            with VecEnvContextManager(
+                env_config['env_name'],
+                temp_config.envs.task,
+                temp_config,
+                render_mode=None
+            ) as vec_envs:
+                # Reset with explicit seeds for this batch
+                obs_vec, info_vec = vec_envs.reset(seeds=batch_seeds)
 
-        group_state_action_texts_valid = [[] for _ in range(n_groups)]
-        group_state_action_texts_all = [[] for _ in range(n_groups)]
-        previous_state_texts = []
+                # Per-batch state
+                pending_entropy_steps = set(entropy_measure_steps) if entropy_enabled else set()
+                active_rollouts = np.ones(batch_n, dtype=bool) if entropy_enabled else None
+                end_of_traj = None
+                rew_of_traj = 0.
+                score_of_traj = None
+                len_of_traj = 0.
+                pos_rew_of_traj = None
 
-        for step_idx in range(env_config['episode_length']):
-            val_input_obs_text = self.tokenizer.apply_chat_template(
-                obs_vec, tokenize=False, add_generation_prompt=True
-            )
+                # Track the last-step token counts for this batch.
+                batch_response_n_tokens_last = None
 
-            if entropy_enabled and step_idx in pending_entropy_steps:
-                # Determine multi-action mode: eval config overrides training config (check key presence, not truthiness)
-                if 'multi_action_reasoning' in env_config:
-                    multi_action = env_config['multi_action_reasoning']
-                elif hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt'):
-                    multi_action = getattr(self.config.prompt.prompt, 'multi_action_reasoning', False)
-                else:
-                    multi_action = False
-                action_extraction_fn = get_action_extraction_fn(eval_env_name, multi_action=multi_action)
-                (
-                    entropies,
-                    step_action_counts,
-                    probe_time,
-                    unique_texts_count,
-                    unique_valid_texts_count,
-                    unique_executed_actions_count,
-                    unique_valid_actions_count,
-                ) = self._probe_action_entropy(
-                    val_input_obs_text,
-                    entropy_cfg,
-                    active_rollouts,
-                    max_seq_len,
-                    action_extraction_fn=action_extraction_fn,
-                )
-                entropy_measurements.extend(entropies)
-                entropy_action_counter.update(step_action_counts)
-                entropy_probe_time += probe_time
-                if unique_texts_count > 0:
-                    entropy_unique_executed_actions_per_unique_text.append(
-                        float(unique_executed_actions_count) / float(unique_texts_count)
+                # Episode loop for this batch
+                for step_idx in range(env_config['episode_length']):
+                    val_input_obs_text = self.tokenizer.apply_chat_template(
+                        obs_vec, tokenize=False, add_generation_prompt=True
                     )
-                if unique_valid_texts_count > 0:
-                    entropy_unique_valid_actions_per_unique_valid_text.append(
-                        float(unique_valid_actions_count) / float(unique_valid_texts_count)
-                    )
-                entropy_unique_texts.append(unique_texts_count)
-                entropy_unique_valid_texts.append(unique_valid_texts_count)
-                entropy_unique_executed_actions.append(unique_executed_actions_count)
-                entropy_unique_valid_actions.append(unique_valid_actions_count)
-                pending_entropy_steps.remove(step_idx)
 
-                if not track_standard_metrics and not pending_entropy_steps:
-                    # Entropy-only evaluation is complete; no need to continue rollouts.
-                    break
-
-            val_input_obs = self.tokenizer(
-                val_input_obs_text,
-                return_tensors='pt',
-                padding='max_length',
-                truncation=True,
-                max_length=max_seq_len
-            )
-            input_ids = val_input_obs['input_ids']
-            attention_mask = val_input_obs['attention_mask']
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-            
-            val_obs_data = {
-                'input_ids': input_ids,
-                'attention_mask': attention_mask,
-                'position_ids': position_ids,
-            }
-            val_gen_batch = DataProto.from_dict(tensors=val_obs_data)
-            val_gen_batch.meta_info["step"] = None
-            
-            for key, value in self._current_gen_config.items():
-                val_gen_batch.meta_info[key] = value
-            
-            inference_start = time.time()
-            val_gen_batch_output = self.actor_rollout_wg.generate_sequences(val_gen_batch)
-            inference_end = time.time()
-            total_inference_time += (inference_end - inference_start)
-            
-            response_ids = val_gen_batch_output.batch['responses']
-            full_responses = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
-
-            # Track the first rollout for logging
-            if track_standard_metrics and not episode_tracked:
-                episode_inputs.append(val_input_obs_text[0])
-                episode_outputs.append(full_responses[0])
-            
-            response_n_tokens = (response_ids != self.tokenizer.pad_token_id).sum(dim=-1)
-            total_tokens_generated += response_n_tokens.sum().item()
-            
-            try:
-                obs_vec, reward_vec, terminated_vec, truncated_vec, info_vec = vec_envs.step(full_responses)
-            except Exception as e:
-                print(f"[ERROR] MultiEnvEvaluator: Exception in val_env.step: {e}")
-                import traceback
-                print(f"[ERROR] MultiEnvEvaluator: Traceback: {traceback.format_exc()}")
-                raise
-
-            was_valid_list = self._extract_from_info(info_vec, "action_was_valid")
-            executed_actions = self._extract_from_info(info_vec, "executed_action_text", default='__ended_traj__')
-
-            # Check that the number of was_valid_list and executed_actions match the number of rollouts
-            if len(was_valid_list) != n_rollouts:
-                raise ValueError(f"[MultiEnvEvaluator] {eval_name}: len(was_valid_list) != len(executed_actions)")
-            if len(executed_actions) != n_rollouts:
-                raise ValueError(f"[MultiEnvEvaluator] {eval_name}: len(executed_actions) != len(full_responses)")
-            
-            # ALL RETURNED OBJECTS FROM .step() WILL INCLUDE PREVIOUSLY COMPLETED ROLLOUTS
-            # Must use end_of_traj to make sure we only track active rollouts
-            use_end_of_traj = end_of_traj if end_of_traj is not None else np.zeros(len(full_responses), dtype=bool)
-
-            # Debug prints for validity and append behavior
-            self._dbg_print(
-                f"[MultiEnvEvaluator] {eval_name}: step {step_idx} use_end_of_traj={use_end_of_traj.tolist() if hasattr(use_end_of_traj, 'tolist') else use_end_of_traj}"
-            )
-            self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} was_valid_list={was_valid_list}")
-            self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: step {step_idx} executed_actions={executed_actions}")
-
-            total_attempted_actions_this_step = n_rollouts - use_end_of_traj.sum()
-            total_attempted_actions += total_attempted_actions_this_step
-            total_valid_actions_this_step = sum(1 for v, e in zip(was_valid_list, use_end_of_traj) if v and not e)
-            total_valid_actions += total_valid_actions_this_step
-
-            for i, (observation_text, executed_action, was_valid_action, rollout_already_ended) in enumerate(
-                zip(val_input_obs_text, executed_actions, was_valid_list, use_end_of_traj)
-            ):
-                group_idx = i // seed_group_size
-                if was_valid_action and not rollout_already_ended:
-                    group_state_action_texts_valid[group_idx].append(f"{observation_text} {executed_action}")
-                if not rollout_already_ended:
-                    group_state_action_texts_all[group_idx].append(f"{observation_text} {executed_action}")
-
-            if entropy_enabled and active_rollouts is not None:
-                done_mask = np.logical_or(terminated_vec, truncated_vec)
-                active_rollouts = np.logical_not(done_mask)
-            
-            if track_standard_metrics:
-                # NOTE: scores are always the cumulative score for the entire episode, not the score for the current step
-                # Use default=None so envs without score tracking don't crash
-                try:
-                    score_values = self._extract_from_info(info_vec, "score", as_array=True, array_dtype=np.float64)
-                except ValueError:
-                    score_values = None
-
-                if end_of_traj is None:
-                    end_of_traj = np.logical_or(terminated_vec, truncated_vec)
-                    rew_of_traj = reward_vec
-                    len_of_traj = np.ones_like(reward_vec)
-                    pos_rew_of_traj = (np.array(reward_vec) > 0.) * 1.
-                    if score_values is not None:
-                        score_of_traj = score_values
-                else:
-                    done = np.logical_or(terminated_vec, truncated_vec)
-                    active_mask = (~end_of_traj).astype(np.float32)
-                    rew_of_traj += reward_vec * active_mask
-                    len_of_traj += active_mask
-                    end_of_traj = np.logical_or(end_of_traj, done)
-                    pos_rew_of_traj = np.logical_or(pos_rew_of_traj, (np.array(reward_vec) > 0.) * 1.)
-                    if score_values is not None:
-                        if score_of_traj is None:
-                            score_of_traj = score_values
+                    # Entropy probing (if enabled and this step is a measurement step)
+                    if entropy_enabled and step_idx in pending_entropy_steps:
+                        if 'multi_action_reasoning' in env_config:
+                            multi_action = env_config['multi_action_reasoning']
+                        elif hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt'):
+                            multi_action = getattr(self.config.prompt.prompt, 'multi_action_reasoning', False)
                         else:
-                            score_of_traj = np.where(~end_of_traj, score_values, score_of_traj)
-                
-                if score_of_traj is not None:
-                    sample_scores.extend(score_of_traj.tolist())
-                
-                if not episode_tracked:
-                    if score_of_traj is not None:
-                        episode_total_score = float(score_of_traj[0])
-                    if terminated_vec[0] or truncated_vec[0] or step_idx == env_config['episode_length'] - 1:
-                        episode_tracked = True
+                            multi_action = False
+                        action_extraction_fn = get_action_extraction_fn(eval_env_name, multi_action=multi_action)
+                        (
+                            entropies,
+                            step_action_counts,
+                            probe_time,
+                            unique_texts_count,
+                            unique_valid_texts_count,
+                            unique_executed_actions_count,
+                            unique_valid_actions_count,
+                        ) = self._probe_action_entropy(
+                            val_input_obs_text,
+                            entropy_cfg,
+                            active_rollouts,
+                            max_seq_len,
+                            action_extraction_fn=action_extraction_fn,
+                        )
+                        entropy_measurements.extend(entropies)
+                        entropy_action_counter.update(step_action_counts)
+                        entropy_probe_time += probe_time
+                        if unique_texts_count > 0:
+                            entropy_unique_executed_actions_per_unique_text.append(
+                                float(unique_executed_actions_count) / float(unique_texts_count)
+                            )
+                        if unique_valid_texts_count > 0:
+                            entropy_unique_valid_actions_per_unique_valid_text.append(
+                                float(unique_valid_actions_count) / float(unique_valid_texts_count)
+                            )
+                        entropy_unique_texts.append(unique_texts_count)
+                        entropy_unique_valid_texts.append(unique_valid_texts_count)
+                        entropy_unique_executed_actions.append(unique_executed_actions_count)
+                        entropy_unique_valid_actions.append(unique_valid_actions_count)
+                        pending_entropy_steps.remove(step_idx)
 
-                if end_of_traj.all():
-                    break
-        
+                        if not track_standard_metrics and not pending_entropy_steps:
+                            break
+
+                    val_input_obs = self.tokenizer(
+                        val_input_obs_text,
+                        return_tensors='pt',
+                        padding='max_length',
+                        truncation=True,
+                        max_length=max_seq_len
+                    )
+                    input_ids = val_input_obs['input_ids']
+                    attention_mask = val_input_obs['attention_mask']
+                    position_ids = attention_mask.long().cumsum(-1) - 1
+                    position_ids.masked_fill_(attention_mask == 0, 1)
+
+                    val_obs_data = {
+                        'input_ids': input_ids,
+                        'attention_mask': attention_mask,
+                        'position_ids': position_ids,
+                    }
+                    val_gen_batch = DataProto.from_dict(tensors=val_obs_data)
+                    val_gen_batch.meta_info["step"] = None
+
+                    for key, value in self._current_gen_config.items():
+                        val_gen_batch.meta_info[key] = value
+
+                    inference_start = time.time()
+                    val_gen_batch_output = self.actor_rollout_wg.generate_sequences(val_gen_batch)
+                    inference_end = time.time()
+                    total_inference_time += (inference_end - inference_start)
+
+                    response_ids = val_gen_batch_output.batch['responses']
+                    full_responses = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
+
+                    # Track first rollout for logging (only from first batch)
+                    if track_standard_metrics and not episode_tracked and batch_idx == 0:
+                        episode_inputs.append(val_input_obs_text[0])
+                        episode_outputs.append(full_responses[0])
+
+                    response_n_tokens = (response_ids != self.tokenizer.pad_token_id).sum(dim=-1)
+                    total_tokens_generated += response_n_tokens.sum().item()
+
+                    # Save last-step token counts for later aggregation.
+                    batch_response_n_tokens_last = response_n_tokens
+
+                    try:
+                        obs_vec, reward_vec, terminated_vec, truncated_vec, info_vec = vec_envs.step(full_responses)
+                    except Exception as e:
+                        print(f"[ERROR] MultiEnvEvaluator: Exception in val_env.step: {e}")
+                        import traceback
+                        print(f"[ERROR] MultiEnvEvaluator: Traceback: {traceback.format_exc()}")
+                        raise
+
+                    was_valid_list = self._extract_from_info(info_vec, "action_was_valid")
+                    executed_actions = self._extract_from_info(info_vec, "executed_action_text", default='__ended_traj__')
+
+                    if len(was_valid_list) != batch_n:
+                        raise ValueError(f"[MultiEnvEvaluator] {eval_name}: len(was_valid_list) != batch_n")
+                    if len(executed_actions) != batch_n:
+                        raise ValueError(f"[MultiEnvEvaluator] {eval_name}: len(executed_actions) != batch_n")
+
+                    use_end_of_traj = end_of_traj if end_of_traj is not None else np.zeros(batch_n, dtype=bool)
+
+                    self._dbg_print(
+                        f"[MultiEnvEvaluator] {eval_name}: batch {batch_idx} step {step_idx} use_end_of_traj={use_end_of_traj.tolist()}"
+                    )
+
+                    total_attempted_actions_this_step = batch_n - use_end_of_traj.sum()
+                    total_attempted_actions += total_attempted_actions_this_step
+                    total_valid_actions_this_step = sum(1 for v, e in zip(was_valid_list, use_end_of_traj) if v and not e)
+                    total_valid_actions += total_valid_actions_this_step
+
+                    # Accumulate state-action texts with GLOBAL indexing
+                    for local_idx, (observation_text, executed_action, was_valid_action, rollout_already_ended) in enumerate(
+                        zip(val_input_obs_text, executed_actions, was_valid_list, use_end_of_traj)
+                    ):
+                        global_idx = batch_start + local_idx
+                        group_idx = global_idx // seed_group_size
+                        if was_valid_action and not rollout_already_ended:
+                            group_state_action_texts_valid[group_idx].append(f"{observation_text} {executed_action}")
+                        if not rollout_already_ended:
+                            group_state_action_texts_all[group_idx].append(f"{observation_text} {executed_action}")
+
+                    if entropy_enabled and active_rollouts is not None:
+                        done_mask = np.logical_or(terminated_vec, truncated_vec)
+                        active_rollouts = np.logical_not(done_mask)
+
+                    if track_standard_metrics:
+                        try:
+                            score_values = self._extract_from_info(info_vec, "score", as_array=True, array_dtype=np.float64)
+                        except ValueError:
+                            score_values = None
+
+                        if end_of_traj is None:
+                            end_of_traj = np.logical_or(terminated_vec, truncated_vec)
+                            rew_of_traj = reward_vec
+                            len_of_traj = np.ones_like(reward_vec)
+                            pos_rew_of_traj = (np.array(reward_vec) > 0.) * 1.
+                            if score_values is not None:
+                                score_of_traj = score_values
+                        else:
+                            done = np.logical_or(terminated_vec, truncated_vec)
+                            active_mask = (~end_of_traj).astype(np.float32)
+                            rew_of_traj += reward_vec * active_mask
+                            len_of_traj += active_mask
+                            end_of_traj = np.logical_or(end_of_traj, done)
+                            pos_rew_of_traj = np.logical_or(pos_rew_of_traj, (np.array(reward_vec) > 0.) * 1.)
+                            if score_values is not None:
+                                if score_of_traj is None:
+                                    score_of_traj = score_values
+                                else:
+                                    score_of_traj = np.where(~end_of_traj, score_values, score_of_traj)
+
+                        # Episode tracking (first batch, first rollout)
+                        if not episode_tracked and batch_idx == 0:
+                            if score_of_traj is not None:
+                                episode_total_score = float(score_of_traj[0])
+                            if terminated_vec[0] or truncated_vec[0] or step_idx == env_config['episode_length'] - 1:
+                                episode_tracked = True
+
+                        if end_of_traj.all():
+                            break
+
+                # End of episode loop for this batch
+                # Accumulate per-rollout results
+                if track_standard_metrics and end_of_traj is not None:
+                    all_rew_of_traj.extend(np.array(rew_of_traj, dtype=np.float64).tolist())
+                    all_len_of_traj.extend(np.array(len_of_traj, dtype=np.float64).tolist())
+                    all_pos_rew_of_traj.extend(np.array(pos_rew_of_traj, dtype=np.float64).tolist())
+                    if score_of_traj is not None:
+                        all_score_of_traj.extend(np.array(score_of_traj, dtype=np.float64).tolist())
+
+                # Capture last-step token counts for this batch (if any generation occurred).
+                if batch_response_n_tokens_last is not None:
+                    response_n_tokens_last_step[batch_start:batch_end] = [
+                        int(x) for x in batch_response_n_tokens_last.tolist()
+                    ]
+
+            # End of VecEnv context manager - environment closed
+            # Memory cleanup between batches
+            gc.collect()
+            if n_batches > 1:
+                self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: Completed batch {batch_idx + 1}/{n_batches}")
+
+        # =========== END BATCH LOOP ===========
+
+        # =========== METRIC COMPUTATION (from accumulated data) ===========
         metric_dict: Dict[str, float] = {}
 
-        if track_standard_metrics and end_of_traj is not None:
-            rew_of_traj = np.array(rew_of_traj, dtype=np.float64)
-            len_of_traj = np.array(len_of_traj, dtype=np.float64)
-            pos_rew_of_traj = np.array(pos_rew_of_traj, dtype=np.float64)
-            response_n_tokens = response_n_tokens.float() if response_n_tokens is not None else None
-            
+        if track_standard_metrics and all_rew_of_traj:
+            rew_of_traj_arr = np.array(all_rew_of_traj, dtype=np.float64)
+            len_of_traj_arr = np.array(all_len_of_traj, dtype=np.float64)
+            pos_rew_of_traj_arr = np.array(all_pos_rew_of_traj, dtype=np.float64)
+            response_n_tokens_float = None
+            if any(x is not None for x in response_n_tokens_last_step):
+                response_n_tokens_float = np.array(
+                    [x for x in response_n_tokens_last_step if x is not None],
+                    dtype=np.float64,
+                )
+
             metric_dict.update({
-                "rewards_mean": float(rew_of_traj.mean()),
-                "rewards_std": float(rew_of_traj.std()),
-                "pos_reward_any_prop_mean": float(pos_rew_of_traj.mean()),
-                "pos_reward_any_prop_std": float(pos_rew_of_traj.std()),
-                "traj_length_mean": float(len_of_traj.mean()),
-                "traj_length_std": float(len_of_traj.std()),
+                "rewards_mean": float(rew_of_traj_arr.mean()),
+                "rewards_std": float(rew_of_traj_arr.std()),
+                "pos_reward_any_prop_mean": float(pos_rew_of_traj_arr.mean()),
+                "pos_reward_any_prop_std": float(pos_rew_of_traj_arr.std()),
+                "traj_length_mean": float(len_of_traj_arr.mean()),
+                "traj_length_std": float(len_of_traj_arr.std()),
             })
 
-            if score_of_traj is not None:
-                score_arr = np.array(score_of_traj, dtype=np.float64)
+            if all_score_of_traj:
+                score_arr = np.array(all_score_of_traj, dtype=np.float64)
                 metric_dict.update({
                     "score_mean": float(score_arr.mean()),
                     "score_std": float(score_arr.std()),
                 })
 
-            if response_n_tokens is not None:
+            if response_n_tokens_float is not None:
                 metric_dict.update({
-                    "toks_out_mean": float(response_n_tokens.mean()),
-                    "toks_out_std": float(response_n_tokens.std()),
+                    "toks_out_mean": float(response_n_tokens_float.mean()),
+                    "toks_out_std": float(response_n_tokens_float.std()),
                 })
 
             metric_dict.update({
-                "tokens_per_rollout": total_tokens_generated / env_config['n_rollouts'],
-                "tokens_per_step": total_tokens_generated / max(1, (env_config['episode_length'] * env_config['n_rollouts'])),
+                "tokens_per_rollout": total_tokens_generated / n_rollouts,
+                "tokens_per_step": total_tokens_generated / max(1, (env_config['episode_length'] * n_rollouts)),
             })
 
         metric_dict.update({
             "inference_time_seconds": total_inference_time,
-            "inference_time_per_rollout": total_inference_time / max(1, env_config['n_rollouts']),
-            "inference_time_per_step": total_inference_time / max(1, (env_config['episode_length'] * env_config['n_rollouts'])),
+            "inference_time_per_rollout": total_inference_time / max(1, n_rollouts),
+            "inference_time_per_step": total_inference_time / max(1, (env_config['episode_length'] * n_rollouts)),
         })
 
         if entropy_enabled:
@@ -862,71 +934,77 @@ class MultiEnvEvaluator:
                 "n_distinct_state_actions_std": np.std(distinct_state_actions_by_group),
             })
 
-            # Frame counting (per group and total)
-            total_frames_per_group = [0.0] * n_groups
-            len_array = np.atleast_1d(np.array(len_of_traj, dtype=float))
-            for i in range(n_rollouts):
-                group_idx = i // seed_group_size
-                traj_len = len_array[i] if i < len_array.shape[0] else len_array[-1]
-                total_frames_per_group[group_idx] += traj_len
-            total_frames = float(np.sum(len_array))
+            # Per-frame / coverage metrics require trajectory lengths (standard rollouts).
+            if all_len_of_traj:
+                # Frame counting (per group and total)
+                total_frames_per_group = [0.0] * n_groups
+                len_array = np.atleast_1d(np.array(all_len_of_traj, dtype=float))
+                for i in range(n_rollouts):
+                    group_idx = i // seed_group_size
+                    traj_len = len_array[i] if i < len_array.shape[0] else len_array[-1]
+                    total_frames_per_group[group_idx] += traj_len
 
-            # Per-frame distinct count including invalid actions
-            distinct_state_actions_per_frame_by_group = [
-                float(n_distinct_state_actions) / n_frames
-                for n_distinct_state_actions, n_frames in zip(distinct_state_actions_by_group, total_frames_per_group)
-                if n_frames > 0
-            ]
-            distinct_state_actions_valid_per_frame_by_group = [
-                float(n_distinct_state_actions) / n_frames
-                for n_distinct_state_actions, n_frames in zip(distinct_state_actions_valid_by_group, total_frames_per_group)
-                if n_frames > 0
-            ]
-
-            self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: total_frames_per_group={total_frames_per_group}")
-            self._dbg_print(
-                f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_per_frame_by_group (incl invalid)={distinct_state_actions_per_frame_by_group}"
-            )
-            self._dbg_print(
-                f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_valid_per_frame_by_group={distinct_state_actions_valid_per_frame_by_group}"
-            )
-
-            metric_dict.update({
-                "distinct_state_actions_per_frame_mean": np.mean(distinct_state_actions_per_frame_by_group),
-                "distinct_state_actions_per_frame_std": np.std(distinct_state_actions_per_frame_by_group),
-                "distinct_state_actions_valid_per_frame_mean": np.mean(distinct_state_actions_valid_per_frame_by_group),
-                "distinct_state_actions_valid_per_frame_std": np.std(distinct_state_actions_valid_per_frame_by_group),
-            })
-
-            # Coverage vs opportunity (valid-only distinct counts)
-            opportunity = float(seed_group_size * env_config['episode_length'])
-            if opportunity > 0:
-                distinct_state_action_valid_coverage_by_group = [
-                    float(n_distinct_state_actions) / opportunity
-                    for n_distinct_state_actions in distinct_state_actions_valid_by_group
+                # Per-frame distinct count including invalid actions
+                distinct_state_actions_per_frame_by_group = [
+                    float(n_distinct_state_actions) / n_frames
+                    for n_distinct_state_actions, n_frames in zip(distinct_state_actions_by_group, total_frames_per_group)
+                    if n_frames > 0
                 ]
-                distinct_state_action_coverage_by_group = [
-                    float(n_distinct_state_actions) / opportunity
-                    for n_distinct_state_actions in distinct_state_actions_by_group
+                distinct_state_actions_valid_per_frame_by_group = [
+                    float(n_distinct_state_actions) / n_frames
+                    for n_distinct_state_actions, n_frames in zip(distinct_state_actions_valid_by_group, total_frames_per_group)
+                    if n_frames > 0
                 ]
+
+                self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: total_frames_per_group={total_frames_per_group}")
                 self._dbg_print(
-                    f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_valid_coverage_by_group={distinct_state_action_valid_coverage_by_group}, opportunity={opportunity}"
+                    f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_per_frame_by_group (incl invalid)={distinct_state_actions_per_frame_by_group}"
                 )
                 self._dbg_print(
-                    f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_coverage_by_group={distinct_state_action_coverage_by_group}, opportunity={opportunity}"
+                    f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_valid_per_frame_by_group={distinct_state_actions_valid_per_frame_by_group}"
                 )
+
                 metric_dict.update({
-                    "distinct_state_actions_valid_coverage_mean": np.mean(distinct_state_action_valid_coverage_by_group),
-                    "distinct_state_actions_valid_coverage_std": np.std(distinct_state_action_valid_coverage_by_group),
-                    "distinct_state_actions_coverage_mean": np.mean(distinct_state_action_coverage_by_group),
-                    "distinct_state_actions_coverage_std": np.std(distinct_state_action_coverage_by_group),
+                    "distinct_state_actions_per_frame_mean": np.mean(distinct_state_actions_per_frame_by_group),
+                    "distinct_state_actions_per_frame_std": np.std(distinct_state_actions_per_frame_by_group),
+                    "distinct_state_actions_valid_per_frame_mean": np.mean(distinct_state_actions_valid_per_frame_by_group),
+                    "distinct_state_actions_valid_per_frame_std": np.std(distinct_state_actions_valid_per_frame_by_group),
                 })
+
+                # Coverage vs opportunity (valid-only distinct counts)
+                opportunity = float(seed_group_size * env_config['episode_length'])
+                if opportunity > 0:
+                    distinct_state_action_valid_coverage_by_group = [
+                        float(n_distinct_state_actions) / opportunity
+                        for n_distinct_state_actions in distinct_state_actions_valid_by_group
+                    ]
+                    distinct_state_action_coverage_by_group = [
+                        float(n_distinct_state_actions) / opportunity
+                        for n_distinct_state_actions in distinct_state_actions_by_group
+                    ]
+                    self._dbg_print(
+                        f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_valid_coverage_by_group={distinct_state_action_valid_coverage_by_group}, opportunity={opportunity}"
+                    )
+                    self._dbg_print(
+                        f"[MultiEnvEvaluator] {eval_name}: distinct_state_action_coverage_by_group={distinct_state_action_coverage_by_group}, opportunity={opportunity}"
+                    )
+                    metric_dict.update({
+                        "distinct_state_actions_valid_coverage_mean": np.mean(distinct_state_action_valid_coverage_by_group),
+                        "distinct_state_actions_valid_coverage_std": np.std(distinct_state_action_valid_coverage_by_group),
+                        "distinct_state_actions_coverage_mean": np.mean(distinct_state_action_coverage_by_group),
+                        "distinct_state_actions_coverage_std": np.std(distinct_state_action_coverage_by_group),
+                    })
+                else:
+                    self._dbg_print(f"[MultiEnvEvaluator] {eval_name} WARNING: opportunity is 0, skipping coverage metrics")
             else:
-                self._dbg_print(f"[MultiEnvEvaluator] {eval_name} WARNING: opportunity is 0, skipping coverage metrics")
+                self._dbg_print(
+                    f"[MultiEnvEvaluator] {eval_name}: Skipping per-frame/coverage metrics because trajectory lengths are unavailable"
+                )
 
         # Valid action tracking across the episode
+        total_len = float(np.sum(all_len_of_traj)) if all_len_of_traj else 0.0
         metric_dict.update({
-            "total_len_of_trajs": float(np.atleast_1d(np.array(len_of_traj, dtype=float)).sum()), # Should match attempted_actions_total?
+            "total_len_of_trajs": total_len,
             "valid_actions_total": float(total_valid_actions),
             "attempted_actions_total": float(total_attempted_actions),
             "valid_action_ratio": float(total_valid_actions) / max(1.0, float(total_attempted_actions)),
@@ -1128,4 +1206,43 @@ class MultiEnvEvaluator:
         probs = np.array(list(counts.values()), dtype=np.float64) / total
         entropy = -np.sum(probs * np.log(probs + 1e-12))
         return float(entropy)
+
+    @staticmethod
+    def _compute_seed_sequence(
+        initial_seed: Optional[int],
+        n_rollouts: int,
+        seed_group_size: Optional[int] = None,
+    ) -> List[Optional[int]]:
+        """Compute the full seed sequence for all rollouts upfront.
+
+        Uses the same logic as VecEnv.reset() to ensure determinism:
+        - If seed_group_size is set: groups of rollouts get same seed (initial_seed + group_index)
+        - Otherwise: each rollout gets unique seed (initial_seed + i)
+
+        Args:
+            initial_seed: Base seed (None means no seeding)
+            n_rollouts: Total number of rollouts
+            seed_group_size: If provided, group rollouts to share seeds
+
+        Returns:
+            List of seeds, one per rollout
+        """
+        if initial_seed is None:
+            return [None] * n_rollouts
+
+        seeds = []
+        # Normalize seed_group_size
+        effective_group_size = seed_group_size
+        if effective_group_size == n_rollouts:
+            effective_group_size = None
+
+        for i in range(n_rollouts):
+            if effective_group_size is not None:
+                group_index = i // effective_group_size
+                seeds.append(initial_seed + group_index)
+            else:
+                # Incremental seeds (each rollout gets unique seed)
+                seeds.append(initial_seed + i)
+
+        return seeds
  
