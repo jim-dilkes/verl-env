@@ -1,0 +1,1 @@
+It is too tricky manageing worktrees with the FastSnake env as a submodule. Remove the submodule and just add the code to the dir. 
