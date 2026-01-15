@@ -135,3 +135,5 @@ outputs
 .brisk/
 **/.brisk/
 .session/
+.active-card
+**/.active-card

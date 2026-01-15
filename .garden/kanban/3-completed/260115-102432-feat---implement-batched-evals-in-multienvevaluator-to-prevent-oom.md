@@ -3,8 +3,8 @@
 **Type:** feat
 **Branch:** batched-evals
 **Created:** 2026-01-15 10:24
-**Started:** 2026-01-15 10:24
-**Completed:** —
+**Started:** 2026-01-15 21:30
+**Completed:** 2026-01-15 21:39
 
 ## Goal
 Prevent OOM during evaluation by batching environment rollouts instead of creating all at once.
