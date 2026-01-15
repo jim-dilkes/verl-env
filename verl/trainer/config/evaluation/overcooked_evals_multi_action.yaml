@@ -150,9 +150,10 @@ evaluation:
 
 
     # --- Config: Overcooked Entropy Probe (Multi-Action) ---
-    # Uses inherit_training_epsilon to measure policy entropy with same exploration as training
+    # Uses inherit_training_multiaction to measure policy entropy with same exploration as training
     - name: "Overcooked-CrampedRoom-Entropy-Check"
-      n_rollouts: 50
+      n_rollouts: 200
+      batch_size: 50
       episode_length: 1
       generation:
         temperature: 0.0
@@ -167,7 +168,7 @@ evaluation:
       task: none
       format_penalty: 0.0
       multi_action_reasoning: true
-      inherit_training_epsilon: true
+      inherit_training_multiaction: true
       instruction_prompt: |
         [Instructions]
         You are playing Overcooked solo. You control the only chef in a kitchen.
@@ -232,9 +233,10 @@ evaluation:
 
 
     # --- Config: Overcooked StateVisitation (Multi-Action) ---
-    # Uses inherit_training_epsilon to measure exploration with same epsilon as training
+    # Uses inherit_training_multiaction to measure exploration with same epsilon as training
     - name: "Overcooked-CrampedRoom-StateVisitation"
       n_rollouts: 400
+      batch_size: 50
       episode_length: 8
       generation:
         temperature: 1.25
@@ -250,7 +252,7 @@ evaluation:
       task: none
       format_penalty: 0.0
       multi_action_reasoning: true
-      inherit_training_epsilon: true
+      inherit_training_multiaction: true
       instruction_prompt: |
         [Instructions]
         You are playing Overcooked solo. You control the only chef in a kitchen.

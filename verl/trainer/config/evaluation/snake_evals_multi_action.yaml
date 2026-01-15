@@ -186,7 +186,7 @@ evaluation:
 
 
     # --- Config: FastSnake Entropy Probe (Multi-Action) ---
-    # Uses inherit_training_epsilon to measure policy entropy with same exploration as training
+    # Uses inherit_training_multiaction to measure policy entropy with same exploration as training
     - name: "FastSnake-Entropy-Check"
       n_rollouts: 50
       episode_length: 1
@@ -203,7 +203,7 @@ evaluation:
       task: none
       format_penalty: 0.0
       multi_action_reasoning: true
-      inherit_training_epsilon: true
+      inherit_training_multiaction: true
       instruction_prompt: |
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
@@ -254,7 +254,7 @@ evaluation:
 
 
     # --- Config: FastSnake StateVisitation (Multi-Action) ---
-    # Uses inherit_training_epsilon to measure exploration with same epsilon as training
+    # Uses inherit_training_multiaction to measure exploration with same epsilon as training
     - name: "FastSnake-Default-StateVisitation"
       n_rollouts: 400
       episode_length: 8
@@ -272,7 +272,7 @@ evaluation:
       task: none
       format_penalty: 0.0
       multi_action_reasoning: true
-      inherit_training_epsilon: true
+      inherit_training_multiaction: true
       instruction_prompt: |
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
