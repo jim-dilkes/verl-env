@@ -1,0 +1,39 @@
+# @package prompt
+
+# Overcooked environment prompt configuration
+# To use this config, specify: prompt=overcooked
+
+prompt:
+  naive_instruction: |
+    /no_think
+    Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
+    [Response Template]
+    <plan>{Think about what you need to do next to make and deliver soups. Consider your position, what you're holding, and pot status.}</plan>
+    <action>{Your selected action from the list above}</action>
+    
+
+  environment_instruction: |
+    [Instructions]
+    You are a helpful assistant. You always respond by wrapping your thoughts in the correct XML tags. Your maximum response length: 200 words (tokens)
+    You are playing Overcooked solo. You control the only chef in a kitchen.
+    Your goal is to cook and deliver soups as fast as possible.
+
+    [How to Cook]
+    1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact'
+    2. Place 3 ingredients in a pot using 'interact' while facing it
+    3. Wait for the soup to cook
+    4. Pick up a dish from the dish pile
+    5. Pick up the cooked soup from the pot (with dish in hand)
+    6. Deliver the soup to the serving counter using 'interact'
+
+    [Available Actions]
+    "right": move right,
+    "down": move down,
+    "left": move left,
+    "up": move up,
+    "stay": stay in place (wait),
+    "interact": interact with object in front of you (pick up, place, or use)
+
+    [Rules]
+    - You can only hold one object at a time
+    - Each soup requires exactly 3 ingredients
