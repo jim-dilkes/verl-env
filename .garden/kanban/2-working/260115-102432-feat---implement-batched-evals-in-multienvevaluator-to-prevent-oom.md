@@ -183,3 +183,16 @@ Split into:
 3. **Deterministic seeding**: Full seed list computed upfront, sliced per batch
 4. **Simple lifecycle**: Recreate VecEnv per batch (no complex reuse)
 5. **Validation**: Only `n_rollouts > 0` and `batch_size > 0` required
+
+## Known Limitations
+
+### Introduced by this card
+1. **Model-side determinism not guaranteed**: Env seeding is controlled, but if model uses stochastic sampling (`do_sample=True`) and its RNG depends on batch ordering, results may differ across batch configurations. Eval typically uses greedy decoding (`do_sample=False`), so this is usually not an issue.
+
+2. **Addresses env memory, not model memory**: Batching reduces peak env count but not model memory (KV cache, prompt embeddings). If OOM is from model side, this won't help.
+
+### Pre-existing issues (not introduced by this card)
+See backlog cards:
+- `(fix)-entropy-probing-tracks-restarted-episodes.md`
+- `(fix)-token-metrics-include-post-terminal-generations.md`
+- `(fix)-evaluator-generates-for-ended-rollouts.md`
