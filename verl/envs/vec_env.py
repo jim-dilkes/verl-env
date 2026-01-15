@@ -173,38 +173,51 @@ class VecEnv:
         
         return obs, np.stack(rews), np.stack(terminated), np.stack(truncated), infos
     
-    def reset(self, seed=None, seed_group_size=None, use_incremental_seeds=False):
+    def reset(self, seed=None, seed_group_size=None, use_incremental_seeds=False, seeds=None):
         """
         Reset all environments with seeds.
-        
+
         Args:
             seed: Base seed for resetting environments
             seed_group_size: If provided, group successive sets of this many rollouts to have the same seed.
                            Each group gets seed + group_index. Must divide n_rollouts evenly.
             use_incremental_seeds: If True, each worker gets seed + worker_rank (for evaluation).
                                  If False, all workers get the same seed (for GRPO training).
+            seeds: Explicit list of seeds, one per worker. If provided, overrides all other seed logic.
+                   Used for batched evaluation where seeds are computed upfront.
         """
-        if seed_group_size==self.n_rollouts:
-            seed_group_size = None
-        if seed_group_size is not None and self.n_rollouts % seed_group_size != 0:
-            raise ValueError("n_rollouts must be divisible by seed_group_size")
+        # Explicit seeds list takes priority over all other seed logic
+        if seeds is not None:
+            if len(seeds) != self.n_rollouts:
+                raise ValueError(f"seeds list length ({len(seeds)}) must match n_rollouts ({self.n_rollouts})")
+            for i, remote in enumerate(self.remotes):
+                try:
+                    remote.send(('reset', seeds[i]))
+                except Exception as e:
+                    raise RuntimeError(f"Error resetting environment {i}: {e}")
+        else:
+            # Original seed computation logic
+            if seed_group_size == self.n_rollouts:
+                seed_group_size = None
+            if seed_group_size is not None and self.n_rollouts % seed_group_size != 0:
+                raise ValueError("n_rollouts must be divisible by seed_group_size")
 
-        for i, remote in enumerate(self.remotes):
-            try:
-                if seed_group_size is not None and seed is not None:
-                    # Group successive sets of seed_group_size rollouts to have the same seed
-                    # This takes priority over use_incremental_seeds to ensure proper grouping
-                    group_index = i // seed_group_size
-                    worker_seed = seed + group_index
-                elif use_incremental_seeds and seed is not None:
-                    # Create unique seed for each worker: base_seed + worker_rank (for evaluation)
-                    worker_seed = seed + i
-                else:
-                    # Use the same seed for all workers (for GRPO training)
-                    worker_seed = seed
-                remote.send(('reset', worker_seed))
-            except Exception as e:
-                raise RuntimeError(f"Error resetting environment {i}: {e}")
+            for i, remote in enumerate(self.remotes):
+                try:
+                    if seed_group_size is not None and seed is not None:
+                        # Group successive sets of seed_group_size rollouts to have the same seed
+                        # This takes priority over use_incremental_seeds to ensure proper grouping
+                        group_index = i // seed_group_size
+                        worker_seed = seed + group_index
+                    elif use_incremental_seeds and seed is not None:
+                        # Create unique seed for each worker: base_seed + worker_rank (for evaluation)
+                        worker_seed = seed + i
+                    else:
+                        # Use the same seed for all workers (for GRPO training)
+                        worker_seed = seed
+                    remote.send(('reset', worker_seed))
+                except Exception as e:
+                    raise RuntimeError(f"Error resetting environment {i}: {e}")
         
         observations, infos = zip(*[remote.recv() for remote in self.remotes])
         
