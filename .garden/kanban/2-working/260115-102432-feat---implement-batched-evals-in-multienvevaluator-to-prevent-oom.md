@@ -10,10 +10,52 @@
 Prevent OOM during evaluation by batching environment rollouts instead of creating all at once.
 
 ## Scope
-- [ ] Add `batch_size` config option per evaluation environment
-- [ ] Modify `MultiEnvEvaluator.evaluate()` to process rollouts in batches
-- [ ] Accumulate raw per-rollout data across batches, aggregate once at end
-- [ ] Default behavior unchanged (`batch_size=None` = run all at once)
+- [x] Add `batch_size` config option per evaluation environment
+- [x] Modify `MultiEnvEvaluator.evaluate()` to process rollouts in batches
+- [x] Accumulate raw per-rollout data across batches, aggregate once at end
+- [x] Default behavior unchanged (`batch_size=None` = run all at once)
+
+## Implementation Status
+
+### Completed Changes
+
+**1. VecEnv.reset() interface** (`verl/envs/vec_env.py:176-220`)
+- Added `seeds: Optional[List[int]]` parameter
+- If seeds list provided, uses them directly (one per worker)
+- Otherwise falls back to existing seed computation logic
+
+**2. MultiEnvEvaluator changes** (`verl/trainer/ppo/multi_env_evaluator.py`)
+- Added `_compute_seed_sequence()` static method (lines 1132-1169)
+  - Computes full seed list upfront for determinism
+  - Handles both incremental seeds and seed_group_size grouping
+- Modified `_create_env_config()` to accept `n_rollouts_override` parameter (line 260)
+- Refactored `_evaluate_single_env_body()` (lines 509-1006):
+  - Batch loop with VecEnv creation per batch
+  - Global indexing for group assignment across batches
+  - Accumulated arrays for metrics computation
+- Simplified `evaluate()` - VecEnv creation moved inside `_evaluate_single_env_body()`
+- Validation: `n_rollouts > 0`, `batch_size > 0` if provided
+
+### Review Fixes Applied
+
+**1. toks_out_mean/std batch invariance**
+- Problem: Used only last batch's `response_n_tokens` tensor, which varies when last batch is smaller
+- Fix: Collect per-rollout token counts across all batches via `response_n_tokens_last_step[batch_start:batch_end]`
+
+**2. seed_group_size=None crash**
+- Problem: Config could explicitly set `seed_group_size: null`, causing `n_rollouts % None` error
+- Fix: Normalize `seed_group_size` to `n_rollouts` if None, validate > 0 before use
+
+**3. Entropy-only runs crash on group metrics**
+- Problem: When `exclusive_metric=True`, `all_len_of_traj` stays empty but per-frame/coverage metrics tried to index it
+- Fix: Gate per-frame/coverage metrics on `if all_len_of_traj:`
+
+### Behavior Notes
+
+- **Seed semantics**: `_compute_seed_sequence()` mirrors existing `VecEnv.reset(use_incremental_seeds=True)` behavior, including `seed_group_size == n_rollouts` meaning "no grouping" (incremental seeds)
+- **Existing constraint preserved**: `n_rollouts % seed_group_size == 0` still required (card only promised no batch_size/seed_group_size alignment)
+- **Batch recreation overhead**: VecEnv recreated per batch (simplicity over efficiency trade-off)
+- **Print noise**: `VecEnvContextManager` prints "Successfully closed..." per batch - could gate behind debug flag later
 
 ## Out of Scope
 - Streaming/partial metrics logging
