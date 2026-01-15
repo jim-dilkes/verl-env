@@ -314,15 +314,21 @@ class MultiEnvEvaluator:
 
             # Handle prompt.prompt overrides for evaluation
             if hasattr(temp_config, 'prompt') and hasattr(temp_config.prompt, 'prompt'):
+                original_epsilon = getattr(temp_config.prompt.prompt, 'epsilon', 0.0)
+                original_multi_action = getattr(temp_config.prompt.prompt, 'multi_action_reasoning', False)
+
+                # Check for inherit_training_multiaction (inherits both epsilon and multi_action_reasoning)
+                # Also support legacy inherit_training_epsilon for backwards compatibility
+                inherit_training = env_config.get('inherit_training_multiaction', False) or env_config.get('inherit_training_epsilon', False)
+
                 # Epsilon handling:
                 # - If 'epsilon' explicitly set in eval config, use that value
-                # - If 'inherit_training_epsilon: true', keep training epsilon (for entropy/exploration metrics)
+                # - If inherit_training_multiaction: true, keep training epsilon (for entropy/exploration metrics)
                 # - Otherwise, force epsilon=0 for evaluation
-                original_epsilon = getattr(temp_config.prompt.prompt, 'epsilon', 0.0)
                 if 'epsilon' in env_config:
                     temp_config.prompt.prompt.epsilon = env_config['epsilon']
                     self._dbg_print(f"[MultiEnvEvaluator] Epsilon explicitly set in eval config: {env_config['epsilon']}")
-                elif env_config.get('inherit_training_epsilon', False):
+                elif inherit_training:
                     # Keep original training epsilon for exploration measurement
                     self._dbg_print(f"[MultiEnvEvaluator] Inheriting training epsilon: {original_epsilon}")
                 else:
@@ -330,10 +336,19 @@ class MultiEnvEvaluator:
                     if original_epsilon > 0:
                         self._dbg_print(f"[MultiEnvEvaluator] Forcing epsilon=0 for evaluation (training had epsilon={original_epsilon})")
 
-                # Allow multi_action_reasoning override in eval config
+                # multi_action_reasoning handling:
+                # - If explicitly set in eval config, use that value
+                # - If inherit_training_multiaction: true, keep training value
+                # - Otherwise, force to False for evaluation
                 if 'multi_action_reasoning' in env_config:
                     temp_config.prompt.prompt.multi_action_reasoning = env_config['multi_action_reasoning']
                     self._dbg_print(f"[MultiEnvEvaluator] multi_action_reasoning set from eval config: {env_config['multi_action_reasoning']}")
+                elif inherit_training:
+                    self._dbg_print(f"[MultiEnvEvaluator] Inheriting training multi_action_reasoning: {original_multi_action}")
+                else:
+                    temp_config.prompt.prompt.multi_action_reasoning = False
+                    if original_multi_action:
+                        self._dbg_print(f"[MultiEnvEvaluator] Forcing multi_action_reasoning=False for evaluation (training had multi_action_reasoning={original_multi_action})")
         
         self._dbg_print(f"[MultiEnvEvaluator] Final temp_config.envs.n_rollouts: {temp_config.envs.n_rollouts}")
         self._dbg_print(f"[MultiEnvEvaluator] Final temp_config.envs keys: {list(temp_config.envs.keys())}")
