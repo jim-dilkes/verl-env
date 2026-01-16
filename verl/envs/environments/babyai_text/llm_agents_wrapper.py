@@ -181,18 +181,40 @@ Output your action in: <action>your_action</action>"""
 
     @staticmethod
     def extract_action_from_xml_tag(text: str, tag: str = "action") -> Optional[str]:
-        """Extract action from XML-style tags like <{tag}>UP</{tag}>."""
+        """Extract action from XML-style tags like <{tag}>UP</{tag}>.
+
+        Returns None if tags are malformed (missing opening or closing tag).
+        """
+        open_tag = f"<{tag}>"
+        close_tag = f"</{tag}>"
+
+        if open_tag not in text or close_tag not in text:
+            return None
+
         try:
-            return text.split(f"<{tag}>")[1].split(f"</{tag}>")[0].strip().lower()
-        except (IndexError, AttributeError):
+            start = text.index(open_tag) + len(open_tag)
+            end = text.index(close_tag, start)
+            return text[start:end].strip().lower()
+        except (ValueError, IndexError):
             return None
 
     @staticmethod
     def extract_decision_from_xml(text: str) -> Optional[str]:
-        """Extract decision from <decision>X</decision> tag."""
+        """Extract decision from <decision>X</decision> tag.
+
+        Returns None if tags are malformed (missing opening or closing tag).
+        """
+        open_tag = "<decision>"
+        close_tag = "</decision>"
+
+        if open_tag not in text or close_tag not in text:
+            return None
+
         try:
-            return text.split("<decision>")[1].split("</decision>")[0].strip().lower()
-        except (IndexError, AttributeError):
+            start = text.index(open_tag) + len(open_tag)
+            end = text.index(close_tag, start)
+            return text[start:end].strip().lower()
+        except (ValueError, IndexError):
             return None
 
     @staticmethod

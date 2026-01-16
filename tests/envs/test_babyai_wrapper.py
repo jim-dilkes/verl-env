@@ -46,6 +46,18 @@ class TestExtractActionFromXmlTag:
         result = BabyAILLMAgentsWrapper.extract_action_from_xml_tag(text)
         assert result == ""
 
+    def test_unclosed_tag_returns_none(self):
+        """Unclosed tag returns None (strict parsing)."""
+        text = "<action>go forward"
+        result = BabyAILLMAgentsWrapper.extract_action_from_xml_tag(text)
+        assert result is None
+
+    def test_missing_open_tag_returns_none(self):
+        """Missing open tag returns None."""
+        text = "go forward</action>"
+        result = BabyAILLMAgentsWrapper.extract_action_from_xml_tag(text)
+        assert result is None
+
 
 class TestExtractDecisionFromXml:
     """Tests for extract_decision_from_xml (multi-action mode)."""
@@ -69,6 +81,18 @@ class TestExtractDecisionFromXml:
     def test_no_decision_tag(self):
         """No decision tag returns None."""
         text = "<action>turn left</action>"
+        result = BabyAILLMAgentsWrapper.extract_decision_from_xml(text)
+        assert result is None
+
+    def test_unclosed_decision_tag_returns_none(self):
+        """Unclosed decision tag returns None (strict parsing)."""
+        text = "<decision>turn left"
+        result = BabyAILLMAgentsWrapper.extract_decision_from_xml(text)
+        assert result is None
+
+    def test_missing_open_decision_tag_returns_none(self):
+        """Missing open decision tag returns None."""
+        text = "turn left</decision>"
         result = BabyAILLMAgentsWrapper.extract_decision_from_xml(text)
         assert result is None
 
