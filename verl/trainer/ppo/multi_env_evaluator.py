@@ -802,16 +802,19 @@ class MultiEnvEvaluator:
                                 score_of_traj = score_values
                         else:
                             done = np.logical_or(terminated_vec, truncated_vec)
-                            active_mask = (~end_of_traj).astype(np.float32)
+                            prev_end_of_traj = end_of_traj.copy()
+                            active_mask = (~prev_end_of_traj).astype(np.float32)
                             rew_of_traj += reward_vec * active_mask
                             len_of_traj += active_mask
-                            end_of_traj = np.logical_or(end_of_traj, done)
+                            end_of_traj = np.logical_or(prev_end_of_traj, done)
                             pos_rew_of_traj = np.logical_or(pos_rew_of_traj, (np.array(reward_vec) > 0.) * 1.)
                             if score_values is not None:
                                 if score_of_traj is None:
                                     score_of_traj = score_values
                                 else:
-                                    score_of_traj = np.where(~end_of_traj, score_values, score_of_traj)
+                                    # Update scores for rollouts that were active at the start of this step,
+                                    # including rollouts that become done on this step.
+                                    score_of_traj = np.where(~prev_end_of_traj, score_values, score_of_traj)
 
                         # Episode tracking (first batch, first rollout)
                         if not episode_tracked and batch_idx == 0:
@@ -884,13 +887,19 @@ class MultiEnvEvaluator:
 
             metric_dict.update({
                 "tokens_per_rollout": total_tokens_generated / n_rollouts,
-                "tokens_per_step": total_tokens_generated / max(1, (env_config['episode_length'] * n_rollouts)),
+                # Normalize by actual executed steps (attempted actions), not max possible steps.
+                "tokens_per_step": total_tokens_generated / max(1, total_attempted_actions),
+                # Backwards-compatible metric: normalize by configured max steps.
+                "tokens_per_step_cap": total_tokens_generated / max(1, (env_config['episode_length'] * n_rollouts)),
             })
 
         metric_dict.update({
             "inference_time_seconds": total_inference_time,
             "inference_time_per_rollout": total_inference_time / max(1, n_rollouts),
-            "inference_time_per_step": total_inference_time / max(1, (env_config['episode_length'] * n_rollouts)),
+            # Normalize by actual executed steps (attempted actions), not max possible steps.
+            "inference_time_per_step": total_inference_time / max(1, total_attempted_actions),
+            # Backwards-compatible metric: normalize by configured max steps.
+            "inference_time_per_step_cap": total_inference_time / max(1, (env_config['episode_length'] * n_rollouts)),
         })
 
         if entropy_enabled:
@@ -1022,6 +1031,10 @@ class MultiEnvEvaluator:
             "total_len_of_trajs": total_len,
             "valid_actions_total": float(total_valid_actions),
             "attempted_actions_total": float(total_attempted_actions),
+            # Convenience alias: number of executed environment steps across all rollouts.
+            # (Matches attempted_actions_total; provided as an explicit denominator for rate metrics.)
+            "executed_steps_total": float(total_attempted_actions),
+            "executed_steps_per_rollout": float(total_attempted_actions) / max(1, float(n_rollouts)),
             "valid_action_ratio": float(total_valid_actions) / max(1.0, float(total_attempted_actions)),
         })
 

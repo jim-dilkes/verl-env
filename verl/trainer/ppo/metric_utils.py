@@ -15,6 +15,7 @@
 Metrics related to the PPO trainer.
 """
 
+import logging
 from collections import defaultdict
 from functools import partial
 from typing import Any, Callable
@@ -24,6 +25,8 @@ import torch
 
 from verl import DataProto
 from verl.utils.import_utils import deprecated
+
+logger = logging.getLogger(__name__)
 
 
 @deprecated("verl.utils.metric.reduce_metrics")
@@ -124,13 +127,28 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     non_aborted_sequence_score = sequence_score[non_aborted_mask]
     non_aborted_sequence_reward = sequence_reward[non_aborted_mask]
 
-    score_mean = torch.mean(non_aborted_sequence_score).detach().item()
-    score_max = torch.max(non_aborted_sequence_score).detach().item()
-    score_min = torch.min(non_aborted_sequence_score).detach().item()
+    # If all samples are aborted (response_length == 0), avoid hard-crashing.
+    # This can happen transiently in early training or with misconfigured generation.
+    if non_aborted_sequence_score.numel() == 0:
+        logger.warning(
+            "All samples in batch are aborted (response_length=0). "
+            "This may indicate a generation config issue (e.g., max_tokens too small, "
+            "bad stopping criteria). Returning zeros for score/reward metrics."
+        )
+        score_mean = 0.0
+        score_max = 0.0
+        score_min = 0.0
+        reward_mean = 0.0
+        reward_max = 0.0
+        reward_min = 0.0
+    else:
+        score_mean = torch.mean(non_aborted_sequence_score).detach().item()
+        score_max = torch.max(non_aborted_sequence_score).detach().item()
+        score_min = torch.min(non_aborted_sequence_score).detach().item()
 
-    reward_mean = torch.mean(non_aborted_sequence_reward).detach().item()
-    reward_max = torch.max(non_aborted_sequence_reward).detach().item()
-    reward_min = torch.min(non_aborted_sequence_reward).detach().item()
+        reward_mean = torch.mean(non_aborted_sequence_reward).detach().item()
+        reward_max = torch.max(non_aborted_sequence_reward).detach().item()
+        reward_min = torch.min(non_aborted_sequence_reward).detach().item()
 
     valid_adv = torch.masked_select(advantages, response_mask)
     valid_returns = torch.masked_select(returns, response_mask)
@@ -154,7 +172,12 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
             torch.mean(torch.eq(non_aborted_response_length, max_response_length).float()).detach().item()
         )
     else:
-        raise ValueError("All samples are aborted, this should not happen.")
+        # Keep the metric keys stable; use zeros rather than raising.
+        # Warning already logged above when score/reward zeros were set.
+        non_aborted_response_length_mean = 0.0
+        non_aborted_response_length_max = 0.0
+        non_aborted_response_length_min = 0.0
+        non_aborted_response_length_clip_ratio = 0.0
 
     metrics = {
         # score
@@ -257,12 +280,17 @@ def compute_timing_metrics(batch: DataProto, timing_raw: dict[str, float]) -> di
         **{name: num_overall_tokens for name in ["ref", "values", "adv", "update_critic", "update_actor"]},
     }
 
+    timing_ms_per_token: dict[str, float] = {}
+    for name in set(num_tokens_of_section.keys()) & set(timing_raw.keys()):
+        denom = float(num_tokens_of_section[name])
+        if denom <= 0:
+            # Avoid inf/NaN; skip per-token metrics when there are no tokens.
+            continue
+        timing_ms_per_token[f"timing_per_token_ms/{name}"] = float(timing_raw[name]) * 1000.0 / denom
+
     return {
         **{f"timing_s/{name}": value for name, value in timing_raw.items()},
-        **{
-            f"timing_per_token_ms/{name}": timing_raw[name] * 1000 / num_tokens_of_section[name]
-            for name in set(num_tokens_of_section.keys()) & set(timing_raw.keys())
-        },
+        **timing_ms_per_token,
     }
 
 
@@ -291,14 +319,15 @@ def compute_throughout_metrics(batch: DataProto, timing_raw: dict[str, float], n
         across different GPU counts.
     """
     total_num_tokens = sum(batch.meta_info["global_token_num"])
-    time = timing_raw["step"]
+    time = float(timing_raw["step"])
     # estimated_flops, promised_flops = flops_function.estimate_flops(num_tokens, time)
     # f'Actual TFLOPs/s/GPU​': estimated_flops/(n_gpus),
     # f'Theoretical TFLOPs/s/GPU​': promised_flops,
+    denom = max(1e-12, time * max(1, int(n_gpus)))
     return {
         "perf/total_num_tokens": total_num_tokens,
         "perf/time_per_step": time,
-        "perf/throughput": total_num_tokens / (time * n_gpus),
+        "perf/throughput": total_num_tokens / denom,
     }
 
 
