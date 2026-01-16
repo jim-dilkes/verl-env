@@ -84,6 +84,12 @@ def get_text_action(self, action) -> str:
 def get_stats(self) -> dict:
     """Return any custom stats for logging."""
     return {}
+
+def extract_action_instance(self, llm_output: str) -> Tuple[str, str, str, bool, dict]:
+    """Parse LLM output (instance method for training).
+    Supports multi-action reasoning mode if wrapper has multi_action_reasoning=True.
+    Falls back to standard extract_action() when multi-action disabled.
+    """
 ```
 
 ### Observation Format
@@ -140,12 +146,38 @@ To add a new environment:
 Standard XML pattern (recommended):
 ```python
 @staticmethod
-def extract_action_from_xml_tag(text: str, tag: str = "action") -> str:
+def extract_action_from_xml_tag(text: str, tag: str = "action") -> Optional[str]:
+    """Strict parsing: requires both opening and closing tags."""
+    open_tag = f"<{tag}>"
+    close_tag = f"</{tag}>"
+    if open_tag not in text or close_tag not in text:
+        return None
     try:
-        return text.split(f"<{tag}>")[1].split(f"</{tag}>")[0].strip().lower()
-    except (IndexError, AttributeError):
+        start = text.index(open_tag) + len(open_tag)
+        end = text.index(close_tag, start)
+        return text[start:end].strip().lower()
+    except (ValueError, IndexError):
         return None
 ```
+
+## Multi-Action Reasoning Mode
+
+Some wrappers support multi-action reasoning where the LLM reasons about each action before deciding:
+
+```python
+# Standard mode: uses <action> tag
+<action>go forward</action>
+
+# Multi-action mode: uses <decision> tag after reasoning
+<actions>
+<action name="turn left">might help but...</action>
+<action name="go forward">this moves toward goal</action>
+</actions>
+<decision>go forward</decision>
+```
+
+When `multi_action_reasoning=True`, use `extract_action_instance()` which parses the `<decision>` tag.
+The `<action>` tags are for reasoning display only.
 
 ## Optional Info Dict Keys
 
