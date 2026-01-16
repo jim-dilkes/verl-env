@@ -1,0 +1,261 @@
+# @package eval
+# Combined standard and multi-action evaluation configs for BabyAI
+# Use with: evaluation=babyai_evals_combined
+
+evaluation:
+  environments:
+    # =============================================================================
+    # STANDARD EVALUATION CONFIGS (single-action reasoning)
+    # =============================================================================
+
+    - name: "BabyAI-GoToLocalS5N2-Greedy"
+      n_rollouts: 100
+      episode_length: 20
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 10000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToLocalS5N2-v0
+      format_penalty: 0.0
+      binary_reward: false
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+
+    - name: "BabyAI-PickupDist-Greedy"
+      n_rollouts: 100
+      episode_length: 20
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 20000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-PickupDist-v0
+      format_penalty: 0.0
+      binary_reward: false
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+
+    - name: "BabyAI-UnlockLocalDist-Greedy"
+      n_rollouts: 100
+      episode_length: 20
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 30000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-UnlockLocalDist-v0
+      format_penalty: 0.0
+      binary_reward: false
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+
+    - name: "BabyAI-GoToObjMazeS4R2-Greedy"
+      n_rollouts: 100
+      episode_length: 60
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 40000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToObjMazeS4R2-v0
+      format_penalty: 0.0
+      binary_reward: false
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 60
+
+
+    # =============================================================================
+    # EXPLORATION METRICS (entropy and state visitation)
+    # =============================================================================
+
+    - name: "BabyAI-GoToLocalS5N2-Entropy"
+      n_rollouts: 50
+      episode_length: 1
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 50000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToLocalS5N2-v0
+      format_penalty: 0.0
+      binary_reward: false
+      inherit_training_multiaction: true
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+      action_entropy:
+        enabled: true
+        n_samples: 20
+        temperature: 1.2
+        measure_at_steps: "start"
+        step_interval: 1
+        exclusive_metric: true
+        max_batch_size: 32
+
+
+    - name: "BabyAI-GoToLocalS5N2-StateVisitation"
+      n_rollouts: 400
+      episode_length: 16
+      generation:
+        temperature: 1.25
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 60000
+      seed_group_size: 20
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToLocalS5N2-v0
+      format_penalty: 0.0
+      binary_reward: false
+      inherit_training_multiaction: true
+      captioner:
+        type: naive
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 16
+
+
+    # =============================================================================
+    # MULTI-ACTION EVALUATION CONFIGS (multi-action reasoning)
+    # =============================================================================
+
+    - name: "MA-BabyAI-GoToLocalS5N2-Greedy"
+      n_rollouts: 100
+      episode_length: 20
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 10000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToLocalS5N2-v0
+      format_penalty: 0.0
+      binary_reward: false
+      multi_action_reasoning: true
+      epsilon: 0.0
+      captioner:
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+
+    - name: "MA-BabyAI-PickupDist-Greedy"
+      n_rollouts: 100
+      episode_length: 20
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 20000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-PickupDist-v0
+      format_penalty: 0.0
+      binary_reward: false
+      multi_action_reasoning: true
+      epsilon: 0.0
+      captioner:
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+
+    - name: "MA-BabyAI-UnlockLocalDist-Greedy"
+      n_rollouts: 100
+      episode_length: 20
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 30000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-UnlockLocalDist-v0
+      format_penalty: 0.0
+      binary_reward: false
+      multi_action_reasoning: true
+      epsilon: 0.0
+      captioner:
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 20
+
+
+    - name: "MA-BabyAI-GoToObjMazeS4R2-Greedy"
+      n_rollouts: 100
+      episode_length: 60
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 40000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: babyai
+      task: BabyAI-GoToObjMazeS4R2-v0
+      format_penalty: 0.0
+      binary_reward: false
+      multi_action_reasoning: true
+      epsilon: 0.0
+      captioner:
+        max_text_history: 0
+      babyai_kwargs:
+        max_steps: 60

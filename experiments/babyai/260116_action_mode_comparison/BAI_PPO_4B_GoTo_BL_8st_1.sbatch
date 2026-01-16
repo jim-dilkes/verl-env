@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_4B_BL_1
+#SBATCH --job-name=BAI_PPO_4B_GoTo_BL_8st_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
@@ -12,10 +12,10 @@
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_PPO_4B_BL
+experiment_name=BAI_PPO_4B_GoTo_BL_8st
 run_number=1
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act"]'
+WANDB_TAGS='["babyai","project:verl-env","vllm:0.9.1","singl-act","GoToLocalS5N2","8steps"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -141,19 +141,14 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.n_rollouts=32 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
-  envs.env_name=overcooked \
+  envs.env_name=babyai \
+  envs.task=BabyAI-GoToLocalS5N2-v0 \
   envs.format_penalty=1 \
   envs.binary_reward=False \
   envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
   envs.captioner.max_cot_history=1 \
-  envs.overcooked_kwargs.layout_name=cramped_room \
-  envs.overcooked_kwargs.horizon=20 \
-  envs.overcooked_kwargs.partner_policy=none \
-  envs.overcooked_kwargs.shaped_reward=False \
-  envs.overcooked_kwargs.pot_cook_time=3 \
-  envs.overcooked_kwargs.print_visualization=false \
-  envs.overcooked_kwargs.print_coordinates=true \
+  envs.babyai_kwargs.max_steps=8 \
   envs.vec_env_multiprocessing=spawn \
   actor_rollout_ref.rollout.calculate_log_probs=true \
   algorithm.rollout_correction.rollout_is=sequence \
@@ -184,8 +179,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.max_critic_ckpt_to_keep=1 \
   trainer.tags=$WANDB_TAGS \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=overcooked_evals_combined \
-  prompt=overcooked 2>&1 | tee verl_demo.log
+  evaluation=babyai_evals_combined \
+  prompt=babyai 2>&1 | tee verl_demo.log
 
 actual_session_dir="${short_temp_dir}/session_latest"
 readable_log_path="${readable_log_root}/${experiment_run_name}"
