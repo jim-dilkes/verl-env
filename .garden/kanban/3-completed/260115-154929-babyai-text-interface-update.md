@@ -4,7 +4,7 @@
 **Branch:** feat/babyai-wrapper
 **Created:** 2026-01-15 15:49
 **Started:** 2026-01-16
-**Completed:** —
+**Completed:** 2026-01-16
 
 ## Goal
 Bring `babyai_text/` wrapper up to parity with Overcooked's LLMAgentsWrapper pattern, including multi-action reasoning support.
@@ -35,7 +35,7 @@ Bring `babyai_text/` wrapper up to parity with Overcooked's LLMAgentsWrapper pat
 - [x] `restructure_obs()` output has `text.long_term_context` and `text.short_term_context` keys
 - [x] Multi-action mode: `multi_action_reasoning=True` → parses `<decision>` tag
 - [x] Standard mode: `multi_action_reasoning=False` → parses `<action>` tag
-- [x] Pytest passes locally without GPU/cluster deps (37 tests pass)
+- [x] Pytest passes locally without GPU/cluster deps (41 tests pass)
 
 ## Out of Scope
 - Task-specific instruction prompts
@@ -176,7 +176,7 @@ LLMAgentsWrapper responsibilities:
 5. `chore: register babyai prompt config params` (bf213a26)
 6. `test: add BabyAI wrapper contract tests` (a82e2494)
 
-**Tests:** 37 tests pass in `tests/envs/test_babyai_wrapper.py`
+**Tests:** 41 tests pass in `tests/envs/test_babyai_wrapper.py`
 
 **Files modified:**
 - `verl/envs/environments/babyai_text/clean_lang_wrapper.py` - get_text_action fix
@@ -188,6 +188,26 @@ LLMAgentsWrapper responsibilities:
 - `tests/envs/test_babyai_wrapper.py` - new tests
 
 **Note:** Moved `ACTIONS` dict into `llm_agents_wrapper.py` to avoid circular import with `__init__.py`.
+
+### 2026-01-16 - Post-Review Fixes
+
+**Commit:** `fix: correct type hints and relax brittle test assertion` (4d665d94)
+
+Fixes from code review:
+1. Type hints: `extract_action_from_xml_tag()` and `extract_decision_from_xml()` return `Optional[str]` (not `str`)
+2. Strict XML parsing: require BOTH open and close tags, return `None` for malformed input like `<action>up`
+3. Relaxed test assertion: `backtrack_length` just checks key exists (not `> 0`)
+4. Added 4 new tests for strict parsing behavior (unclosed/missing open tags)
+
+All 41 tests pass. Implementation complete.
+
+### 2026-01-16 - Feature Complete
+
+BabyAI wrapper updated to full Overcooked-style interface:
+- Multi-action reasoning (`<decision>` tag parsing)
+- Self-contained instruction prompts with config override
+- Strict XML parsing, comprehensive test coverage (41 tests)
+- Interactive play script for debugging
 
 ## Implementation Plan
 
