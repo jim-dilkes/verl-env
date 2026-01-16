@@ -4,7 +4,7 @@
 **Branch:** fix/babyai-entropy-extraction
 **Created:** 2026-01-16
 **Started:** 2026-01-16
-**Completed:** —
+**Completed:** 2026-01-16
 
 ## Problem
 BabyAI is not registered in `get_action_extraction_fn()` in `verl/envs/environments/__init__.py`. This causes entropy probing in the evaluator to crash:
@@ -92,3 +92,7 @@ Branch: `babyai-review-fix` (existing), renaming to `fix/babyai-entropy-extracti
 - Uses public `normalize_action()` instead of private `_normalize_action()`
 
 **Benefit:** Evaluator and wrapper now share single source of truth for action space and default action.
+
+### 2026-01-16 - Feature Complete
+
+Added BabyAI to `get_action_extraction_fn()` enabling entropy probing in evaluator. Established single source of truth via class constants. Cleaned up dead code. Code review passed.
