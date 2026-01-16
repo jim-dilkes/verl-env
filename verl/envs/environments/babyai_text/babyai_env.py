@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Optional
 
 import gymnasium as gym
@@ -55,11 +54,11 @@ def make_babyai_env(env_name, task, config, render_mode: Optional[str] = None):
         multi_action_reasoning = getattr(config.prompt.prompt, "multi_action_reasoning", False)
     env_kwargs["multi_action_reasoning"] = multi_action_reasoning
 
-    # Config instruction override
+    # Config instruction override (environment_instruction for consistency with other envs)
     if hasattr(config, "prompt") and hasattr(config.prompt, "prompt"):
-        instruction_prompt = getattr(config.prompt.prompt, "instruction_prompt", None)
-        if instruction_prompt is not None:
-            env_kwargs["instruction_prompt"] = instruction_prompt
+        environment_instruction = getattr(config.prompt.prompt, "environment_instruction", None)
+        if environment_instruction is not None:
+            env_kwargs["instruction_prompt"] = environment_instruction
 
     env = BabyAILLMAgentsWrapper(env, **env_kwargs)
 
