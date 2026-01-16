@@ -31,7 +31,11 @@ class BabyAITextCleanLangWrapper(gym.Wrapper):
         return "go forward"
 
     def get_text_action(self, action):
-        return self.language_action_space[action.value]
+        if isinstance(action, str):
+            return action
+        if isinstance(action, int):
+            return self.language_action_space[action]
+        return self.language_action_space[action.value]  # enum
 
     def get_prompt(self, obs, infos):
         image = Image.fromarray(self.env.unwrapped.get_pov_render(tile_size=16)).convert("RGB")

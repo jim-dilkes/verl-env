@@ -1,0 +1,24 @@
+# @package prompt
+
+# BabyAI environment prompt configuration (standard mode)
+# To use: prompt=babyai
+# For multi-action reasoning mode, use: prompt=babyai_multi_action
+
+prompt:
+  # Multi-action reasoning mode: model generates reasoning for each action
+  # When true, uses <decision> tag; when false, uses <action> tag
+  multi_action_reasoning: false
+
+  # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
+  epsilon: 0.0
+
+  # Captioner instruction for NaiveCaptioner
+  naive_instruction: |
+    Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
+    [Response Template]
+    <plan>{Think about what you need to do to complete your goal. Consider your surroundings and what objects you can see.}</plan>
+    <action>{Your selected action from the list above}</action>
+
+  # Environment instruction for BabyAI (overrides default if set)
+  # If null, uses the hardcoded default in the wrapper
+  instruction_prompt: null
