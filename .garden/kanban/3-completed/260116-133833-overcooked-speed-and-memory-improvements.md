@@ -4,7 +4,7 @@
 **Branch:** oc-speed
 **Created:** 2026-01-16 13:38
 **Started:** 2026-01-16
-**Completed:** —
+**Completed:** 2026-01-16
 
 ## Goal
 Profile Overcooked env pipeline and implement quick wins to improve speed. Memory is secondary (batched evals already mitigate OOM).
@@ -90,6 +90,9 @@ The bottleneck was JAX array indexing: each `int(agents.pos.x[agent_idx])` trigg
 | Total time | 0.339s | 0.133s | **2.5x** |
 
 **Profiling script added:** `verl/envs/environments/overcooked/profile_overcooked.py`
+
+### 2026-01-16 - Feature Complete
+Achieved 2.5x speedup for Overcooked env step execution. Root cause was JAX array indexing triggering full dispatch per access. Fixed with batched conversions and caching.
 
 ## Original Notes
 Card created via /feat interview. Original was a blank template.

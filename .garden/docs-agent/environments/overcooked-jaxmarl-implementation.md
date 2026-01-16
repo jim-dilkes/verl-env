@@ -144,15 +144,26 @@ Note: `spawn` has slower startup (workers must reimport everything) but avoids J
 
 ## Agent State Access
 
+**Performance Note**: Avoid individual JAX array indexing - batch conversions:
 ```python
-agents = state.agents
-pos_x = int(agents.pos.x[agent_idx])
-pos_y = int(agents.pos.y[agent_idx])
-direction = int(agents.dir[agent_idx])
-inventory = int(agents.inventory[agent_idx])
+# SLOW: Each indexing triggers full JAX dispatch
+pos_x = int(agents.pos.x[agent_idx])  # Bad!
+
+# FAST: Convert once, then index numpy
+pos_x_np = np.array(agents.pos.x)
+pos_x = int(pos_x_np[agent_idx])  # Good!
 ```
 
 Agent indices: 0 = agent_0, 1 = agent_1
+
+## Performance Optimizations
+
+The wrapper uses several caching strategies:
+- **`_cached_static_objects`**: Static object positions (counters, piles) cached after first call
+- **`_cached_pot_positions`**: Pot positions cached; only contents read per step
+- **Batched JAX→NumPy**: Agent state arrays converted once per step, not per-agent
+
+Profiling script: `python -m verl.envs.environments.overcooked.profile_overcooked`
 
 ## LLMAgentsWrapper Interface
 
