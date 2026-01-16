@@ -54,6 +54,10 @@ class BabyAILLMAgentsWrapper(gym.Wrapper):
        then <decision>X</decision>
     """
 
+    # Class constants for evaluator access (single source of truth)
+    DEFAULT_ACTION = "go forward"
+    ACTION_SPACE = BABYAI_ACTION_SPACE
+
     def __init__(self, env, vlm=False, **kwargs):
         super().__init__(env)
         self.format_penalty = kwargs.get("format_penalty", 0.0)
@@ -71,7 +75,7 @@ class BabyAILLMAgentsWrapper(gym.Wrapper):
 
     @property
     def default_action(self):
-        return "go forward"
+        return self.DEFAULT_ACTION
 
     @property
     def actions(self):
@@ -218,7 +222,7 @@ Output your action in: <action>your_action</action>"""
             return None
 
     @staticmethod
-    def _normalize_action(extracted):
+    def normalize_action(extracted):
         """Normalize action string to canonical form."""
         if extracted is None:
             return None
@@ -240,10 +244,10 @@ Output your action in: <action>your_action</action>"""
         """
         full_action = str(action)
         extracted = cls.extract_action_from_xml_tag(full_action)
-        extracted = cls._normalize_action(extracted)
+        extracted = cls.normalize_action(extracted)
 
-        is_valid = extracted in BABYAI_ACTION_SPACE
-        valid_action = extracted if is_valid else "go forward"
+        is_valid = extracted in cls.ACTION_SPACE
+        valid_action = extracted if is_valid else cls.DEFAULT_ACTION
 
         metrics = {"behavior/valid_action_ratio": 1.0 if is_valid else 0.0}
         return full_action, extracted, valid_action, is_valid, metrics
@@ -267,7 +271,7 @@ Output your action in: <action>your_action</action>"""
         else:
             extracted = self.extract_action_from_xml_tag(full_action)
 
-        extracted = self._normalize_action(extracted)
+        extracted = self.normalize_action(extracted)
 
         is_valid = extracted in self.language_action_space
         valid_action = extracted if is_valid else self.default_action
