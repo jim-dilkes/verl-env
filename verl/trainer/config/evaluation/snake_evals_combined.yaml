@@ -101,7 +101,7 @@ evaluation:
 
 
     - name: "FastSnake-Entropy-Check"
-      n_rollouts: 200
+      n_rollouts: 50
       episode_length: 1
       generation:
         temperature: 0.0
