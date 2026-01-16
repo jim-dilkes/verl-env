@@ -235,9 +235,12 @@ class TestExtractActionInstance:
         _, _, _, _, metrics = wrapper.extract_action_instance(text)
 
         assert "behavior/valid_action_ratio" in metrics
+        assert metrics["behavior/valid_action_ratio"] >= 0.0
         assert "behavior/plan_length" in metrics
+        assert metrics["behavior/plan_length"] >= 0
         assert "behavior/backtrack_length" in metrics
-        # Don't assert specific values - heuristic word list may change
+        assert metrics["behavior/backtrack_length"] >= 0
+        # Don't assert specific positive values - heuristic word list may change
 
 
 class TestLanguageActionSpace:
