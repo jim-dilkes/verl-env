@@ -205,10 +205,12 @@ def format_metrics_table(
     df = metrics_df.copy()
 
     if highlight_best:
-        # Find best per numeric column
+        # Find best per numeric column and mark them
         from .compare import is_higher_better
 
-        numeric_cols = df.select_dtypes(include="number").columns
+        numeric_cols = df.select_dtypes(include="number").columns.tolist()
+        best_positions = {}  # col -> (idx, formatted_val)
+
         for col in numeric_cols:
             higher = is_higher_better(col)
             if higher:
@@ -217,9 +219,16 @@ def format_metrics_table(
                 best_idx = df[col].idxmin()
 
             if pd.notna(best_idx):
-                # Mark best value (will be bolded in markdown)
                 best_val = df.loc[best_idx, col]
-                df.loc[best_idx, col] = f"**{format_value(best_val, precision)}**"
+                best_positions[col] = (best_idx, f"**{format_value(best_val, precision)}**")
+
+        # Convert numeric columns to string dtype before modifying
+        for col in numeric_cols:
+            df[col] = df[col].apply(lambda x: format_value(x, precision))
+
+        # Apply bold formatting to best values
+        for col, (idx, formatted) in best_positions.items():
+            df.loc[idx, col] = formatted
 
     return to_markdown(df, title="Metrics Comparison", precision=precision)
 
