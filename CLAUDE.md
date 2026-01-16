@@ -1,5 +1,7 @@
 @BRISK.md
 
+@.garden/docs-user/analysis.md
+
 ## Environment
 - Conda environment: `conda activate verlog`
 - SLURM jobs: Run on iridis via `ssh iridis3`, repo at `~/verl-env`, then `./submit_sbatch <dir>`

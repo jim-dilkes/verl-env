@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -118,7 +119,24 @@ class WandBFetcher:
 
     def _log(self, msg: str) -> None:
         if self.verbose:
-            print(msg)
+            print(f"[analysis] {msg}", file=sys.stderr, flush=True)
+
+    def _log_progress(self, i: int, total: int, label: str, run_id: str = "") -> None:
+        """Log progress for per-run loops (verbose-only).
+
+        Keeps output readable by only logging the first item, last item,
+        and every 10th item.
+        """
+        if not self.verbose:
+            return
+
+        if total <= 0:
+            return
+
+        should_log = (i == 1) or (i == total) or (i % 10 == 0)
+        if should_log:
+            suffix = f" ({run_id})" if run_id else ""
+            self._log(f"{label}: {i}/{total}{suffix}")
 
     def _cache_path(self, name: str, suffix: str = ".parquet") -> Path:
         return self.cache_dir / f"{self.project}_{name}{suffix}"
@@ -148,6 +166,7 @@ class WandBFetcher:
         Returns:
             List of RunInfo objects
         """
+        t0 = time.perf_counter()
         self._log(f"Fetching runs from {self.project_path}...")
 
         # Build wandb filters
@@ -155,6 +174,7 @@ class WandBFetcher:
 
         # Fetch all runs (wandb API filtering is limited)
         runs = list(self.api.runs(self.project_path, filters=wandb_filters))
+        self._log(f"Fetched {len(runs)} runs from API; applying local filters...")
 
         if len(runs) > LARGE_REQUEST_THRESHOLD:
             self._log(
@@ -201,6 +221,7 @@ class WandBFetcher:
             time.sleep(API_CALL_DELAY)
 
         self._log(f"Found {len(result)} matching runs")
+        self._log(f"fetch_runs completed in {time.perf_counter() - t0:.2f}s")
         return result
 
     def fetch_summaries(
@@ -225,13 +246,20 @@ class WandBFetcher:
         cache_path = self._cache_path(f"summaries_{cache_key}")
 
         if not refresh and cache_path.exists():
-            self._log(f"Loading summaries from cache: {cache_path}")
+            self._log(f"Cache hit (summaries): {cache_path}")
             return pd.read_parquet(cache_path)
 
+        if refresh:
+            self._log("Refresh enabled; bypassing summaries cache")
+        else:
+            self._log(f"Cache miss (summaries): will write {cache_path}")
+
+        t0 = time.perf_counter()
         self._log(f"Fetching summaries for {len(runs)} runs...")
         records = []
 
-        for run_info in runs:
+        for i, run_info in enumerate(runs, start=1):
+            self._log_progress(i, len(runs), label="Summaries", run_id=run_info.id)
             try:
                 run = self.api.run(f"{self.project_path}/{run_info.id}")
 
@@ -265,7 +293,8 @@ class WandBFetcher:
 
         # Cache result
         df.to_parquet(cache_path)
-        self._log(f"Cached summaries to {cache_path}")
+        self._log(f"Cached summaries to {cache_path} ({len(df)} rows)")
+        self._log(f"fetch_summaries completed in {time.perf_counter() - t0:.2f}s")
 
         return df
 
@@ -293,13 +322,20 @@ class WandBFetcher:
         cache_path = self._cache_path(f"history_{cache_key}")
 
         if not refresh and cache_path.exists():
-            self._log(f"Loading history from cache: {cache_path}")
+            self._log(f"Cache hit (history): {cache_path}")
             return pd.read_parquet(cache_path)
 
-        self._log(f"Fetching history for {len(runs)} runs (keys: {keys})...")
+        if refresh:
+            self._log("Refresh enabled; bypassing history cache")
+        else:
+            self._log(f"Cache miss (history): will write {cache_path}")
+
+        t0 = time.perf_counter()
+        self._log(f"Fetching history for {len(runs)} runs (keys: {keys}, sample_rate={sample_rate})...")
         dfs = []
 
-        for run_info in runs:
+        for i, run_info in enumerate(runs, start=1):
+            self._log_progress(i, len(runs), label="History", run_id=run_info.id)
             try:
                 run = self.api.run(f"{self.project_path}/{run_info.id}")
                 history = run.history(keys=keys, samples=10000)
@@ -324,7 +360,8 @@ class WandBFetcher:
 
         # Cache result
         df.to_parquet(cache_path)
-        self._log(f"Cached history to {cache_path}")
+        self._log(f"Cached history to {cache_path} ({len(df)} rows)")
+        self._log(f"fetch_history completed in {time.perf_counter() - t0:.2f}s")
 
         return df
 
@@ -357,13 +394,20 @@ class WandBFetcher:
         cache_path = self._cache_path(f"configs_{cache_key}")
 
         if not refresh and cache_path.exists():
-            self._log(f"Loading configs from cache: {cache_path}")
+            self._log(f"Cache hit (configs): {cache_path}")
             return pd.read_parquet(cache_path)
 
-        self._log(f"Fetching configs for {len(runs)} runs...")
+        if refresh:
+            self._log("Refresh enabled; bypassing configs cache")
+        else:
+            self._log(f"Cache miss (configs): will write {cache_path}")
+
+        t0 = time.perf_counter()
+        self._log(f"Fetching configs for {len(runs)} runs (allowlist={len(allowlist)}, include_metadata={include_metadata})...")
         records = []
 
-        for run_info in runs:
+        for i, run_info in enumerate(runs, start=1):
+            self._log_progress(i, len(runs), label="Configs", run_id=run_info.id)
             try:
                 run = self.api.run(f"{self.project_path}/{run_info.id}")
 
@@ -398,7 +442,8 @@ class WandBFetcher:
 
         # Cache result
         df.to_parquet(cache_path)
-        self._log(f"Cached configs to {cache_path}")
+        self._log(f"Cached configs to {cache_path} ({len(df)} rows)")
+        self._log(f"fetch_configs completed in {time.perf_counter() - t0:.2f}s")
 
         return df
 
