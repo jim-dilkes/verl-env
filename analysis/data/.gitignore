@@ -1,0 +1,8 @@
+# Ignore all cached data files
+*.parquet
+*.csv
+*.json
+
+# Keep directory
+!.gitkeep
+!.gitignore
