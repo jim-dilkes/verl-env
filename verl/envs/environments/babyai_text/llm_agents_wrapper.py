@@ -1,7 +1,16 @@
 import gymnasium as gym
 
-from verl.envs.environments.babyai_text import ACTIONS
 from verl.envs.environments.babyai_text.clean_lang_wrapper import BABYAI_ACTION_SPACE
+
+# Action descriptions for instruction prompts
+ACTIONS = {
+    "turn left": "turn to the left",
+    "turn right": "turn to the right",
+    "go forward": "take one step forward",
+    "pick up": "pick up the object one step in front of you",
+    "drop": "drop the object that you are holding",
+    "toggle": "manipulate the object one step in front of you",
+}
 
 POSSIBLE_ACTIONS = [
     "turn left",
@@ -72,7 +81,7 @@ class BabyAILLMAgentsWrapper(gym.Wrapper):
 
     def _default_instruction_prompt(self):
         action_strings = ",\n".join(
-            f'"{action}": {description}' for action, description in ACTIONS.items()
+            f'"{action}": {desc}' for action, desc in ACTIONS.items()
         )
 
         if self.multi_action_reasoning:
