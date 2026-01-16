@@ -10,32 +10,32 @@
 Bring `babyai_text/` wrapper up to parity with Overcooked's LLMAgentsWrapper pattern, including multi-action reasoning support.
 
 ## Scope
-- [ ] Add properties: `default_action`, `actions`, `max_steps` (explicit, not via __getattr__)
-- [ ] Store `language_action_space` locally in __init__ as `list[str]` (not delegation)
-- [ ] Add `_default_instruction_prompt()` with `{mission}` placeholder
-- [ ] Add `get_instruction_prompt(*, mission=None)` - kwarg-only, fetches from env if not provided
-- [ ] Support config-driven `instruction_prompt` override
-- [ ] Add `multi_action_reasoning` config flag + attr on wrapper
-- [ ] Add `extract_action_instance()` with multi-action support
-- [ ] Add `restructure_obs()` that validates required keys (not blind passthrough)
-- [ ] Add `get_stats()` delegation
-- [ ] Fix `get_text_action()` in clean_lang_wrapper.py to handle str|int|enum input
-- [ ] Update `babyai_env.py` factory to pass new config params
-- [ ] Update `env_wrapper.py` dispatch (pass mission as kwarg)
-- [ ] Register config params in `verl/trainer/config/prompt/babyai.yaml`
-- [ ] Add pytest `tests/envs/test_babyai_wrapper.py` that asserts contract
+- [x] Add properties: `default_action`, `actions`, `max_steps` (explicit, not via __getattr__)
+- [x] Store `language_action_space` locally in __init__ as `list[str]` (not delegation)
+- [x] Add `_default_instruction_prompt()` with `{mission}` placeholder
+- [x] Add `get_instruction_prompt(*, mission=None)` - kwarg-only, fetches from env if not provided
+- [x] Support config-driven `instruction_prompt` override
+- [x] Add `multi_action_reasoning` config flag + attr on wrapper
+- [x] Add `extract_action_instance()` with multi-action support
+- [x] Add `restructure_obs()` that validates required keys (not blind passthrough)
+- [x] Add `get_stats()` delegation
+- [x] Fix `get_text_action()` in clean_lang_wrapper.py to handle str|int|enum input
+- [x] Update `babyai_env.py` factory to pass new config params
+- [x] Update `env_wrapper.py` dispatch (pass mission as kwarg)
+- [x] Register config params in `verl/trainer/config/prompt/babyai.yaml`
+- [x] Add pytest `tests/envs/test_babyai_wrapper.py` that asserts contract
 
 ## Definition of Done
-- [ ] `env.language_action_space` returns `list[str]`, `random.choice()` works, `in` checks work
-- [ ] `extract_action()` returns exactly 5 values: `(full, extracted, valid, is_valid, metrics)`
-- [ ] `metrics` includes at least `behavior/valid_action_ratio`
-- [ ] `get_instruction_prompt(mission=None)` works when called both ways:
+- [x] `env.language_action_space` returns `list[str]`, `random.choice()` works, `in` checks work
+- [x] `extract_action()` returns exactly 5 values: `(full, extracted, valid, is_valid, metrics)`
+- [x] `metrics` includes at least `behavior/valid_action_ratio`
+- [x] `get_instruction_prompt(mission=None)` works when called both ways:
   - `env.get_instruction_prompt()` (fetches mission from env)
   - `env.get_instruction_prompt(mission="...")` (uses provided mission)
-- [ ] `restructure_obs()` output has `text.long_term_context` and `text.short_term_context` keys
-- [ ] Multi-action mode: `multi_action_reasoning=True` → parses `<decision>` tag
-- [ ] Standard mode: `multi_action_reasoning=False` → parses `<action>` tag
-- [ ] Pytest passes locally without GPU/cluster deps
+- [x] `restructure_obs()` output has `text.long_term_context` and `text.short_term_context` keys
+- [x] Multi-action mode: `multi_action_reasoning=True` → parses `<decision>` tag
+- [x] Standard mode: `multi_action_reasoning=False` → parses `<action>` tag
+- [x] Pytest passes locally without GPU/cluster deps (37 tests pass)
 
 ## Out of Scope
 - Task-specific instruction prompts
@@ -165,6 +165,29 @@ LLMAgentsWrapper responsibilities:
 - Parses LLM output via `extract_action()`
 - Applies `format_penalty` for invalid actions
 - Applies `binary_reward` transformation
+
+### 2026-01-16 - Implementation Complete
+
+**Commits:**
+1. `fix: get_text_action handles str/int/enum input` (84a25050)
+2. `feat: refactor BabyAI LLMAgentsWrapper to current interface` (295ee4dc)
+3. `feat: pass multi_action_reasoning to BabyAI wrapper` (b1282df4)
+4. `refactor: use self-contained get_instruction_prompt for babyai` (d6beb2bc)
+5. `chore: register babyai prompt config params` (bf213a26)
+6. `test: add BabyAI wrapper contract tests` (a82e2494)
+
+**Tests:** 37 tests pass in `tests/envs/test_babyai_wrapper.py`
+
+**Files modified:**
+- `verl/envs/environments/babyai_text/clean_lang_wrapper.py` - get_text_action fix
+- `verl/envs/environments/babyai_text/llm_agents_wrapper.py` - complete refactor
+- `verl/envs/environments/babyai_text/babyai_env.py` - factory config passing
+- `verl/envs/environments/env_wrapper.py` - dispatch simplification
+- `verl/trainer/config/prompt/babyai.yaml` - new config
+- `verl/trainer/config/prompt/babyai_multi_action.yaml` - new config
+- `tests/envs/test_babyai_wrapper.py` - new tests
+
+**Note:** Moved `ACTIONS` dict into `llm_agents_wrapper.py` to avoid circular import with `__init__.py`.
 
 ## Implementation Plan
 
