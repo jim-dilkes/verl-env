@@ -11,7 +11,7 @@
 #SBATCH --gpus-per-node=2
 
 # --- Define experiment variables ---
-project_name=verl_env
+project_name=rl_sdm
 experiment_name=OC_PPO_4B_multi_eps0
 run_number=1
 number_of_gpus=2
@@ -25,7 +25,7 @@ mkdir -p "$short_temp_dir"
 readable_log_root=/scratch/${user_name}/ray_logs
 mkdir -p "$readable_log_root"
 
-experiment_run_name=${experiment_name}_run${run_number}_slu${SLURM_JOB_ID}
+experiment_run_name=${experiment_name}_run${run_number}_slu${job_id}
 export WANDB_DIR="wandb/${experiment_run_name}"
 mkdir -p "$WANDB_DIR"
 profile_dump_dir=/scratch/${user_name}/profile_dumps/${experiment_run_name}
