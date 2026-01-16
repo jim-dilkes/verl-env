@@ -57,6 +57,9 @@ def make_env(env_name, task, config, render_mode=None):
     elif env_name == "overcooked":
         from verl.envs.environments.overcooked.overcooked_env import make_overcooked_env
         base_env = make_overcooked_env(env_name, task, config, render_mode=render_mode)
+    elif env_name == "babyai":
+        from verl.envs.environments.babyai_text.babyai_env import make_babyai_env
+        base_env = make_babyai_env(env_name, task, config, render_mode=render_mode)
     else:
         raise ValueError(f"Unknown environment: {env_name}")
     
