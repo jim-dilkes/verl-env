@@ -279,10 +279,11 @@ class MultiEnvEvaluator:
             temp_config.envs.binary_reward = env_config.get('binary_reward', False)
             
             # Handle instruction_prompt from evaluation config
+            # All env factories read from prompt.prompt.environment_instruction
             if 'instruction_prompt' in env_config:
-                temp_config.envs.instruction_prompt = env_config['instruction_prompt']
+                temp_config.prompt.prompt.environment_instruction = env_config['instruction_prompt']
                 self._dbg_print(
-                    f"[MultiEnvEvaluator] Set instruction_prompt from eval config (length: {len(env_config['instruction_prompt']) if env_config['instruction_prompt'] else 0} chars)"
+                    f"[MultiEnvEvaluator] Set environment_instruction from eval config (length: {len(env_config['instruction_prompt']) if env_config['instruction_prompt'] else 0} chars)"
                 )
             
             self._dbg_print(
