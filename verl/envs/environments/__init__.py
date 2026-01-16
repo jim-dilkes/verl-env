@@ -105,6 +105,20 @@ def get_action_extraction_fn(env_name, multi_action=False):
                 return response, extracted, valid_action, is_valid, metrics
             return extract_multi_action
         return OvercookedLLMAgentsWrapper.extract_action
+    elif env_name == "babyai":
+        from verl.envs.environments.babyai_text.llm_agents_wrapper import BabyAILLMAgentsWrapper
+        if multi_action:
+            def extract_multi_action(response):
+                extracted = BabyAILLMAgentsWrapper.extract_decision_from_xml(response)
+                extracted = BabyAILLMAgentsWrapper.normalize_action(extracted)
+                if extracted is None:
+                    extracted = "__invalid__"
+                is_valid = extracted in BabyAILLMAgentsWrapper.ACTION_SPACE
+                valid_action = extracted if is_valid else BabyAILLMAgentsWrapper.DEFAULT_ACTION
+                metrics = {"behavior/valid_action_ratio": is_valid * 1.0}
+                return response, extracted, valid_action, is_valid, metrics
+            return extract_multi_action
+        return BabyAILLMAgentsWrapper.extract_action
     else:
         raise ValueError(f"Not accessible action extraction function for {env_name}")
 
