@@ -152,8 +152,7 @@ evaluation:
     # --- Config: Overcooked Entropy Probe (Multi-Action) ---
     # Uses inherit_training_multiaction to measure policy entropy with same exploration as training
     - name: "Overcooked-CrampedRoom-Entropy-Check"
-      n_rollouts: 200
-      batch_size: 50
+      n_rollouts: 50
       episode_length: 1
       generation:
         temperature: 0.0

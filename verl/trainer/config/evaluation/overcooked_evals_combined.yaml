@@ -116,8 +116,7 @@ evaluation:
 
     # --- Entropy Check (inherits from training) ---
     - name: "Overcooked-CrampedRoom-Entropy-Check"
-      n_rollouts: 200
-      batch_size: 50
+      n_rollouts: 50
       episode_length: 1
       generation:
         temperature: 0.0
@@ -155,7 +154,7 @@ evaluation:
 
     # --- StateVisitation (inherits from training) ---
     - name: "Overcooked-CrampedRoom-StateVisitation"
-      n_rollouts: 400
+      n_rollouts: 300
       batch_size: 50
       episode_length: 8
       generation:
