@@ -1,3 +1,5 @@
+from typing import Optional
+
 import gymnasium as gym
 
 from verl.envs.environments.babyai_text.clean_lang_wrapper import BABYAI_ACTION_SPACE
@@ -178,7 +180,7 @@ Output your action in: <action>your_action</action>"""
         return {}
 
     @staticmethod
-    def extract_action_from_xml_tag(text: str, tag: str = "action") -> str:
+    def extract_action_from_xml_tag(text: str, tag: str = "action") -> Optional[str]:
         """Extract action from XML-style tags like <{tag}>UP</{tag}>."""
         try:
             return text.split(f"<{tag}>")[1].split(f"</{tag}>")[0].strip().lower()
@@ -186,7 +188,7 @@ Output your action in: <action>your_action</action>"""
             return None
 
     @staticmethod
-    def extract_decision_from_xml(text: str) -> str:
+    def extract_decision_from_xml(text: str) -> Optional[str]:
         """Extract decision from <decision>X</decision> tag."""
         try:
             return text.split("<decision>")[1].split("</decision>")[0].strip().lower()
