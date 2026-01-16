@@ -79,6 +79,10 @@ class OvercookedGymWrapper(gym.Env):
         self._step_count = 0
         self._last_event = ""
 
+        # Cached layout info (static objects don't move)
+        self._cached_static_objects = None
+        self._cached_pot_positions = None
+
         self.action_space = spaces.Discrete(6)
         obs_shape = self._get_obs_shape()
         self.observation_space = spaces.Box(
@@ -107,6 +111,10 @@ class OvercookedGymWrapper(gym.Env):
         self._last_obs = obs
         self._step_count = 0
         self._last_event = "Episode started"
+
+        # Clear caches - layout static objects need recomputing
+        self._cached_static_objects = None
+        self._cached_pot_positions = None
 
         obs_array = np.array(obs[self.controlled_agent])
         return obs_array, {"state": self._state}
@@ -159,20 +167,22 @@ class OvercookedGymWrapper(gym.Env):
         agents = self._state.agents
         grid = np.array(self._state.grid)
 
+        # Batch JAX→NumPy conversions (one conversion per array, not per index)
+        # This avoids expensive JAX dispatch for each array access
+        pos_x_np = np.array(agents.pos.x)
+        pos_y_np = np.array(agents.pos.y)
+        dir_np = np.array(agents.dir)
+        inv_np = np.array(agents.inventory)
+
         agent_info = []
         agent_names = [self.controlled_agent] if self.solo_mode else [self.controlled_agent, self.partner_agent]
-        for i, agent_name in enumerate(agent_names):
+        for agent_name in agent_names:
             agent_idx = 0 if agent_name == "agent_0" else 1
-            pos_x = int(agents.pos.x[agent_idx])
-            pos_y = int(agents.pos.y[agent_idx])
-            direction = int(agents.dir[agent_idx])
-            inventory = int(agents.inventory[agent_idx])
-
             agent_info.append({
                 "name": agent_name,
-                "pos": (pos_x, pos_y),
-                "direction": DIRECTION_NAMES.get(direction, "UNKNOWN"),
-                "inventory": inventory,
+                "pos": (int(pos_x_np[agent_idx]), int(pos_y_np[agent_idx])),
+                "direction": DIRECTION_NAMES.get(int(dir_np[agent_idx]), "UNKNOWN"),
+                "inventory": int(inv_np[agent_idx]),
                 "is_controlled": agent_name == self.controlled_agent,
             })
 
@@ -277,7 +287,13 @@ class OvercookedGymWrapper(gym.Env):
         return lines
 
     def _get_static_objects(self, grid):
-        """Get positions of static objects for coordinate display."""
+        """Get positions of static objects for coordinate display.
+
+        Cached because static objects don't move during episode.
+        """
+        if self._cached_static_objects is not None:
+            return self._cached_static_objects
+
         height, width, _ = grid.shape
         objects = {
             "Serving counter": [],
@@ -295,6 +311,8 @@ class OvercookedGymWrapper(gym.Env):
                     idx = static - 10
                     name = self._ingredient_name(idx)
                     objects["Ingredient piles"].append((x, y, name))
+
+        self._cached_static_objects = objects
         return objects
 
     def _cell_to_char(self, cell):
@@ -367,20 +385,30 @@ class OvercookedGymWrapper(gym.Env):
         return "UNKNOWN"
 
     def _get_pot_info(self, grid):
-        """Get pot status from grid."""
+        """Get pot status from grid.
+
+        Pot positions are cached; only contents/timer change.
+        """
+        # Cache pot positions on first call (positions don't change)
+        if self._cached_pot_positions is None:
+            height, width, _ = grid.shape
+            self._cached_pot_positions = []
+            for y in range(height):
+                for x in range(width):
+                    if grid[y, x, 0] == 5:  # POT
+                        self._cached_pot_positions.append((x, y))
+
+        # Only read contents at known pot positions
         pots = []
-        height, width, _ = grid.shape
-        for y in range(height):
-            for x in range(width):
-                if grid[y, x, 0] == 5:  # POT
-                    contents = int(grid[y, x, 1])
-                    timer = int(grid[y, x, 2])
-                    decoded = self._decode_item(contents)
-                    pots.append({
-                        "pos": (x, y),
-                        "contents": decoded,
-                        "timer": timer,
-                    })
+        for x, y in self._cached_pot_positions:
+            contents = int(grid[y, x, 1])
+            timer = int(grid[y, x, 2])
+            decoded = self._decode_item(contents)
+            pots.append({
+                "pos": (x, y),
+                "contents": decoded,
+                "timer": timer,
+            })
         return pots
 
     def _pot_status_str(self, pot):
