@@ -74,9 +74,7 @@ class EnvWrapper(gym.Wrapper):
 
             return get_instruction_prompt(self.env, self.task_name)
         elif self.env_name == "babyai":
-            from verl.envs.environments.babyai_text import get_instruction_prompt
-
-            return get_instruction_prompt(self.env, mission=instructions)
+            return self.env.get_instruction_prompt(mission=instructions)
         elif self.env_name == "textworld":
             from verl.envs.environments.textworld import get_instruction_prompt
 
