@@ -189,34 +189,34 @@ class MultiEnvEvaluator:
             eval_name = env_config.get('name', f'env_{env_idx}')
             self._dbg_print(f"Evaluating environment: {eval_name}")
 
-            start_time = time.time()
+            start_time = time.perf_counter()
 
             # Run evaluation (VecEnv creation now happens inside _evaluate_single_env_body)
             try:
                 env_metrics, episode_data = self._evaluate_single_env(env_config, eval_name)
-
-                end_time = time.time()
-                eval_time = end_time - start_time
-
                 self._maybe_log_episode_generation(episode_data, eval_name, global_step)
+
+                end_time = time.perf_counter()
+                eval_time = end_time - start_time
 
                 prefixed_metrics = {}
                 for key, value in env_metrics.items():
                     prefixed_key = f"eval_{eval_name}/{key}"
                     prefixed_metrics[prefixed_key] = value
 
-                # Add eval_time_seconds to metrics (total wall time for this env)
+                # Extract timing components for metrics and console
+                inference_time = env_metrics.get("inference_time_seconds", 0.0)
+                env_step_time = env_metrics.get("env_step_time_seconds", 0.0)
+                entropy_probe_time = env_metrics.get("action_entropy_probe_time_seconds", 0.0)
+                other_time = max(0.0, eval_time - inference_time - env_step_time - entropy_probe_time)
+
+                # Add timing metrics (total wall time includes episode logging)
                 prefixed_metrics[f"eval_{eval_name}/eval_time_seconds"] = eval_time
+                prefixed_metrics[f"eval_{eval_name}/other_time_seconds"] = other_time
 
                 all_metrics.update(prefixed_metrics)
                 self._dbg_print(f"[MultiEnvEvaluator] Added {len(prefixed_metrics)} metrics for {eval_name}")
                 self._dbg_print(f"[MultiEnvEvaluator] Sample metrics for {eval_name}: {list(prefixed_metrics.keys())[:5]}")
-
-                # Extract timing components for console summary
-                inference_time = env_metrics.get("inference_time_seconds", 0.0)
-                env_step_time = env_metrics.get("env_step_time_seconds", 0.0)
-                entropy_probe_time = env_metrics.get("action_entropy_probe_time_seconds", 0.0)
-                other_time = eval_time - inference_time - env_step_time - entropy_probe_time
 
                 # Print timing breakdown to console
                 timing_parts = [f"total: {eval_time:.2f}s", f"inference: {inference_time:.2f}s", f"env_step: {env_step_time:.2f}s"]
@@ -741,9 +741,9 @@ class MultiEnvEvaluator:
                     for key, value in self._current_gen_config.items():
                         val_gen_batch.meta_info[key] = value
 
-                    inference_start = time.time()
+                    inference_start = time.perf_counter()
                     val_gen_batch_output = self.actor_rollout_wg.generate_sequences(val_gen_batch)
-                    inference_end = time.time()
+                    inference_end = time.perf_counter()
                     total_inference_time += (inference_end - inference_start)
 
                     response_ids = val_gen_batch_output.batch['responses']
@@ -761,9 +761,9 @@ class MultiEnvEvaluator:
                     batch_response_n_tokens_last = response_n_tokens
 
                     try:
-                        env_step_start = time.time()
+                        env_step_start = time.perf_counter()
                         obs_vec, reward_vec, terminated_vec, truncated_vec, info_vec = vec_envs.step(full_responses)
-                        env_step_end = time.time()
+                        env_step_end = time.perf_counter()
                         total_env_step_time += (env_step_end - env_step_start)
                     except Exception as e:
                         print(f"[ERROR] MultiEnvEvaluator: Exception in val_env.step: {e}")
@@ -1233,9 +1233,9 @@ class MultiEnvEvaluator:
         for key, value in probe_meta.items():
             val_gen_batch.meta_info[key] = value
 
-        inference_start = time.time()
+        inference_start = time.perf_counter()
         val_gen_batch_output = self.actor_rollout_wg.generate_sequences(val_gen_batch)
-        inference_end = time.time()
+        inference_end = time.perf_counter()
 
         responses = self.tokenizer.batch_decode(
             val_gen_batch_output.batch['responses'],

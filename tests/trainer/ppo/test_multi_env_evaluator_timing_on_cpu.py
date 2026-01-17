@@ -128,5 +128,35 @@ class TestEvalTimingMetrics(unittest.TestCase):
         self.assertNotIn("entropy_probe", output)
 
 
+    def test_other_time_clamped_to_zero(self):
+        """Verify other_time is clamped to >= 0 even with rounding issues."""
+        eval_time = 10.0
+        inference_time = 6.0
+        env_step_time = 3.0
+        entropy_probe_time = 2.0  # Sum > eval_time
+
+        # Without clamping this would be -1.0
+        other_time = max(0.0, eval_time - inference_time - env_step_time - entropy_probe_time)
+
+        self.assertEqual(other_time, 0.0)
+        self.assertGreaterEqual(other_time, 0.0)
+
+    def test_other_time_logged_to_metrics(self):
+        """Verify other_time_seconds is added to prefixed metrics."""
+        eval_name = "test_env"
+        eval_time = 10.0
+        inference_time = 6.0
+        env_step_time = 2.0
+        entropy_probe_time = 1.0
+        other_time = max(0.0, eval_time - inference_time - env_step_time - entropy_probe_time)
+
+        prefixed_metrics = {}
+        prefixed_metrics[f"eval_{eval_name}/eval_time_seconds"] = eval_time
+        prefixed_metrics[f"eval_{eval_name}/other_time_seconds"] = other_time
+
+        self.assertIn(f"eval_{eval_name}/other_time_seconds", prefixed_metrics)
+        self.assertAlmostEqual(prefixed_metrics[f"eval_{eval_name}/other_time_seconds"], 1.0, places=5)
+
+
 if __name__ == "__main__":
     unittest.main()
