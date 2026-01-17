@@ -208,16 +208,38 @@ These are reported when `track_standard_metrics` is true (i.e. normal eval rollo
 | `tokens_per_step` | `eval_snake/tokens_per_step` | Tokens generated per executed env step | `total_tokens_generated / attempted_actions_total` |
 | `tokens_per_step_cap` | `eval_snake/tokens_per_step_cap` | Tokens generated per max-possible step | `total_tokens_generated / (episode_length * n_rollouts)` |
 
-### Inference time metrics (always logged)
+### Timing metrics (always logged)
 
-These are logged regardless of whether standard rollout metrics are enabled.
+These timing metrics are logged regardless of whether standard rollout metrics are enabled. All timing uses `time.perf_counter()` for high-precision duration measurement.
 
-| Metric name (suffix) | WandB key example | What it measures | How it’s calculated |
+**End-to-end timing:**
+
+| Metric name (suffix) | WandB key example | What it measures | How it's calculated |
 |---|---|---|---|
-| `inference_time_seconds` | `eval_snake/inference_time_seconds` | Total inference time during eval | Sum of per-batch wall-clock times around `generate_sequences` |
+| `eval_time_seconds` | `eval_snake/eval_time_seconds` | Total wall-clock time for this eval environment | Time from start of `_evaluate_single_env()` to after episode logging |
+| `other_time_seconds` | `eval_snake/other_time_seconds` | Residual time (tokenization, metric computation, etc.) | `max(0, eval_time - inference_time - env_step_time - entropy_probe_time)` |
+
+**LLM inference timing:**
+
+| Metric name (suffix) | WandB key example | What it measures | How it's calculated |
+|---|---|---|---|
+| `inference_time_seconds` | `eval_snake/inference_time_seconds` | Total time in LLM generation | Sum of wall-clock times around `generate_sequences()` calls (excludes entropy probes) |
 | `inference_time_per_rollout` | `eval_snake/inference_time_per_rollout` | Inference time per rollout | `inference_time_seconds / n_rollouts` |
 | `inference_time_per_step` | `eval_snake/inference_time_per_step` | Inference time per executed env step | `inference_time_seconds / attempted_actions_total` |
 | `inference_time_per_step_cap` | `eval_snake/inference_time_per_step_cap` | Inference time per max-possible step | `inference_time_seconds / (episode_length * n_rollouts)` |
+
+**Environment step timing:**
+
+| Metric name (suffix) | WandB key example | What it measures | How it's calculated |
+|---|---|---|---|
+| `env_step_time_seconds` | `eval_snake/env_step_time_seconds` | Total time in environment steps | Sum of wall-clock times around `vec_envs.step()` calls |
+| `env_step_time_per_rollout` | `eval_snake/env_step_time_per_rollout` | Env step time per rollout | `env_step_time_seconds / n_rollouts` |
+| `env_step_time_per_step` | `eval_snake/env_step_time_per_step` | Env step time per executed step | `env_step_time_seconds / attempted_actions_total` |
+
+**Console output format:**
+```
+Completed evaluation for {eval_name} (total: Xs, inference: Xs, env_step: Xs, [entropy_probe: Xs,] other: Xs)
+```
 
 ### Action validity metrics (always logged)
 

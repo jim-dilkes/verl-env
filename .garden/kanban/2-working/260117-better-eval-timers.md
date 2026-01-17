@@ -101,3 +101,21 @@ Interview summary:
    - `other` captures tokenization, metric computation, etc.
 
 **Decision:** Skipped separate tokenization timing - captured in "other" bucket. Can be added later if profiling shows it's significant.
+
+**Committed:** `512fa472` - feat: add granular timing metrics to MultiEnvEvaluator
+
+**Test added:** `tests/trainer/ppo/test_multi_env_evaluator_timing_on_cpu.py` (5 tests, all pass)
+
+### 2026-01-17 - Review Fixes
+
+Applied fixes from code review:
+1. `time.time()` → `time.perf_counter()` (more robust for duration measurement)
+2. Added `other_time_seconds` to W&B metrics (was only printed to console)
+3. Clamped `other_time` to `max(0.0, ...)` (prevent negative values from rounding)
+4. Moved `end_time` to after `_maybe_log_episode_generation()` (includes logging overhead)
+5. Updated wandb-metrics.md documentation with all timing metrics
+6. Added 2 more tests (7 total, all pass)
+
+**Definition of "end-to-end":** `eval_time_seconds` = time from start of `_evaluate_single_env()` to after episode logging. Excludes post-eval GC (`gc.collect()`).
+
+**Next:** Run on cluster to verify timing output in real eval run.
