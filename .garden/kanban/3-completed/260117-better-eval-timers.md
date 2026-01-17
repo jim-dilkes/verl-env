@@ -4,7 +4,7 @@
 **Branch:** feat/better-eval-timers
 **Created:** 2026-01-17
 **Started:** 2026-01-17
-**Completed:** —
+**Completed:** 2026-01-17
 
 ## Goal
 Add granular timing metrics to MultiEnvEvaluator: end-to-end eval time plus component breakdown (text generation, environment steps, other slow ops). Output to both W&B/logger and console.
@@ -119,3 +119,13 @@ Applied fixes from code review:
 **Definition of "end-to-end":** `eval_time_seconds` = time from start of `_evaluate_single_env()` to after episode logging. Excludes post-eval GC (`gc.collect()`).
 
 **Next:** Run on cluster to verify timing output in real eval run.
+
+### 2026-01-17 - Feature Complete
+
+Added granular timing metrics to MultiEnvEvaluator:
+- `eval_time_seconds` - total wall time per env (includes episode logging)
+- `env_step_time_seconds` - time in vectorized env steps
+- `other_time_seconds` - residual (tokenization, metrics, etc.)
+- Updated console output with full breakdown
+- All metrics use `time.perf_counter()` for precision
+- Documented in wandb-metrics.md with vectorization/batching context
