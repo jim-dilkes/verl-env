@@ -49,6 +49,17 @@ critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 64))
 rollout_max_num_batched_tokens=$((micro_batch_size * max_token_len_per_gpu + 512))
 rollout_max_num_seqs=128
 
+# Ray defaults num_cpus=None which makes it try to use *all* visible CPUs.
+# On login nodes / SLURM-managed environments, cpuset/cgroup constraints can make that brittle.
+ray_num_cpus=${SLURM_CPUS_PER_TASK:-4}
+
+# Guard against empty / non-numeric values (can propagate into Hydra as a string and break Ray init).
+if ! [[ "$ray_num_cpus" =~ ^[0-9]+$ ]]; then
+    echo "Error: ray_num_cpus must be an integer, got '$ray_num_cpus' (SLURM_CPUS_PER_TASK='$SLURM_CPUS_PER_TASK')" >&2
+    exit 1
+fi
+echo "Using ray_num_cpus=$ray_num_cpus"
+
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   +ray_kwargs.ray_init._node_ip_address=127.0.0.1 \
   +ray_kwargs.ray_init.include_dashboard=false \
