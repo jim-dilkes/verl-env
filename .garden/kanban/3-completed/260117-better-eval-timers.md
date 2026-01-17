@@ -129,3 +129,24 @@ Added granular timing metrics to MultiEnvEvaluator:
 - Updated console output with full breakdown
 - All metrics use `time.perf_counter()` for precision
 - Documented in wandb-metrics.md with vectorization/batching context
+
+### 2026-01-17 - Entropy-Only Eval Timing Investigation
+
+**Question:** Why do FastSnake-Entropy-Check/* timers show 0?
+
+**Answer:** Expected behavior for `exclusive_metric: true` evals.
+
+**Flow for exclusive_metric evals:**
+1. Loop breaks early after entropy probing (line 718-719)
+2. Normal inference/env.step never runs
+3. All inference time captured in `action_entropy_probe_time_seconds`
+
+**Metric breakdown for entropy-only evals:**
+| Metric | Value | Reason |
+|--------|-------|--------|
+| `inference_time_seconds` | 0 | No normal generation runs |
+| `env_step_time_seconds` | 0 | No `vec_envs.step()` runs |
+| `action_entropy_probe_time_seconds` | > 0 | Entropy probing inference |
+| `eval_time_seconds` | > 0 | Total wall time |
+
+**Decision:** Keep timing split as-is. `inference_time_seconds` tracks normal generation only; entropy probing has its own metric. User confirmed this separation is correct.
