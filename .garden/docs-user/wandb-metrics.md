@@ -212,6 +212,12 @@ These are reported when `track_standard_metrics` is true (i.e. normal eval rollo
 
 These timing metrics are logged regardless of whether standard rollout metrics are enabled. All timing uses `time.perf_counter()` for high-precision duration measurement.
 
+**Important: Vectorization and batching context**
+
+- **Vectorized execution**: `vec_envs.step()` and `generate_sequences()` process multiple rollouts in parallel. Timing measures **wall-clock time for the entire vectorized operation**, not per-rollout sequential time.
+- **Batching**: When `batch_size < n_rollouts`, evaluation runs in sequential batches. Timing **accumulates across all batches**.
+- **"Per-rollout" / "per-step" metrics**: These are **amortized** costs (`total_time / count`), not "time if you ran a single rollout". They're useful for comparing efficiency across runs with different rollout counts, but don't reflect parallelism overhead.
+
 **End-to-end timing:**
 
 | Metric name (suffix) | WandB key example | What it measures | How it's calculated |
@@ -224,17 +230,17 @@ These timing metrics are logged regardless of whether standard rollout metrics a
 | Metric name (suffix) | WandB key example | What it measures | How it's calculated |
 |---|---|---|---|
 | `inference_time_seconds` | `eval_snake/inference_time_seconds` | Total time in LLM generation | Sum of wall-clock times around `generate_sequences()` calls (excludes entropy probes) |
-| `inference_time_per_rollout` | `eval_snake/inference_time_per_rollout` | Inference time per rollout | `inference_time_seconds / n_rollouts` |
-| `inference_time_per_step` | `eval_snake/inference_time_per_step` | Inference time per executed env step | `inference_time_seconds / attempted_actions_total` |
-| `inference_time_per_step_cap` | `eval_snake/inference_time_per_step_cap` | Inference time per max-possible step | `inference_time_seconds / (episode_length * n_rollouts)` |
+| `inference_time_per_rollout` | `eval_snake/inference_time_per_rollout` | Amortized inference time per rollout | `inference_time_seconds / n_rollouts` |
+| `inference_time_per_step` | `eval_snake/inference_time_per_step` | Amortized inference time per executed step | `inference_time_seconds / attempted_actions_total` |
+| `inference_time_per_step_cap` | `eval_snake/inference_time_per_step_cap` | Amortized inference time per max-possible step | `inference_time_seconds / (episode_length * n_rollouts)` |
 
 **Environment step timing:**
 
 | Metric name (suffix) | WandB key example | What it measures | How it's calculated |
 |---|---|---|---|
-| `env_step_time_seconds` | `eval_snake/env_step_time_seconds` | Total time in environment steps | Sum of wall-clock times around `vec_envs.step()` calls |
-| `env_step_time_per_rollout` | `eval_snake/env_step_time_per_rollout` | Env step time per rollout | `env_step_time_seconds / n_rollouts` |
-| `env_step_time_per_step` | `eval_snake/env_step_time_per_step` | Env step time per executed step | `env_step_time_seconds / attempted_actions_total` |
+| `env_step_time_seconds` | `eval_snake/env_step_time_seconds` | Total wall time in vectorized env steps | Sum of wall-clock times around `vec_envs.step()` calls (accumulated across batches) |
+| `env_step_time_per_rollout` | `eval_snake/env_step_time_per_rollout` | Amortized env step time per rollout | `env_step_time_seconds / n_rollouts` |
+| `env_step_time_per_step` | `eval_snake/env_step_time_per_step` | Amortized env step time per executed step | `env_step_time_seconds / attempted_actions_total` |
 
 **Console output format:**
 ```
