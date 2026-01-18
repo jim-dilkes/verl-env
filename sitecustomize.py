@@ -71,3 +71,56 @@ def _patch_multiprocess_resource_tracker() -> None:
 
 
 _patch_multiprocess_resource_tracker()
+
+
+def _patch_wandb_service_teardown() -> None:
+    """Silence noisy BrokenPipeError during W&B atexit teardown.
+
+    In some multi-process / Ray-style runs, the wandb-core service can be gone
+    by interpreter shutdown time. W&B's atexit hook then calls
+    `ServiceConnection.teardown()`, which may raise `BrokenPipeError: [Errno 32]`.
+
+    The exception is explicitly "ignored" by atexit, but Python still prints a
+    traceback to stderr. This patch makes teardown best-effort and quiet.
+    """
+
+    try:
+        from wandb.sdk.lib.service import service_connection as sc  # type: ignore
+    except Exception:
+        return
+
+    ServiceConnection = getattr(sc, "ServiceConnection", None)
+    if ServiceConnection is None:
+        return
+
+    original_teardown = getattr(ServiceConnection, "teardown", None)
+    if original_teardown is None:
+        return
+
+    # Idempotency: don't patch multiple times.
+    if getattr(original_teardown, "__name__", "") == "teardown_compat":
+        return
+
+    def teardown_compat(self, exit_code: int):
+        try:
+            return original_teardown(self, exit_code)
+        except BrokenPipeError:
+            # Service already down; try to join if we own the process.
+            try:
+                proc = getattr(self, "_proc", None)
+                return proc.join() if proc else None
+            except Exception:
+                return None
+        except OSError as e:
+            if getattr(e, "errno", None) == 32:
+                try:
+                    proc = getattr(self, "_proc", None)
+                    return proc.join() if proc else None
+                except Exception:
+                    return None
+            raise
+
+    ServiceConnection.teardown = teardown_compat
+
+
+_patch_wandb_service_teardown()

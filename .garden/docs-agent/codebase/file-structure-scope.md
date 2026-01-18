@@ -50,6 +50,7 @@ Why it exists:
 
 Notes:
 - This does not affect training logic; it only prevents an “Exception ignored in: ResourceTracker.__del__” message at interpreter exit.
+- We also silence a noisy W&B shutdown-time `BrokenPipeError` that can occur when the wandb-core service is already gone during interpreter teardown.
 - If/when `multiprocess` publishes a fixed release for your environment, this can be removed.
 
 ## PhD Notes Location
