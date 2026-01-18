@@ -57,7 +57,7 @@ evaluation:
         partner_policy: none
         shaped_reward: False
         pot_cook_time: 5
-        print_visualization: true
+        print_visualization: false
         print_coordinates: true
 
 
@@ -110,7 +110,7 @@ evaluation:
         partner_policy: none
         shaped_reward: False
         pot_cook_time: 5
-        print_visualization: true
+        print_visualization: false
         print_coordinates: true
 
 
@@ -256,7 +256,7 @@ evaluation:
         partner_policy: none
         shaped_reward: false
         pot_cook_time: 5
-        print_visualization: true
+        print_visualization: false
         print_coordinates: true
 
 
@@ -328,5 +328,5 @@ evaluation:
         partner_policy: none
         shaped_reward: false
         pot_cook_time: 5
-        print_visualization: true
+        print_visualization: false
         print_coordinates: true
