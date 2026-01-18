@@ -475,7 +475,7 @@ envs:
     seed: 0
 
     # Whether to include ASCII visualization in observations
-    print_visualization: True
+    print_visualization: false
 
     # Whether to include coordinate descriptions in observations
     print_coordinates: True
