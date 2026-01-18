@@ -424,15 +424,30 @@ class ValidationGenerationsLogger:
         self._log_generations_to_wandb(samples, step, wandb, self._wandb_tables, table_name)
 
     def _log_generations_to_wandb(self, samples, step, wandb, table_cache, table_name):
-        """Log samples to wandb as a table"""
+        """Log samples to wandb as a table.
 
-        # Create column names for all samples
-        columns = ["step"] + sum(
-            [[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], []
-        )
+        Supports two sample formats:
+        - 3-tuple: (input, output, score) - legacy format
+        - 5-tuple: (input, output, score, reward, max_length_steps) - extended format with reward and steps that hit max_seq_len
+        """
+
+        # Detect sample format from first sample
+        sample_len = len(samples[0]) if samples else 3
+
+        # Create column names for all samples based on format
+        if sample_len >= 5:
+            columns = ["step"] + sum(
+                [[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}", f"reward_{i + 1}", f"max_length_steps_{i + 1}"] for i in range(len(samples))], []
+            )
+        else:
+            columns = ["step"] + sum(
+                [[f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"] for i in range(len(samples))], []
+            )
 
         existing_table = table_cache.get(table_name)
-        if existing_table is None:
+        # If the sample format changes for the same table name (e.g. legacy 3-tuple -> new 5-tuple),
+        # reset the cached table to avoid column mismatches.
+        if existing_table is None or getattr(existing_table, "columns", None) != columns:
             table_cache[table_name] = wandb.Table(columns=columns)
             existing_table = table_cache[table_name]
 
@@ -458,8 +473,12 @@ class ValidationGenerationsLogger:
 
         swanlab_table = swanlab.echarts.Table()
 
-        # Create column names
-        headers = ["step", "input", "output", "score"]
+        # Create column names based on sample format
+        sample_len = len(samples[0]) if samples else 3
+        if sample_len >= 5:
+            headers = ["step", "input", "output", "score", "reward", "max_length_steps"]
+        else:
+            headers = ["step", "input", "output", "score"]
 
         swanlab_row_list = [[step, *sample] for sample in samples]
         swanlab_table.add(headers=headers, rows=swanlab_row_list)
@@ -482,6 +501,9 @@ class ValidationGenerationsLogger:
                 row_data = []
                 for sample in samples:
                     data = {"input": sample[0], "output": sample[1], "score": sample[2]}
+                    if len(sample) >= 5:
+                        data["reward"] = sample[3]
+                        data["max_length_steps"] = sample[4]
                     row_data.append(data)
                 with open(validation_gen_step_file, "w") as file:
                     json.dump({"table_name": table_name, "rows": row_data}, file)
@@ -499,15 +521,18 @@ class ValidationGenerationsLogger:
         if task is None:
             return
 
-        table = [
-            {
+        table = []
+        for sample in samples:
+            row = {
                 "step": step,
                 "input": sample[0],
                 "output": sample[1],
                 "score": sample[2],
             }
-            for sample in samples
-        ]
+            if len(sample) >= 5:
+                row["reward"] = sample[3]
+                row["max_length_steps"] = sample[4]
+            table.append(row)
 
         logger = task.get_logger()
         logger.report_table(
@@ -539,13 +564,17 @@ class ValidationGenerationsLogger:
         for i, sample in enumerate(samples):
             text_content += f"### Sample {i + 1}\n"
 
-            # Assuming sample contains [input, output, score]
+            # Assuming sample contains [input, output, score, reward?, max_length_steps?]
             if len(sample) >= 3:
                 input_text, output_text, score = sample[0], sample[1], sample[2]
 
                 text_content += f"**Input:** {input_text}\n\n"
                 text_content += f"**Output:** {output_text}\n\n"
                 text_content += f"**Score:** {score}\n\n"
+
+                if len(sample) >= 5:
+                    text_content += f"**Reward:** {sample[3]}\n\n"
+                    text_content += f"**Max Length Steps:** {sample[4]}\n\n"
             else:
                 # Handle cases where sample format might be different
                 text_content += f"**Data:** {sample}\n\n"
