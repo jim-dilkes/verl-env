@@ -40,6 +40,18 @@ experiments/
 - `verl/workers/` - FSDP/Megatron workers
 - `verl/single_controller/` - Ray coordination
 
+## Runtime Patches (sitecustomize)
+This repo includes `sitecustomize.py`, which Python auto-imports on startup (via the standard `site` module) when the repo is on `PYTHONPATH` / you run from the repo root.
+
+Why it exists:
+- Under Python 3.12, `multiprocess==0.70.18` (a transitive dependency of `datasets`) can raise a noisy shutdown-time exception:
+	`AttributeError: '_thread.RLock' object has no attribute '_recursion_count'`
+- The patch suppresses that teardown traceback by making `multiprocess.resource_tracker` compatible with Python 3.12.
+
+Notes:
+- This does not affect training logic; it only prevents an “Exception ignored in: ResourceTracker.__del__” message at interpreter exit.
+- If/when `multiprocess` publishes a fixed release for your environment, this can be removed.
+
 ## PhD Notes Location
 `/Users/jim/Documents/PhD/Research Projects/4) Exploration in SDM for LLMs/`
 - `Log Book/` - Experiment logs and findings
