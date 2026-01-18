@@ -451,12 +451,18 @@ class MultiEnvEvaluator:
         formatted_input = self._format_episode(episode_data['inputs'])
         formatted_output = self._format_episode(episode_data['outputs'])
         total_score = episode_data['total_score']
+        total_reward = episode_data.get('total_reward')
+        max_length_steps = episode_data.get('max_length_steps', [])
+
         score_log_value = "N/A" if total_score is None else total_score
+        reward_log_value = "N/A" if total_reward is None else total_reward
+        max_length_steps_log_value = str(max_length_steps)  # [] if none, else list of step indices
+
         if total_score is None:
             self._dbg_print(f"[MultiEnvEvaluator] Episode score unavailable for {env_name}; logging 'N/A'.")
-        
-        # Create sample tuple (input, output, score) as expected by ValidationGenerationsLogger
-        sample = (formatted_input, formatted_output, score_log_value)
+
+        # Create sample tuple (input, output, score, reward, max_length_steps)
+        sample = (formatted_input, formatted_output, score_log_value, reward_log_value, max_length_steps_log_value)
         
         # Log to each configured logger
         logger_backends = getattr(self.config.trainer, 'logger', ['console'])
@@ -612,6 +618,8 @@ class MultiEnvEvaluator:
         episode_inputs = []
         episode_outputs = []
         episode_total_score = None
+        episode_total_reward = None
+        episode_max_length_steps = []
         episode_tracked = False
 
         # Entropy accumulators
@@ -753,6 +761,9 @@ class MultiEnvEvaluator:
                     if track_standard_metrics and not episode_tracked and batch_idx == 0:
                         episode_inputs.append(val_input_obs_text[0])
                         episode_outputs.append(full_responses[0])
+                        # Check if input was truncated (hit max_seq_len)
+                        if attention_mask[0].sum().item() >= max_seq_len:
+                            episode_max_length_steps.append(step_idx)
 
                     response_n_tokens = (response_ids != self.tokenizer.pad_token_id).sum(dim=-1)
                     total_tokens_generated += response_n_tokens.sum().item()
@@ -839,6 +850,11 @@ class MultiEnvEvaluator:
                             if score_of_traj is not None:
                                 episode_total_score = float(score_of_traj[0])
                             if terminated_vec[0] or truncated_vec[0] or step_idx == env_config['episode_length'] - 1:
+                                # rew_of_traj may be scalar 0. on step 0 or array on later steps
+                                if isinstance(rew_of_traj, np.ndarray):
+                                    episode_total_reward = float(rew_of_traj[0])
+                                else:
+                                    episode_total_reward = float(rew_of_traj)
                                 episode_tracked = True
 
                         if end_of_traj.all():
@@ -1061,10 +1077,14 @@ class MultiEnvEvaluator:
 
         episode_data = None
         if track_standard_metrics and episode_tracked:
+            # Use reward as fallback for score when env doesn't provide score
+            score_value = episode_total_score if episode_total_score is not None else episode_total_reward
             episode_data = {
                 'inputs': episode_inputs,
                 'outputs': episode_outputs,
-                'total_score': float(episode_total_score) if episode_total_score is not None else None
+                'total_score': float(score_value) if score_value is not None else None,
+                'total_reward': float(episode_total_reward) if episode_total_reward is not None else None,
+                'max_length_steps': episode_max_length_steps,
             }
             
         return metric_dict, episode_data
