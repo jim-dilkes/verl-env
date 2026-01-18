@@ -152,7 +152,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.test_freq=100 \
   trainer.render=False \
   trainer.total_epochs=1000 \
-  trainer.total_training_steps=3 \
+  trainer.total_training_steps=2 \
   evaluation=snake_evals \
   prompt=snake 2>&1 | tee test_login_node.log
 
