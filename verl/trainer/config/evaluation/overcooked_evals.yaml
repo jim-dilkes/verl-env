@@ -169,7 +169,7 @@ evaluation:
         max_text_history: 0
       overcooked_kwargs:
         layout_name: cramped_room
-        horizon: 40
+        horizon: 8
         partner_policy: none
         shaped_reward: false
         pot_cook_time: 5
