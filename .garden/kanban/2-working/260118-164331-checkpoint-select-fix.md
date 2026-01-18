@@ -10,9 +10,9 @@
 Fix sbatch scripts to select the most recent checkpoint snapshot by modification time instead of alphabetically.
 
 ## Scope
-- [x] Identify all affected sbatch files (use `head -n 1` with `ls`)
-- [ ] Update to use `ls -t` (sort by mtime) so `head -n 1` gets newest
-- [ ] Verify fix works correctly
+- [x] Identify all affected sbatch files (152 files use this pattern)
+- [x] Update to use `ls -t` (sort by mtime) so `head -n 1` gets newest
+- [x] Verify fix works correctly
 
 ## Out of Scope
 - Changing to explicit snapshot hashes (decided against)
