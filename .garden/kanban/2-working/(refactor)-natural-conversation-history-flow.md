@@ -47,10 +47,10 @@ Took action 'stay'
 Model sees: user gave state → I responded → user gave new state → my turn. No special framing needed.
 
 ## Scope
-- [ ] Store previous observation text alongside action in history events
-- [ ] Include previous observation (without diagram) when including previous reasoning
-- [ ] Remove `[My Previous Thoughts]` header from assistant messages
-- [ ] Update tests if any exist for prompt format
+- [x] Store previous observation text alongside action in history events
+- [x] Include previous observation (without diagram) when including previous reasoning
+- [x] Remove `[My Previous Thoughts]` header from assistant messages
+- [x] Update tests if any exist for prompt format
 
 ## Files
 - `verl/envs/captioners/prompt_builder/history.py` - main changes
@@ -72,3 +72,38 @@ Model sees: user gave state → I responded → user gave new state → my turn.
 1. Modify history event storage to include the user input that preceded the action
 2. When building prompt with previous reasoning, emit: user(prev_input) → assistant(prev_reasoning) → user(current_input)
 3. Remove `[My Previous Thoughts]` header entirely
+
+### Context from Docs
+
+**From codebase/file-structure-scope.md:**
+- `verl/envs/captioners/prompt_builder/` - HistoryPromptBuilder, history management
+- Captioners: `naive.py`, `cot.py`, `base.py` - format prompts
+
+**From environments/wrapper-interface-api.md:**
+- Obs format has `text.long_term_context` + `text.short_term_context`
+- Multi-action reasoning mode uses `<decision>` tag after `<actions>` block
+- `extract_action_instance()` handles multi-action parsing
+
+### 2026-01-18 - Implementation Complete
+**Changes made:**
+- `history.py`: Store `short_term` in obs events, `observation_text` in action events
+- `history.py`: Emit prev obs as user turn before assistant reasoning
+- `history.py`: Removed all artificial headers
+- `history.py`: Made `get_prompt()` idempotent (non-mutating) per code review feedback
+- `test_history_prompt_builder.py`: Rewrote with 11 tests matching current API
+
+**Output format (no headers):**
+```
+<|im_start|>user
+Game started. Score: 0
+Grid: 10x10
+<|im_end|>
+<|im_start|>assistant
+<actions>...</actions>
+<decision>right</decision>
+<|im_end|>
+<|im_start|>user
+Moved right. Score: 0
+Grid: 10x10
+<|im_end|>
+```
