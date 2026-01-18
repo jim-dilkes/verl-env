@@ -75,7 +75,7 @@ echo SNAPSHOT_DIR: $SNAPSHOT_DIR
 
 # Automatically pick the first (latest) snapshot folder
 if [ -d "$SNAPSHOT_DIR" ]; then
-    LATEST_SNAPSHOT=$(ls -d $SNAPSHOT_DIR/* | head -n 1)
+    LATEST_SNAPSHOT=$(ls -dt $SNAPSHOT_DIR/* | head -n 1)
     MODEL_PATH="$LATEST_SNAPSHOT"
     echo "Auto-resolved model path to: $MODEL_PATH"
 else
