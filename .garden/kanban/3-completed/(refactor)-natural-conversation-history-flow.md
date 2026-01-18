@@ -4,7 +4,7 @@
 **Branch:** feat/conversation-history
 **Created:** 2026-01-18
 **Started:** 2026-01-18
-**Completed:** —
+**Completed:** 2026-01-18
 
 ## Goal
 Restructure prompt history to use natural conversation flow instead of artificial headers. Remove `[My Previous Thoughts]` from assistant messages - instead let turn-taking make context self-evident.
