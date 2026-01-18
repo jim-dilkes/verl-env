@@ -640,29 +640,54 @@ class MultiEnvEvaluator:
         n_batches = (n_rollouts + batch_size - 1) // batch_size
         if n_batches > 1:
             print(f"[MultiEnvEvaluator] {eval_name}: Running {n_batches} batches (batch_size={batch_size}, n_rollouts={n_rollouts})")
+            # VecEnv is reused across batches, so batch_size must evenly divide n_rollouts
+            # (otherwise last batch would have fewer seeds than workers)
+            if n_rollouts % batch_size != 0:
+                raise ValueError(
+                    f"[MultiEnvEvaluator] {eval_name}: n_rollouts ({n_rollouts}) must be evenly divisible "
+                    f"by batch_size ({batch_size}) when using batched evaluation. "
+                    f"Adjust batch_size to a divisor of n_rollouts."
+                )
 
-        # =========== BATCH LOOP ===========
-        for batch_idx in range(n_batches):
-            batch_start = batch_idx * batch_size
-            batch_end = min(batch_start + batch_size, n_rollouts)
-            batch_n = batch_end - batch_start
-            batch_seeds = all_seeds[batch_start:batch_end]
+        # Timing accumulators for debugging batched evaluation performance
+        total_vecenv_create_time = 0.0
+        total_vecenv_reset_time = 0.0
+        total_vecenv_close_time = 0.0
+        total_gc_time = 0.0
+        total_state_action_accum_time = 0.0
+        total_tokenizer_time = 0.0
 
-            if n_batches > 1:
-                self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: Starting batch {batch_idx + 1}/{n_batches} (rollouts {batch_start}-{batch_end - 1})")
+        # =========== CREATE VECENV ONCE (reused across batches) ===========
+        # Create VecEnv with batch_size workers - workers are expensive to init,
+        # so we reuse them across batches instead of creating/destroying per batch.
+        temp_config = self._create_env_config(env_config, n_rollouts_override=batch_size)
 
-            # Create temp config with batch_n rollouts
-            temp_config = self._create_env_config(env_config, n_rollouts_override=batch_n)
+        vecenv_create_start = time.perf_counter()
+        vec_envs = make_vec_env(
+            env_config['env_name'],
+            temp_config.envs.task,
+            temp_config,
+            render_mode=None
+        )
+        vecenv_create_end = time.perf_counter()
+        total_vecenv_create_time = vecenv_create_end - vecenv_create_start
 
-            # Create VecEnv for this batch
-            with VecEnvContextManager(
-                env_config['env_name'],
-                temp_config.envs.task,
-                temp_config,
-                render_mode=None
-            ) as vec_envs:
+        try:
+            # =========== BATCH LOOP ===========
+            for batch_idx in range(n_batches):
+                batch_start = batch_idx * batch_size
+                batch_end = min(batch_start + batch_size, n_rollouts)
+                batch_n = batch_end - batch_start
+                batch_seeds = all_seeds[batch_start:batch_end]
+
+                if n_batches > 1:
+                    self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: Starting batch {batch_idx + 1}/{n_batches} (rollouts {batch_start}-{batch_end - 1})")
+
                 # Reset with explicit seeds for this batch
+                reset_start = time.perf_counter()
                 obs_vec, info_vec = vec_envs.reset(seeds=batch_seeds)
+                reset_end = time.perf_counter()
+                total_vecenv_reset_time += (reset_end - reset_start)
 
                 # Per-batch state
                 pending_entropy_steps = set(entropy_measure_steps) if entropy_enabled else set()
@@ -678,6 +703,7 @@ class MultiEnvEvaluator:
 
                 # Episode loop for this batch
                 for step_idx in range(env_config['episode_length']):
+                    tokenizer_start = time.perf_counter()
                     val_input_obs_text = self.tokenizer.apply_chat_template(
                         obs_vec, tokenize=False, add_generation_prompt=True
                     )
@@ -733,6 +759,9 @@ class MultiEnvEvaluator:
                         truncation=True,
                         max_length=max_seq_len
                     )
+                    tokenizer_end = time.perf_counter()
+                    total_tokenizer_time += (tokenizer_end - tokenizer_start)
+
                     input_ids = val_input_obs['input_ids']
                     attention_mask = val_input_obs['attention_mask']
                     position_ids = attention_mask.long().cumsum(-1) - 1
@@ -801,7 +830,8 @@ class MultiEnvEvaluator:
                     total_valid_actions_this_step = sum(1 for v, e in zip(was_valid_list, use_end_of_traj) if v and not e)
                     total_valid_actions += total_valid_actions_this_step
 
-                    # Accumulate state-action texts with GLOBAL indexing
+                    # Accumulate state-action texts with GLOBAL indexing (with timing)
+                    state_action_accum_start = time.perf_counter()
                     for local_idx, (observation_text, executed_action, was_valid_action, rollout_already_ended) in enumerate(
                         zip(val_input_obs_text, executed_actions, was_valid_list, use_end_of_traj)
                     ):
@@ -811,6 +841,8 @@ class MultiEnvEvaluator:
                             group_state_action_texts_valid[group_idx].append(f"{observation_text} {executed_action}")
                         if not rollout_already_ended:
                             group_state_action_texts_all[group_idx].append(f"{observation_text} {executed_action}")
+                    state_action_accum_end = time.perf_counter()
+                    total_state_action_accum_time += (state_action_accum_end - state_action_accum_start)
 
                     if entropy_enabled and active_rollouts is not None:
                         done_mask = np.logical_or(terminated_vec, truncated_vec)
@@ -875,13 +907,26 @@ class MultiEnvEvaluator:
                         int(x) for x in batch_response_n_tokens_last.tolist()
                     ]
 
-            # End of VecEnv context manager - environment closed
-            # Memory cleanup between batches
-            gc.collect()
-            if n_batches > 1:
-                self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: Completed batch {batch_idx + 1}/{n_batches}")
+                # Memory cleanup between batches (with timing)
+                gc_start = time.perf_counter()
+                gc.collect()
+                gc_end = time.perf_counter()
+                total_gc_time += (gc_end - gc_start)
 
-        # =========== END BATCH LOOP ===========
+                if n_batches > 1:
+                    self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: Completed batch {batch_idx + 1}/{n_batches}")
+
+            # =========== END BATCH LOOP ===========
+
+        finally:
+            # Close VecEnv once after all batches (with timing)
+            vecenv_close_start = time.perf_counter()
+            try:
+                vec_envs.close()
+            except Exception as e:
+                print(f"[ERROR] MultiEnvEvaluator: Failed to close VecEnv: {e}")
+            vecenv_close_end = time.perf_counter()
+            total_vecenv_close_time = vecenv_close_end - vecenv_close_start
 
         # =========== METRIC COMPUTATION (from accumulated data) ===========
         metric_dict: Dict[str, float] = {}
@@ -980,7 +1025,10 @@ class MultiEnvEvaluator:
                 "unique_valid_actions_step_std": float(np.std(entropy_unique_valid_actions)),
             })
 
+        # Timing for n_groups > 1 metric computation
+        metric_computation_time = 0.0
         if n_groups > 1:
+            metric_comp_start = time.perf_counter()
             distinct_state_actions_valid_by_group = [len(set(group_state_actions)) for group_state_actions in group_state_action_texts_valid]
             distinct_state_actions_by_group = [len(set(group_state_actions)) for group_state_actions in group_state_action_texts_all]
             self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: distinct_state_actions_per_group={distinct_state_actions_valid_by_group}")
@@ -1061,6 +1109,29 @@ class MultiEnvEvaluator:
                 self._dbg_print(
                     f"[MultiEnvEvaluator] {eval_name}: Skipping per-frame/coverage metrics because trajectory lengths are unavailable"
                 )
+            metric_comp_end = time.perf_counter()
+            metric_computation_time = metric_comp_end - metric_comp_start
+
+        # Print timing breakdown for batched evaluation debugging
+        if n_batches > 1:
+            print(f"[MultiEnvEvaluator] {eval_name} timing breakdown:")
+            print(f"  VecEnv creation:    {total_vecenv_create_time:.2f}s")
+            print(f"  VecEnv reset:       {total_vecenv_reset_time:.2f}s")
+            print(f"  VecEnv close:       {total_vecenv_close_time:.2f}s")
+            print(f"  Tokenizer:          {total_tokenizer_time:.2f}s")
+            print(f"  GC:                 {total_gc_time:.2f}s")
+            print(f"  State-action accum: {total_state_action_accum_time:.2f}s")
+            print(f"  Metric computation: {metric_computation_time:.2f}s")
+            # Also add to metrics for logging
+            metric_dict.update({
+                "debug_vecenv_create_time": total_vecenv_create_time,
+                "debug_vecenv_reset_time": total_vecenv_reset_time,
+                "debug_vecenv_close_time": total_vecenv_close_time,
+                "debug_tokenizer_time": total_tokenizer_time,
+                "debug_gc_time": total_gc_time,
+                "debug_state_action_accum_time": total_state_action_accum_time,
+                "debug_metric_computation_time": metric_computation_time,
+            })
 
         # Valid action tracking across the episode
         total_len = float(np.sum(all_len_of_traj)) if all_len_of_traj else 0.0
