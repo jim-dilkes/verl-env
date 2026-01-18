@@ -691,6 +691,7 @@ class MultiEnvEvaluator:
 
                 # Per-batch state
                 pending_entropy_steps = set(entropy_measure_steps) if entropy_enabled else set()
+                ever_terminated = np.zeros(batch_n, dtype=bool)  # Persistent: True once terminated, never resets
                 active_rollouts = np.ones(batch_n, dtype=bool) if entropy_enabled else None
                 end_of_traj = None
                 rew_of_traj = 0.
@@ -698,8 +699,9 @@ class MultiEnvEvaluator:
                 len_of_traj = 0.
                 pos_rew_of_traj = None
 
-                # Track the last-step token counts for this batch.
-                batch_response_n_tokens_last = None
+                # Track per-rollout token counts: updated while active, frozen on termination
+                # Use -1 as sentinel for "not yet set" (valid token counts are >= 0)
+                batch_frozen_toks = np.full(batch_n, -1, dtype=np.int64)
 
                 # Episode loop for this batch
                 for step_idx in range(env_config['episode_length']):
@@ -795,10 +797,14 @@ class MultiEnvEvaluator:
                             episode_max_length_steps.append(step_idx)
 
                     response_n_tokens = (response_ids != self.tokenizer.pad_token_id).sum(dim=-1)
-                    total_tokens_generated += response_n_tokens.sum().item()
 
-                    # Save last-step token counts for later aggregation.
-                    batch_response_n_tokens_last = response_n_tokens
+                    # Only count tokens for active rollouts (not yet terminated)
+                    active_this_step = ~ever_terminated
+                    response_n_tokens_np = response_n_tokens.cpu().numpy()
+                    total_tokens_generated += int((response_n_tokens_np * active_this_step).sum())
+
+                    # Update frozen toks for active rollouts (will be frozen when they terminate)
+                    batch_frozen_toks[active_this_step] = response_n_tokens_np[active_this_step]
 
                     try:
                         env_step_start = time.perf_counter()
@@ -844,9 +850,13 @@ class MultiEnvEvaluator:
                     state_action_accum_end = time.perf_counter()
                     total_state_action_accum_time += (state_action_accum_end - state_action_accum_start)
 
+                    # Update persistent termination tracking (never resets after auto-reset)
+                    done_mask = np.logical_or(terminated_vec, truncated_vec)
+                    ever_terminated = np.logical_or(ever_terminated, done_mask)
+
+                    # Update entropy probing mask from persistent tracking
                     if entropy_enabled and active_rollouts is not None:
-                        done_mask = np.logical_or(terminated_vec, truncated_vec)
-                        active_rollouts = np.logical_not(done_mask)
+                        active_rollouts = np.logical_not(ever_terminated)
 
                     if track_standard_metrics:
                         try:
@@ -901,11 +911,11 @@ class MultiEnvEvaluator:
                     if score_of_traj is not None:
                         all_score_of_traj.extend(np.array(score_of_traj, dtype=np.float64).tolist())
 
-                # Capture last-step token counts for this batch (if any generation occurred).
-                if batch_response_n_tokens_last is not None:
-                    response_n_tokens_last_step[batch_start:batch_end] = [
-                        int(x) for x in batch_response_n_tokens_last.tolist()
-                    ]
+                # Capture frozen token counts (frozen at termination, or last step if never terminated)
+                # -1 sentinel means "not set" (rollout never ran a step, shouldn't happen)
+                for i in range(batch_n):
+                    if batch_frozen_toks[i] >= 0:
+                        response_n_tokens_last_step[batch_start + i] = int(batch_frozen_toks[i])
 
                 # Memory cleanup between batches (with timing)
                 gc_start = time.perf_counter()
