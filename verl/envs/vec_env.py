@@ -63,9 +63,10 @@ class VecEnv:
         if self.epsilon > 0:
             print(f"[VecEnv] Epsilon-greedy exploration enabled: epsilon={self.epsilon}")
         
-        # Get multiprocessing method from config, default to 'spawn' for safety
-        # 'spawn' avoids CUDA segfaults when forking (fork copies parent's CUDA state)
-        mp_method = config.envs.get('vec_env_multiprocessing', 'spawn')
+        # Get multiprocessing method from config, default to 'fork' for performance
+        # 'fork' is ~100x faster than 'spawn' on NFS (workers inherit imports via COW)
+        # Note: VecEnv workers don't use CUDA (envs are CPU-only), so fork is safe here
+        mp_method = config.envs.get('vec_env_multiprocessing', 'fork')
         if mp_method not in ['fork', 'spawn', 'forkserver']:
             raise ValueError(f"Invalid vec_env_multiprocessing method: {mp_method}. Must be one of: fork, spawn, forkserver")
         
