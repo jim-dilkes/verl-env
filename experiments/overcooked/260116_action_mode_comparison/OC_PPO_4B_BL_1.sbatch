@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_h100,swarm_a100,a100
+#SBATCH --partition=swarm_a100
 #SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
@@ -154,7 +154,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.overcooked_kwargs.pot_cook_time=3 \
   envs.overcooked_kwargs.print_visualization=false \
   envs.overcooked_kwargs.print_coordinates=true \
-  envs.vec_env_multiprocessing=spawn \
+  envs.vec_env_multiprocessing=fork \
   actor_rollout_ref.rollout.calculate_log_probs=true \
   algorithm.rollout_correction.rollout_is=sequence \
   algorithm.rollout_correction.rollout_is_threshold=3.0 \
