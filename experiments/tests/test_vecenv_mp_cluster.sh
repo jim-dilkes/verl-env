@@ -9,7 +9,21 @@
 set -e
 
 # Default values
-N_WORKERS=${1:-20}
+N_WORKERS=20
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --n-workers)
+            N_WORKERS="$2"
+            shift 2
+            ;;
+        *)
+            N_WORKERS="$1"
+            shift
+            ;;
+    esac
+done
 
 echo "=========================================="
 echo "VecEnv Multiprocessing Cluster Test"
