@@ -79,7 +79,7 @@ else
 fi
 micro_batch_size=16
 
-max_prompt_length=768
+max_prompt_length=2048
 max_response_length=256
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
 critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
@@ -158,7 +158,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.overcooked_kwargs.pot_cook_time=3 \
   envs.overcooked_kwargs.print_visualization=false \
   envs.overcooked_kwargs.print_coordinates=true \
-  envs.vec_env_multiprocessing=spawn \
+  envs.vec_env_multiprocessing=fork \
   algorithm.rollout_correction.rollout_is=sequence \
   algorithm.rollout_correction.rollout_is_threshold=3.0 \
   algorithm.rollout_correction.rollout_rs=null \
