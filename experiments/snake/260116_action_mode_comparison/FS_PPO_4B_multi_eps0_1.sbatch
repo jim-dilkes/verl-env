@@ -7,6 +7,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
 #SBATCH --partition=swarm_h100,swarm_a100,a100
+#SBATCH --exclude=swarmh1002
 #SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
@@ -79,7 +80,7 @@ else
 fi
 micro_batch_size=16
 
-max_prompt_length=768
+max_prompt_length=2048
 max_response_length=384
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
 critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
