@@ -10,13 +10,13 @@
 Trace and fix the reward flow from core Overcooked env through wrapper to training/eval metrics - rewards currently showing as zero/missing in both contexts despite being visible in interactive mode.
 
 ## Scope
-- [ ] Trace reward flow: core env → wrapper → trainer/evaluator
-- [ ] Identify where rewards are being lost/zeroed
-- [ ] Implement fix for the reward propagation issue
+- [x] Trace reward flow: core env → wrapper → trainer/evaluator
+- [x] Identify where rewards are being lost/zeroed
+- [x] Implement fix for the reward propagation issue
 - [ ] Verify rewards appear correctly in training
 - [ ] Verify rewards appear correctly in eval metrics
-- [ ] Document whether each reward type is configurable
-- [ ] Check if pickup-onion/ingredient reward exists
+- [x] Document whether each reward type is configurable
+- [x] Check if pickup-onion/ingredient reward exists
 
 ## Out of Scope
 - General refactoring of Overcooked wrapper (unless directly needed for fix)
@@ -68,3 +68,39 @@ Trace and fix the reward flow from core Overcooked env through wrapper to traini
 - `verl/envs/environments/overcooked/` - wrapper implementation
 - `verl/envs/environments/overcooked/jaxmarl_wrapper.py` - JaxMARL adapter
 - How step() handles reward aggregation
+
+### 2026-01-19 - Root Cause Found & Fixed
+
+**ROOT CAUSE:** Not a code bug! All configs had `shaped_reward=False`:
+- Training sbatch: `envs.overcooked_kwargs.shaped_reward=False`
+- Eval yaml: `shaped_reward: false`
+
+With `shaped_reward=False`, only delivery rewards (+20) are given. All intermediate rewards (pot placement, cooking, dish pickup) return 0.
+
+**FIX APPLIED:**
+Changed `shaped_reward=False` → `shaped_reward=True` in:
+- 13 sbatch files in experiments/overcooked/
+- 4 eval yaml files in verl/trainer/config/evaluation/
+
+**REWARD CONFIGURABILITY:**
+
+| Config Key | Default | Description |
+|------------|---------|-------------|
+| `shaped_reward` | True | Enable intermediate shaping rewards |
+
+**SHAPED REWARDS (from JaxMARL settings.py):**
+
+| Event | Reward | Notes |
+|-------|--------|-------|
+| Deliver correct soup | +20 | Base reward |
+| Place ingredient in pot | +3 | When useful (contributes to recipe) |
+| Start pot cooking | +5 | When pot has correct recipe |
+| Pick up completed dish | +5 | Picking soup from cooked pot with plate |
+| Pick up plate | +3 | When needed (more pots than plates held) |
+
+**NO REWARD FOR:**
+- Picking up onion/ingredient from pile (no shaped reward in JaxMARL)
+- Moving around
+- Invalid/noop actions
+
+**NEXT:** User to verify rewards now appear in training/eval with fixed configs.
