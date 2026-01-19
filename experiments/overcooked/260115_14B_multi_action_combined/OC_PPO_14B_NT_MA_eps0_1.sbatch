@@ -79,7 +79,7 @@ else
 fi
 micro_batch_size=16
 
-max_prompt_length=768
+max_prompt_length=2048
 max_response_length=256
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
 critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
