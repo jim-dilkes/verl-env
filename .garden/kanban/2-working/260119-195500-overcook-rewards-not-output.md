@@ -40,3 +40,31 @@ Trace and fix the reward flow from core Overcooked env through wrapper to traini
 **Additional asks:**
 - Report on reward configurability
 - Check for onion/ingredient pickup reward
+
+### 2026-01-19 - Context from Docs
+
+**From overcooked-jaxmarl-implementation.md:**
+- Base reward: +20 per successful delivery
+- `shaped_reward=True` enables intermediate rewards (picking up ingredients, adding to pot, picking up soup)
+- Shaped rewards accessed via `info["shaped_reward"][agent_name]`
+- Config: `config.envs.overcooked_kwargs = {shaped_reward: True, ...}`
+- **KEY**: Rewards come through info dict, not directly from step()
+
+**From wrapper-interface-api.md:**
+- `step()` returns `(obs, reward, terminated, truncated, info)`
+- VecEnv calls `env.step(executed_action, is_valid)` and expects reward as second return value
+- Optional `info["score"]` for evaluator tracking (if absent, evaluator skips score tracking)
+
+**From wrapper-api-requirements.md:**
+- Step signature: `(action, is_valid) -> (obs, reward, terminated, truncated, info)`
+- Reward should be float returned directly from step
+
+**Investigation hypothesis:**
+- Shaped rewards come via `info["shaped_reward"]` dict
+- Wrapper likely not aggregating/extracting these into the reward return value
+- Or: base env returns 0, shaped_reward not being added
+
+**Key files to check:**
+- `verl/envs/environments/overcooked/` - wrapper implementation
+- `verl/envs/environments/overcooked/jaxmarl_wrapper.py` - JaxMARL adapter
+- How step() handles reward aggregation
