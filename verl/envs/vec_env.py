@@ -342,7 +342,8 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
     
     image = None
     reset_count = 0
-    
+    action_pct_warning_logged = False
+
     def env_step(action):
         try:
             # Use extract_action_instance if available (for multi-action support).
@@ -363,9 +364,42 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
             # Only explore if model produced valid output - invalid format is a training signal
             explored = False
             if epsilon > 0 and is_valid and random.random() < epsilon:
+                # Guard: epsilon requires a sequence-like action space for random.choice()
+                if not isinstance(env.language_action_space, (list, tuple)):
+                    raise RuntimeError(
+                        f"[Worker {rank}] epsilon={epsilon} but language_action_space is {type(env.language_action_space).__name__}, "
+                        "not a list/tuple. Epsilon exploration requires a finite, indexable action space."
+                    )
                 executed_action = random.choice(env.language_action_space)
                 explored = True
             metrics["behavior/epsilon_explored"] = explored * 1.0
+
+            # Track action distribution (indicator variables - mean gives percentage)
+            # Generated = what model output (pre-epsilon), Executed = what was actually used
+            # Only track for envs with small, static, indexable action spaces
+            action_space = env.language_action_space
+
+            # Track invalid parses (always, regardless of action space)
+            metrics["action_pct/invalid"] = 0.0 if is_valid else 1.0
+
+            # Check length before materializing to avoid performance trap with large/infinite iterables
+            if hasattr(action_space, '__len__') and len(action_space) <= 20:
+                action_list = list(action_space) if not isinstance(action_space, (list, tuple)) else action_space
+                for action_name in action_list:
+                    # Sanitize action name for metric key (replace problematic chars)
+                    # Note: collision possible if names differ only by these chars (e.g. "up/left" vs "up_left")
+                    # Acceptable for typical small action spaces (snake, babyai, overcooked)
+                    safe_name = str(action_name).replace('/', '_').replace('[', '_').replace(']', '_')
+                    # Generated: extracted_action if valid parse, else None
+                    metrics[f"action_pct/generated/{safe_name}"] = 1.0 if (is_valid and extracted_action == action_name) else 0.0
+                    # Executed: final action after epsilon-greedy
+                    metrics[f"action_pct/executed/{safe_name}"] = 1.0 if executed_action == action_name else 0.0
+            elif not action_pct_warning_logged:
+                # Log once per worker - action distribution tracking skipped
+                nonlocal action_pct_warning_logged
+                action_pct_warning_logged = True
+                print(f"[Worker {rank}] Skipping action_pct/generated and action_pct/executed metrics: "
+                      f"action_space has no __len__ or len > 20")
 
             env_obs, reward, terminated, truncated, info = env.step(executed_action, is_valid)
             info["action_was_valid"] = is_valid
