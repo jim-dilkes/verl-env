@@ -13,18 +13,36 @@ prompt:
 
   # Captioner instruction for NaiveCaptioner (multi-action mode)
   naive_instruction: |
-    Respond using ONLY valid XML. You must reason about each action, then output your decision.
-    [Response Template]
-    <actions>
-    <action name="turn left">{reasoning}</action>
-    <action name="turn right">{reasoning}</action>
-    <action name="go forward">{reasoning}</action>
-    <action name="pick up">{reasoning}</action>
-    <action name="drop">{reasoning}</action>
-    <action name="toggle">{reasoning}</action>
-    </actions>
-    <decision>{your chosen action}</decision>
 
-  # Environment instruction for BabyAI (overrides default if set)
-  # If null, uses the hardcoded default in the wrapper
-  instruction_prompt: null
+
+  # Environment instruction for BabyAI (multi-action reasoning mode)
+  environment_instruction: |
+    [Instructions]
+    You are an agent playing a navigation game. Your maximum response length: 300 words.
+
+    [Available Actions]
+    "turn left": turn to the left,
+    "turn right": turn to the right,
+    "go forward": take one step forward,
+    "pick up": pick up the object one step in front of you,
+    "drop": drop the object that you are holding,
+    "toggle": manipulate the object one step in front of you
+
+    [Response Format]
+    Reason about EACH action, then make a decision.
+
+    <actions>
+    <action name="turn left">Your reasoning...</action>
+    <action name="turn right">Your reasoning...</action>
+    <action name="go forward">Your reasoning...</action>
+    <action name="pick up">Your reasoning...</action>
+    <action name="drop">Your reasoning...</action>
+    <action name="toggle">Your reasoning...</action>
+    </actions>
+
+    <decision>your_chosen_action</decision>
+
+    [Rules]
+    - Your goal is to: {mission}
+    - You cannot "go forward" if blocked by wall/object
+    - Use 'toggle' to interact with objects in front of you

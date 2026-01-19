@@ -14,11 +14,24 @@ prompt:
 
   # Captioner instruction for NaiveCaptioner
   naive_instruction: |
-    Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
-    [Response Template]
-    <plan>{Think about what you need to do to complete your goal. Consider your surroundings and what objects you can see.}</plan>
-    <action>{Your selected action from the list above}</action>
 
-  # Environment instruction for BabyAI (overrides default if set)
-  # If null, uses the hardcoded default in the wrapper
-  instruction_prompt: null
+
+  # Environment instruction for BabyAI
+  environment_instruction: |
+    [Instructions]
+    You are an agent playing a navigation game. Your maximum response length: 200 words.
+
+    [Available Actions]
+    "turn left": turn to the left,
+    "turn right": turn to the right,
+    "go forward": take one step forward,
+    "pick up": pick up the object one step in front of you,
+    "drop": drop the object that you are holding,
+    "toggle": manipulate the object one step in front of you
+
+    [Rules]
+    - Your goal is to: {mission}
+    - You cannot "go forward" if blocked by wall/object
+    - Use 'toggle' to interact with objects in front of you
+
+    Output your action in: <action>your_action</action>
