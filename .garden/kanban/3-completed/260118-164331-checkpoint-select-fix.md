@@ -4,7 +4,7 @@
 **Branch:** fix/various-bugfix
 **Created:** 2026-01-18
 **Started:** 2026-01-18
-**Completed:** —
+**Completed:** 2026-01-19
 
 ## Goal
 Fix sbatch scripts to select the most recent checkpoint snapshot by modification time instead of alphabetically.
