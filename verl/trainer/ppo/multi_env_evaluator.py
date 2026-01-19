@@ -208,7 +208,8 @@ class MultiEnvEvaluator:
                 inference_time = env_metrics.get("inference_time_seconds", 0.0)
                 env_step_time = env_metrics.get("env_step_time_seconds", 0.0)
                 entropy_probe_time = env_metrics.get("action_entropy_probe_time_seconds", 0.0)
-                other_time = max(0.0, eval_time - inference_time - env_step_time - entropy_probe_time)
+                vecenv_create_time = env_metrics.get("vecenv_create_time_seconds", 0.0)
+                other_time = max(0.0, eval_time - inference_time - env_step_time - entropy_probe_time - vecenv_create_time)
 
                 # Add timing metrics (total wall time includes episode logging)
                 prefixed_metrics[f"eval_{eval_name}/eval_time_seconds"] = eval_time
@@ -222,6 +223,7 @@ class MultiEnvEvaluator:
                 timing_parts = [f"total: {eval_time:.2f}s", f"inference: {inference_time:.2f}s", f"env_step: {env_step_time:.2f}s"]
                 if entropy_probe_time > 0:
                     timing_parts.append(f"entropy_probe: {entropy_probe_time:.2f}s")
+                timing_parts.append(f"vecenv_create: {vecenv_create_time:.2f}s")
                 timing_parts.append(f"other: {other_time:.2f}s")
                 print(f"Completed evaluation for {eval_name} ({', '.join(timing_parts)})")
 
@@ -1155,6 +1157,9 @@ class MultiEnvEvaluator:
             "executed_steps_per_rollout": float(total_attempted_actions) / max(1, float(n_rollouts)),
             "valid_action_ratio": float(total_valid_actions) / max(1.0, float(total_attempted_actions)),
         })
+
+        # Always include VecEnv creation time (useful for diagnosing slow evals)
+        metric_dict["vecenv_create_time_seconds"] = total_vecenv_create_time
 
         episode_data = None
         if track_standard_metrics and episode_tracked:
