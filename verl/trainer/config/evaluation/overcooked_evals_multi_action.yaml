@@ -72,7 +72,7 @@ evaluation:
         layout_name: cramped_room
         horizon: 40
         partner_policy: none
-        shaped_reward: false
+        shaped_reward: true
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
@@ -145,7 +145,7 @@ evaluation:
         layout_name: asymm_advantages
         horizon: 40
         partner_policy: none
-        shaped_reward: false
+        shaped_reward: true
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
@@ -220,7 +220,7 @@ evaluation:
         layout_name: cramped_room
         horizon: 40
         partner_policy: none
-        shaped_reward: false
+        shaped_reward: true
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
@@ -305,7 +305,7 @@ evaluation:
         layout_name: cramped_room
         horizon: 8
         partner_policy: none
-        shaped_reward: false
+        shaped_reward: true
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
