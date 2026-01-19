@@ -7,7 +7,7 @@
 prompt:
   # Captioner instruction (used by NaiveCaptioner and other captioners)
   # If null, the hardcoded default in the captioner will be used
-  naive_instruction: null
+  naive_instruction: |
   
   # Environment instruction (used by environment wrappers like FastSnakeLLMAgentsWrapper)
   # If null, the hardcoded default in the environment will be used

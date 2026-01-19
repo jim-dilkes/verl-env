@@ -13,15 +13,6 @@ prompt:
 
   # Captioner instruction for NaiveCaptioner (multi-action mode)
   naive_instruction: |
-    You must reason about EACH available action, then make a decision. Stop responding after the </decision> tag.
-    [Response Template]
-    <actions>
-    <action name="up">Your reasoning about moving up...</action>
-    <action name="down">Your reasoning about moving down...</action>
-    <action name="left">Your reasoning about moving left...</action>
-    <action name="right">Your reasoning about moving right...</action>
-    </actions>
-    <decision>{Your selected action}</decision>
 
   # Environment instruction for FastSnake (multi-action mode)
   environment_instruction: |
