@@ -345,6 +345,7 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
     action_pct_warning_logged = False
 
     def env_step(action):
+        nonlocal action_pct_warning_logged
         try:
             # Use extract_action_instance if available (for multi-action support).
             # In multi-action mode, do NOT silently fall back: that would parse <action>
@@ -396,7 +397,6 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
                     metrics[f"action_pct/executed/{safe_name}"] = 1.0 if executed_action == action_name else 0.0
             elif not action_pct_warning_logged:
                 # Log once per worker - action distribution tracking skipped
-                nonlocal action_pct_warning_logged
                 action_pct_warning_logged = True
                 print(f"[Worker {rank}] Skipping action_pct/generated and action_pct/executed metrics: "
                       f"action_space has no __len__ or len > 20")

@@ -4,7 +4,7 @@
 **Branch:** fix/overcook-rewards-not-output
 **Created:** 2026-01-19
 **Started:** 2026-01-19
-**Completed:** 2026-01-19
+**Completed:** —
 
 ## Goal
 Trace and fix the reward flow from core Overcooked env through wrapper to training/eval metrics - rewards currently showing as zero/missing in both contexts despite being visible in interactive mode.
@@ -13,8 +13,8 @@ Trace and fix the reward flow from core Overcooked env through wrapper to traini
 - [x] Trace reward flow: core env → wrapper → trainer/evaluator
 - [x] Identify where rewards are being lost/zeroed
 - [x] Implement fix for the reward propagation issue
-- [x] Verify rewards appear correctly in training
-- [x] Verify rewards appear correctly in eval metrics
+- [ ] Verify rewards appear correctly in training
+- [ ] Verify rewards appear correctly in eval metrics
 - [x] Document whether each reward type is configurable
 - [x] Check if pickup-onion/ingredient reward exists
 
@@ -104,7 +104,3 @@ Changed `shaped_reward=False` → `shaped_reward=True` in:
 - Invalid/noop actions
 
 **NEXT:** User to verify rewards now appear in training/eval with fixed configs.
-
-### 2026-01-19 - Feature Complete
-
-Config fix verified working. Changed `shaped_reward=False` → `True` in all overcooked sbatch and eval yaml files. Intermediate rewards (+3 pot placement, +5 cooking, etc.) now appear correctly in training and evaluation.
