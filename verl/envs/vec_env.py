@@ -1,12 +1,18 @@
 # Adapted from https://github.com/zoeyuchao/mappo/blob/main/onpolicy/envs/env_wrappers.py under the MIT License.
 # Original author: yuchao
 
+import logging
 import numpy as np
 import os
+import sys
 import multiprocessing
 import random
+import gc
+import traceback
 
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -52,6 +58,7 @@ class VecEnv:
 
     def __init__(self, env_name, config, env_fns, captioner_fns, worker_debug: bool | None = None):
 
+        self.env_name = env_name
         self.config = config
         self.n_rollouts = config.envs.n_rollouts
         assert len(env_fns) == self.n_rollouts, "Number of env_fns must match n_rollouts"
@@ -61,7 +68,7 @@ class VecEnv:
         if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt'):
             self.epsilon = getattr(config.prompt.prompt, 'epsilon', 0.0)
         if self.epsilon > 0:
-            print(f"[VecEnv] Epsilon-greedy exploration enabled: epsilon={self.epsilon}")
+            logger.info(f"[VecEnv] Epsilon-greedy exploration enabled: epsilon={self.epsilon}")
         
         # Get multiprocessing method from config, default to 'fork' for performance
         # 'fork' is ~100x faster than 'spawn' on NFS (workers inherit imports via COW)
@@ -69,9 +76,25 @@ class VecEnv:
         mp_method = config.envs.get('vec_env_multiprocessing', 'fork')
         if mp_method not in ['fork', 'spawn', 'forkserver']:
             raise ValueError(f"Invalid vec_env_multiprocessing method: {mp_method}. Must be one of: fork, spawn, forkserver")
-        
+
+        # Policy 1 guard: prevent fork when JAX is already imported in parent process
+        # JAX + fork after threads are started can cause deadlocks
+        if mp_method == 'fork':
+            jax_modules = [m for m in sys.modules if m == 'jax' or m == 'jaxlib' or m == 'jaxmarl'
+                          or m.startswith('jax.') or m.startswith('jaxlib.') or m.startswith('jaxmarl.')]
+            if jax_modules and not os.environ.get('VERL_ALLOW_UNSAFE_FORK_WITH_JAX', '').strip().lower() in ('1', 'true', 'yes'):
+                raise RuntimeError(
+                    f"[VecEnv] Cannot use fork multiprocessing when JAX is already imported in parent process. "
+                    f"Found JAX modules: {jax_modules[:5]}{'...' if len(jax_modules) > 5 else ''}. "
+                    f"This can cause deadlocks. Options:\n"
+                    f"  1. Create VecEnv BEFORE importing JAX (use prewarm)\n"
+                    f"  2. Use vec_env_multiprocessing=spawn (slower on NFS)\n"
+                    f"  3. Set VERL_ALLOW_UNSAFE_FORK_WITH_JAX=1 to override (at your own risk)"
+                )
+
         self.mp_context = multiprocessing.get_context(mp_method)
-        print(f"[VecEnv] Using multiprocessing method: {mp_method}")
+        self.mp_method = mp_method  # Store for hard_reset to check
+        logger.info(f"[VecEnv] Using multiprocessing method: {mp_method}")
 
         # Controls noisy worker memory prints like "[Worker X] Memory ...".
         self.worker_debug = _parse_env_flag(
@@ -93,14 +116,18 @@ class VecEnv:
         
         for remote in self.work_remotes:
             remote.close()
-        
-        
+
+        # Flag to mark VecEnv as unusable after partial hard_reset failure
+        # Once set, this VecEnv should be closed and removed from any pool
+        self._unusable = False
+
         # Cache for storing last known state of environments (for skip functionality)
         self.last_obs = [None] * self.n_rollouts
         self.last_reward = [0.0] * self.n_rollouts
         self.last_terminated = [False] * self.n_rollouts
         self.last_truncated = [False] * self.n_rollouts
-        self.last_info = [{"metrics": {}}] * self.n_rollouts
+        # Use list comprehension to create independent dicts (not shared references)
+        self.last_info = [{"metrics": {}} for _ in range(self.n_rollouts)]
             
     def step(self, actions):
         """
@@ -126,7 +153,7 @@ class VecEnv:
             try:
                 remote.send(('step', action))
             except BrokenPipeError as e:
-                print(f"[ERROR] VecEnv.step: BrokenPipeError when sending to worker {i}: {e}")
+                logger.error(f"[VecEnv.step] BrokenPipeError when sending to worker {i}: {e}")
                 raise RuntimeError("Worker process connection broken during step. Check for errors in worker processes.")
         
         # Collect results from active environments
@@ -136,12 +163,12 @@ class VecEnv:
                 result = remote.recv()
                 # Check if worker sent an error
                 if isinstance(result, tuple) and len(result) > 0 and result[0] == 'error':
-                    print(f"[ERROR] VecEnv.step: Worker {i} sent error: {result[1]}")
+                    logger.error(f"[VecEnv.step] Worker {i} sent error: {result[1]}")
                     raise RuntimeError(f"Worker {i} error: {result[1]}")
                 
                 active_results.append(result)
             except Exception as e:
-                print(f"[ERROR] VecEnv.step: Exception receiving from worker {i}: {e}")
+                logger.error(f"[VecEnv.step] Exception receiving from worker {i}: {e}")
                 raise
         
         # Reconstruct full results with cached data for skipped environments
@@ -262,13 +289,124 @@ class VecEnv:
         
         return memory_stats
 
+    def hard_reset(self, *, env_name: str, task: str, config, render_mode: str | None = None) -> None:
+        """
+        Rebuild env + captioner inside existing worker processes.
+
+        This allows reusing worker processes for different env configs without
+        needing to fork new processes (which can deadlock after threads start).
+
+        After hard_reset, you MUST call reset(seeds=...) before stepping.
+
+        Args:
+            env_name: Environment name (e.g., 'snake', 'babyai', 'overcooked')
+            task: Task/layout name for the environment
+            config: Full config object (will be converted to dict for pickling)
+            render_mode: Optional render mode for env
+
+        Raises:
+            RuntimeError: If any worker fails to rebuild
+            ValueError: If config.envs.n_rollouts doesn't match pool worker count
+        """
+        import time
+        start_time = time.time()
+
+        # Validate n_rollouts matches pool size (workers can't be added/removed)
+        config_n_rollouts = config.envs.n_rollouts if hasattr(config, 'envs') else None
+        if config_n_rollouts is not None and config_n_rollouts != self.n_rollouts:
+            raise ValueError(
+                f"[VecEnv.hard_reset] config.envs.n_rollouts ({config_n_rollouts}) doesn't match "
+                f"pool worker count ({self.n_rollouts}). Cannot change worker count via hard_reset."
+            )
+
+        # Convert config to picklable dict
+        try:
+            from omegaconf import OmegaConf
+            if OmegaConf.is_config(config):
+                config_blob = OmegaConf.to_container(config, resolve=True)
+            else:
+                config_blob = config
+        except ImportError:
+            config_blob = config
+
+        payload = {
+            'env_name': env_name,
+            'task': task,
+            'render_mode': render_mode,
+            'config_blob': config_blob,
+        }
+
+        # Send hard_reset to all workers
+        for remote in self.remotes:
+            try:
+                remote.send(('hard_reset', payload))
+            except BrokenPipeError as e:
+                raise RuntimeError(f"[VecEnv.hard_reset] Worker connection broken: {e}")
+
+        # Wait for all workers to respond with timeout
+        # Default 60s per worker; env rebuild can be slow (JAX init, model loading, etc.)
+        timeout_per_worker = float(os.environ.get('VERL_HARD_RESET_TIMEOUT', '60'))
+        errors = []
+        for i, remote in enumerate(self.remotes):
+            try:
+                # Use poll() with timeout to avoid hanging forever on wedged workers
+                if not remote.poll(timeout=timeout_per_worker):
+                    errors.append(f"Worker {i}: timeout after {timeout_per_worker}s (may be deadlocked)")
+                    continue
+                status, result = remote.recv()
+                if status == 'error':
+                    errors.append(f"Worker {i}: {result}")
+            except Exception as e:
+                errors.append(f"Worker {i}: recv failed - {e}")
+
+        if errors:
+            # CRITICAL: Some workers may have succeeded while others failed.
+            # The VecEnv is now in a mixed state and cannot be safely used.
+            # Mark it unusable so the pool can evict and close it.
+            self._unusable = True
+            raise RuntimeError(
+                f"[VecEnv.hard_reset] {len(errors)} worker(s) failed. "
+                f"VecEnv is now in mixed state and marked unusable. "
+                f"Pool should close and evict this entry.\n" + "\n".join(errors)
+            )
+
+        # Update internal state
+        self.env_name = env_name
+        self.config = config
+
+        # Update epsilon from new config
+        self.epsilon = 0.0
+        if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt'):
+            self.epsilon = getattr(config.prompt.prompt, 'epsilon', 0.0)
+        elif isinstance(config_blob, dict):
+            self.epsilon = config_blob.get('prompt', {}).get('prompt', {}).get('epsilon', 0.0)
+
+        # Clear cached obs/info (will be populated on next reset)
+        self.last_obs = [None] * self.n_rollouts
+        self.last_reward = [0.0] * self.n_rollouts
+        self.last_terminated = [False] * self.n_rollouts
+        self.last_truncated = [False] * self.n_rollouts
+        # Use list comprehension to create independent dicts (not shared references)
+        self.last_info = [{"metrics": {}} for _ in range(self.n_rollouts)]
+
+        elapsed = time.time() - start_time
+        logger.info(f"[VecEnv] hard_reset completed in {elapsed:.2f}s for env={env_name}, task={task}")
+
+    @property
+    def unusable(self) -> bool:
+        """Check if this VecEnv is unusable due to partial hard_reset failure.
+
+        When True, this VecEnv should be closed and removed from any pool.
+        """
+        return self._unusable
+
     def close(self):
         # Send close command to all worker processes
         for remote in self.remotes:
             try:
                 remote.send(('close', None))
             except Exception as e:
-                print(f"[WARNING] VecEnv.close: Failed to send close command to worker: {e}")
+                logger.warning(f"[VecEnv.close] Failed to send close command to worker: {e}")
         
         # Wait for all processes to terminate and join them
         for i, process in enumerate(self.processes):
@@ -276,24 +414,24 @@ class VecEnv:
                 # Give each process up to 5 seconds to terminate gracefully
                 process.join(timeout=5.0)
                 if process.is_alive():
-                    print(f"[WARNING] VecEnv.close: Worker process {i} did not terminate gracefully, forcing termination")
+                    logger.warning(f"[VecEnv.close] Worker process {i} did not terminate gracefully, forcing termination")
                     process.terminate()
                     process.join(timeout=2.0)  # Give it 2 more seconds after terminate
                     if process.is_alive():
-                        print(f"[ERROR] VecEnv.close: Worker process {i} still alive after terminate, killing it")
+                        logger.error(f"[VecEnv.close] Worker process {i} still alive after terminate, killing it")
                         process.kill()
                         process.join()
             except Exception as e:
-                print(f"[ERROR] VecEnv.close: Exception while joining worker process {i}: {e}")
+                logger.error(f"[VecEnv.close] Exception while joining worker process {i}: {e}")
         
         # Close all remote connections
         for remote in self.remotes:
             try:
                 remote.close()
             except Exception as e:
-                print(f"[WARNING] VecEnv.close: Failed to close remote connection: {e}")
+                logger.warning(f"[VecEnv.close] Failed to close remote connection: {e}")
         
-        print(f"[VecEnv] Successfully closed {len(self.processes)} worker processes")
+        logger.info(f"[VecEnv] Successfully closed {len(self.processes)} worker processes")
  
 
     
@@ -459,9 +597,93 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
             elif cmd == 'get_memory':
                 mem_current = get_process_memory_mb()
                 remote.send({'rank': rank, 'memory_mb': mem_current})
-                
+
+            elif cmd == 'hard_reset':
+                # Rebuild env + captioner inside existing worker process
+                # TRANSACTIONAL: build new first, then swap (keeps worker usable on failure)
+                payload = data
+                new_env_name = payload['env_name']
+                task = payload['task']
+                render_mode = payload['render_mode']
+                config_blob = payload['config_blob']
+
+                try:
+                    # Import factories lazily (avoid pulling in envs during worker init)
+                    from verl.envs.environments import make_env
+                    from verl.envs.captioners import make_captioner
+                    from omegaconf import OmegaConf
+
+                    # Reconstruct config from blob
+                    config = OmegaConf.create(config_blob)
+
+                    # BUILD NEW FIRST (before touching old state)
+                    # If this fails, old env/captioner remain usable
+                    new_env = make_env(new_env_name, task, config, render_mode=render_mode)
+                    new_captioner = make_captioner(config)
+
+                    # SUCCESS - now safe to close old and swap
+                    old_env = env
+                    old_captioner = captioner
+
+                    # Swap to new
+                    env = new_env
+                    captioner = new_captioner
+                    env_name = new_env_name
+
+                    # Close old env (best effort, don't fail if close errors)
+                    if hasattr(old_env, 'close'):
+                        try:
+                            old_env.close()
+                        except Exception as close_err:
+                            print(f"[Worker {rank}] Warning: error closing old env: {close_err}")
+
+                    # Close old captioner (best effort, if it has resources)
+                    if hasattr(old_captioner, 'close'):
+                        try:
+                            old_captioner.close()
+                        except Exception as close_err:
+                            print(f"[Worker {rank}] Warning: error closing old captioner: {close_err}")
+
+                    # Cleanup old references
+                    del old_env
+                    del old_captioner
+                    gc.collect()
+
+                    # Update epsilon from new config
+                    epsilon = 0.0
+                    if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt'):
+                        epsilon = getattr(config.prompt.prompt, 'epsilon', 0.0)
+
+                    # Reset counters
+                    reset_count = 0
+                    action_pct_warning_logged = False
+                    image = None
+
+                    if debug:
+                        mem_after = get_process_memory_mb()
+                        print(f"[Worker {rank}] hard_reset completed: env={new_env_name}, task={task}, mem={mem_after:.2f} MB", flush=True)
+
+                    remote.send(('ok', None))
+
+                except Exception as e:
+                    # FAILURE - old env/captioner still intact, worker remains usable
+                    tb_str = traceback.format_exc()
+                    print(f"[ERROR] Worker {rank}: hard_reset failed (old env preserved): {e}\n{tb_str}")
+                    remote.send(('error', f"{e}\n{tb_str}"))
+
             elif cmd == 'close':
-                env.close()
+                # Close env
+                if hasattr(env, 'close'):
+                    try:
+                        env.close()
+                    except Exception as close_err:
+                        print(f"[Worker {rank}] Warning: error closing env on shutdown: {close_err}")
+                # Close captioner (best effort, matches hard_reset pattern)
+                if hasattr(captioner, 'close'):
+                    try:
+                        captioner.close()
+                    except Exception as close_err:
+                        print(f"[Worker {rank}] Warning: error closing captioner on shutdown: {close_err}")
                 remote.close()
                 break
             else:

@@ -16,6 +16,7 @@ FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
+import logging
 import os
 import re
 import uuid
@@ -25,6 +26,8 @@ from collections import defaultdict
 from functools import partial
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 from pprint import pprint
 import ray
 import torch
@@ -419,21 +422,21 @@ class RayMultistepTrainer(object):
         self.val_env = self.env
         
         # Initialize multi-environment evaluator if evaluation config is present
-        print(f"[RayPPOTrainer] Checking evaluation config...")
-        print(f"[RayPPOTrainer] hasattr(config, 'evaluation'): {hasattr(config, 'evaluation')}")
-        print(f"[RayPPOTrainer] hasattr(config, 'eval'): {hasattr(config, 'eval')}")
-        
+        logger.debug("[RayMultistepTrainer] Checking evaluation config...")
+        logger.debug(f"[RayMultistepTrainer] hasattr(config, 'evaluation'): {hasattr(config, 'evaluation')}")
+        logger.debug(f"[RayMultistepTrainer] hasattr(config, 'eval'): {hasattr(config, 'eval')}")
+
         # Check both possible locations for evaluation config
         eval_config = None
         if hasattr(config, 'evaluation') and hasattr(config.evaluation, 'environments'):
             eval_config = config.evaluation
-            print(f"[RayPPOTrainer] Found evaluation config at config.evaluation")
+            logger.debug("[RayMultistepTrainer] Found evaluation config at config.evaluation")
         elif hasattr(config, 'eval') and hasattr(config.eval, 'evaluation') and hasattr(config.eval.evaluation, 'environments'):
             eval_config = config.eval.evaluation
-            print(f"[RayPPOTrainer] Found evaluation config at config.eval.evaluation")
-        
+            logger.debug("[RayMultistepTrainer] Found evaluation config at config.eval.evaluation")
+
         if eval_config is not None:
-            print(f"[RayPPOTrainer] Initializing MultiEnvEvaluator with {len(eval_config.environments)} environments")
+            logger.info(f"[RayMultistepTrainer] Initializing MultiEnvEvaluator with {len(eval_config.environments)} environments")
             self.multi_env_evaluator = MultiEnvEvaluator(
                 config=config,
                 tokenizer=tokenizer,
@@ -441,8 +444,12 @@ class RayMultistepTrainer(object):
                 val_reward_fn=val_reward_fn,
                 eval_config=eval_config  # Pass the evaluation config directly
             )
+            # Prewarm eval VecEnv pools BEFORE init_workers() to avoid late-fork deadlocks
+            # This creates worker processes early while fork is still safe (before Ray/torch/vLLM threads)
+            logger.info("[RayMultistepTrainer] Prewarming eval VecEnv pools...")
+            self.multi_env_evaluator.prewarm()
         else:
-            print(f"[RayPPOTrainer] No evaluation config found, setting multi_env_evaluator to None")
+            logger.debug("[RayMultistepTrainer] No evaluation config found, setting multi_env_evaluator to None")
             self.multi_env_evaluator = None
 
     def get_next_env_seed(self):
@@ -890,7 +897,7 @@ class RayMultistepTrainer(object):
         
         # Set the actor_rollout_wg reference in the multi-environment evaluator
         if self.multi_env_evaluator is not None:
-            print(f"[RayPPOTrainer] Setting actor_rollout_wg in multi_env_evaluator")
+            logger.debug("[RayMultistepTrainer] Setting actor_rollout_wg in multi_env_evaluator")
             self.multi_env_evaluator.actor_rollout_wg = self.actor_rollout_wg
 
     def _save_checkpoint(self):
@@ -1018,11 +1025,11 @@ class RayMultistepTrainer(object):
         from verl.utils.tracking import Tracking
         from omegaconf import OmegaConf
 
-        logger = Tracking(project_name=self.config.trainer.project_name,
-                          experiment_name=self.config.trainer.experiment_name,
-                          default_backend=self.config.trainer.logger,
-                          config=OmegaConf.to_container(self.config, resolve=True),
-                          group=self.config.trainer.get('group', None))
+        tracking_logger = Tracking(project_name=self.config.trainer.project_name,
+                                   experiment_name=self.config.trainer.experiment_name,
+                                   default_backend=self.config.trainer.logger,
+                                   config=OmegaConf.to_container(self.config, resolve=True),
+                                   group=self.config.trainer.get('group', None))
 
         rollout_corr_config = getattr(self.config.algorithm, "rollout_correction", None)
 
@@ -1034,37 +1041,23 @@ class RayMultistepTrainer(object):
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
-            print(f"[RayPPOTrainer] Starting initial validation at global_step={self.global_steps}")
+            print(f"[RayMultistepTrainer] Starting initial validation at global_step={self.global_steps}")
             if self.multi_env_evaluator is not None:
-                print(f"[RayPPOTrainer] Using multi_env_evaluator initial evaluation")
-                # Close training env temporarily to free memory for multi-env evaluation
-                print(f"[RayPPOTrainer] Closing training env to free memory for multi-env evaluation")
-                self.env.close()
-                
+                # With VecEnv pooling, keep training env alive during eval
+                # (eval uses separate prewarmed pools, no memory benefit from closing)
                 evaluation_metrics = self.multi_env_evaluator.evaluate(self.global_steps)
-                print(f"[RayPPOTrainer] Initial evaluation completed. Metrics keys: {list(evaluation_metrics.keys())}")
                 pprint(f'Initial evaluation metrics: {evaluation_metrics}')
-                print(f"[RayPPOTrainer] Logging {len(evaluation_metrics)} metrics to logger")
-                logger.log(data=evaluation_metrics, step=self.global_steps)
-                
-                # Recreate training env after multi-env evaluation
-                print(f"[RayPPOTrainer] Recreating training env after multi-env evaluation")
-                self.env = self._make_vec_env(
-                    self.config.envs.env_name, 
-                    self.config.envs.task, 
-                    self.config, 
-                    render_mode=None
-                )
-                self.val_env = self.env  # Keep val_env as reference to training env
+                tracking_logger.log(data=evaluation_metrics, step=self.global_steps)
 
-            print(f"[RayPPOTrainer] Using standard _validate for initial validation")
             validation_metrics = self._validate()
-            print(f"[RayPPOTrainer] Initial validation completed. Metrics keys: {list(validation_metrics.keys())}")
             pprint(f'Initial validation metrics: {validation_metrics}')
-            print(f"[RayPPOTrainer] Logging {len(validation_metrics)} metrics to logger")
-            logger.log(data=validation_metrics, step=self.global_steps)
+            tracking_logger.log(data=validation_metrics, step=self.global_steps)
 
             if self.config.trainer.get('val_only', False):
+                # Clean up resources before early return
+                if self.multi_env_evaluator is not None:
+                    self.multi_env_evaluator.close()
+                self.env.close()
                 return
 
         # add tqdm
@@ -1073,18 +1066,19 @@ class RayMultistepTrainer(object):
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = {}
-        
+
         obs_vec, info_vec = self.env.reset()
-        
-        for epoch in range(self.config.trainer.total_epochs):
-            
-            # Reset environments with appropriate seeding strategy
-            if self.env_seed is not None:
-                seed = self.get_next_env_seed()
-                # Use seed_group_size for GRPO to ensure proper grouping
-                obs_vec, info_vec = self.env.reset(seed=seed, seed_group_size=self.seed_group_size)
-        
-            self.critic_warmup_step = self.config.trainer.critic_warmup # TODO: move to the config file
+
+        try:
+            for epoch in range(self.config.trainer.total_epochs):
+
+                # Reset environments with appropriate seeding strategy
+                if self.env_seed is not None:
+                    seed = self.get_next_env_seed()
+                    # Use seed_group_size for GRPO to ensure proper grouping
+                    obs_vec, info_vec = self.env.reset(seed=seed, seed_group_size=self.seed_group_size)
+
+                self.critic_warmup_step = self.config.trainer.critic_warmup # TODO: move to the config file
             if self.global_steps <= self.critic_warmup_step:
                 bsize = self.config.data.train_batch_size * self.config.trainer.critic_warmup
             else:
@@ -1568,31 +1562,16 @@ class RayMultistepTrainer(object):
                 
                 if self.val_reward_fn is not None and test_freq > 0 and \
                     (is_last_step or self.global_steps % test_freq == 0) and (self.global_steps > self.critic_warmup_step):
-                    print(f"[RayPPOTrainer] Starting periodic validation at global_step={self.global_steps}")
                     with _timer('testing', timing_raw):
                         if self.multi_env_evaluator is not None:
-                            # Close training env temporarily to free memory for multi-env evaluation
-                            print(f"[RayPPOTrainer] Closing training env to free memory for multi-env evaluation")
-                            self.env.close()
-                            
+                            # With VecEnv pooling, keep training env alive during eval
+                            # (eval uses separate prewarmed pools, no memory benefit from closing)
                             evaluation_metrics: dict = self.multi_env_evaluator.evaluate(self.global_steps)
-                            print(f"[RayPPOTrainer] Periodic evaluation completed. Metrics keys: {list(evaluation_metrics.keys())}")
-                            logger.log(data=evaluation_metrics, step=self.global_steps)
+                            tracking_logger.log(data=evaluation_metrics, step=self.global_steps)
                             if is_last_step:
                                 last_val_metrics.update(evaluation_metrics)
-                            
-                            # Recreate training env after multi-env evaluation
-                            print(f"[RayPPOTrainer] Recreating training env after multi-env evaluation")
-                            self.env = self._make_vec_env(
-                                self.config.envs.env_name, 
-                                self.config.envs.task, 
-                                self.config, 
-                                render_mode=None
-                            )
-                            self.val_env = self.env  # Keep val_env as reference to training env
-                        
+
                         validation_metrics: dict = self._validate()
-                        print(f"[RayPPOTrainer] Periodic validation completed. Metrics keys: {list(validation_metrics.keys())}")
                         if is_last_step:
                             last_val_metrics.update(validation_metrics)
                     metrics.update(validation_metrics)
@@ -1609,8 +1588,7 @@ class RayMultistepTrainer(object):
             n_gpus = self.resource_pool_manager.get_n_gpus()
             metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
-            # TODO: make a canonical logger that supports various backend
-            logger.log(data=metrics, step=self.global_steps)
+            tracking_logger.log(data=metrics, step=self.global_steps)
 
             if is_last_step:
                 pprint(f'Final validation metrics: {last_val_metrics}')
@@ -1619,5 +1597,8 @@ class RayMultistepTrainer(object):
 
             progress_bar.update(1)
             self.global_steps += 1
-            
-        self.env.close()
+        finally:
+            # Ensure cleanup runs on all exit paths (normal, is_last_step, exception)
+            if self.multi_env_evaluator is not None:
+                self.multi_env_evaluator.close()
+            self.env.close()
