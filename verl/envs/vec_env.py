@@ -56,8 +56,18 @@ class CloudpickleWrapper(object):
 
 class VecEnv:
 
-    def __init__(self, env_name, config, env_fns, captioner_fns, worker_debug: bool | None = None):
+    def __init__(self, env_name, config, env_fns, captioner_fns, worker_debug: bool | None = None, skip_jax_guard: bool = False):
+        """Create a vectorized environment with parallel workers.
 
+        Args:
+            env_name: Name of the environment
+            config: Configuration object with envs settings
+            env_fns: List of callables that create environment instances
+            captioner_fns: List of callables that create captioner instances
+            worker_debug: Override for worker debug logging (env var: VERL_VEC_ENV_WORKER_DEBUG)
+            skip_jax_guard: If True, skip the JAX fork safety check. Use for training VecEnv
+                created early in process lifecycle before JAX has actually been used.
+        """
         self.env_name = env_name
         self.config = config
         self.n_rollouts = config.envs.n_rollouts
@@ -79,7 +89,8 @@ class VecEnv:
 
         # Policy 1 guard: prevent fork when JAX is already imported in parent process
         # JAX + fork after threads are started can cause deadlocks
-        if mp_method == 'fork':
+        # Note: skip_jax_guard=True is safe for training VecEnv created early, before JAX is actually used
+        if mp_method == 'fork' and not skip_jax_guard:
             jax_modules = [m for m in sys.modules if m == 'jax' or m == 'jaxlib' or m == 'jaxmarl'
                           or m.startswith('jax.') or m.startswith('jaxlib.') or m.startswith('jaxmarl.')]
             if jax_modules and not os.environ.get('VERL_ALLOW_UNSAFE_FORK_WITH_JAX', '').strip().lower() in ('1', 'true', 'yes'):
