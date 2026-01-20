@@ -1,10 +1,10 @@
 # Prewarm + Reuse Eval VecEnvs (Keep `fork` Speed, Avoid Late-Fork Deadlock)
 
 **Type:** perf / stability
-**Branch:** (tbd)
+**Branch:** perf/reuse-eval-vecenvs
 **Created:** 2026-01-20
-**Started:**
-**Completed:**
+**Started:** 2026-01-20 16:00
+**Completed:** —
 
 ## Problem Statement
 We need evaluation-time VecEnv creation to be as fast as `fork` (NFS makes `spawn`/`forkserver` prohibitively slow), but our current evaluation flow creates VecEnv workers *late* in the driver process lifetime (after Ray + torch distributed + vLLM CUDA graphs + threadpools). Forking at that point can deadlock/hang.
@@ -410,3 +410,23 @@ If `hard_reset` is chosen:
 - Extend `verl/envs/vec_env.py` worker protocol with `hard_reset`
 - Change VecEnv worker initialization so it can recreate `env`/`captioner` from config payloads
 
+---
+
+## Working Notes
+<!-- Session handoff and working context goes here -->
+
+### 2026-01-20 - Feature Started
+Card selected from backlog - already fully specified with decisions made in "Final Specification" section.
+
+**Key decisions already made:**
+- Pool keyed by worker-count only (Strategy A)
+- `hard_reset` to rebuild env+captioner inside existing workers
+- Policy 1 guard: fail if JAX imported before fork
+- Keep training VecEnv alive during eval (no close/recreate)
+
+**Implementation checklist (from spec):**
+1. `verl/envs/vec_env.py`: Policy 1 guard, `hard_reset()` method, worker protocol extension
+2. `verl/trainer/ppo/multi_env_evaluator.py`: pool dict, `prewarm()`, modified evaluate path
+3. `verl/trainer/ppo/ray_multistep_trainer.py`: call `prewarm()` before `init_workers()`
+
+**Next steps:** Read current implementation of VecEnv and MultiEnvEvaluator to understand starting point.
