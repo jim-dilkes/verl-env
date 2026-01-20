@@ -80,12 +80,16 @@ class VecEnvContextManager:
         return False  # Don't suppress exceptions
 
 
-def make_vec_env(env_name, task, config, render_mode=None):
+def make_vec_env(env_name, task, config, render_mode=None, skip_jax_guard=False):
     """
     Create a vectorized environment.
-    
+
     This function is copied from ray_trainer.py to ensure the evaluator
     can create new vectorized environments independently.
+
+    Args:
+        skip_jax_guard: If True, skip JAX fork safety check. Use for early VecEnv creation
+            (prewarm) before JAX is actually used. Keep False for late creation during eval.
     """
     from verl.envs.environments import make_env
     from verl.envs.captioners import make_captioner
@@ -110,6 +114,7 @@ def make_vec_env(env_name, task, config, render_mode=None):
         config=config,
         env_fns=env_fns,
         captioner_fns=captioner_fns,
+        skip_jax_guard=skip_jax_guard,
     )
     return env
 
@@ -262,11 +267,13 @@ class MultiEnvEvaluator:
             temp_config = self._create_env_config(base_env_config, n_rollouts_override=worker_count)
 
             # Create VecEnv (this forks worker processes)
+            # skip_jax_guard=True because prewarm runs early, before JAX is actually used
             vec_env = make_vec_env(
                 base_env_name,
                 base_task,
                 temp_config,
-                render_mode=None
+                render_mode=None,
+                skip_jax_guard=True,
             )
 
             self._pool_by_worker_count[worker_count] = vec_env
