@@ -482,6 +482,9 @@ class RayMultistepTrainer(object):
             config=config,
             env_fns=env_fns,
             captioner_fns=captioner_fns,
+            # Training VecEnv is created early in trainer init, before JAX is actually used.
+            # Safe to skip the guard since JAX is only imported (by transformers), not initialized.
+            skip_jax_guard=True,
         )
         return env
 
