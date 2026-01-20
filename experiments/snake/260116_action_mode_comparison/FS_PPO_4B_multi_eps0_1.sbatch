@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_h100,swarm_a100,a100
+#SBATCH --partition=swarm_a100,a100
 #SBATCH --exclude=swarmh1002
 #SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
@@ -25,6 +25,15 @@ short_temp_dir=/tmp/ray/${user_name}/${job_id}
 mkdir -p "$short_temp_dir"
 readable_log_root=/scratch/${user_name}/ray_logs
 mkdir -p "$readable_log_root"
+
+# Tell Ray to place its session_* dir (raylet/plasma/gcs logs) here.
+# Without this, Ray defaults to something like /tmp/ray/session_*/ on the compute node,
+# and the symlink below will usually point at a non-existent path.
+export RAY_TMPDIR="$short_temp_dir"
+export TMPDIR="$short_temp_dir"
+
+# Useful when Ray dies early (raylet crash -> workers get EOF). Captures raylet/plasma logs in SLURM output.
+export RAY_LOG_TO_STDERR=1
 
 experiment_run_name=${experiment_name}_run${run_number}_slu${job_id}
 export WANDB_DIR="wandb/${experiment_run_name}"
