@@ -4,7 +4,6 @@
 import logging
 import numpy as np
 import os
-import sys
 import multiprocessing
 import random
 import gc
@@ -56,7 +55,7 @@ class CloudpickleWrapper(object):
 
 class VecEnv:
 
-    def __init__(self, env_name, config, env_fns, captioner_fns, worker_debug: bool | None = None, skip_jax_guard: bool = False):
+    def __init__(self, env_name, config, env_fns, captioner_fns, worker_debug: bool | None = None):
         """Create a vectorized environment with parallel workers.
 
         Args:
@@ -65,8 +64,6 @@ class VecEnv:
             env_fns: List of callables that create environment instances
             captioner_fns: List of callables that create captioner instances
             worker_debug: Override for worker debug logging (env var: VERL_VEC_ENV_WORKER_DEBUG)
-            skip_jax_guard: If True, skip the JAX fork safety check. Use for training VecEnv
-                created early in process lifecycle before JAX has actually been used.
         """
         self.env_name = env_name
         self.config = config
@@ -79,29 +76,18 @@ class VecEnv:
             self.epsilon = getattr(config.prompt.prompt, 'epsilon', 0.0)
         if self.epsilon > 0:
             logger.info(f"[VecEnv] Epsilon-greedy exploration enabled: epsilon={self.epsilon}")
-        
-        # Get multiprocessing method from config, default to 'fork' for performance
-        # 'fork' is ~100x faster than 'spawn' on NFS (workers inherit imports via COW)
-        # Note: VecEnv workers don't use CUDA (envs are CPU-only), so fork is safe here
+
+        # Get multiprocessing method from config, default to 'fork' for performance.
+        # Fork safety note: 'fork' is safe here because:
+        #   1. VecEnv workers are CPU-only (no CUDA in env/captioner code)
+        #   2. VecEnvs are created early (trainer init / prewarm) before heavy runtime init
+        #   3. JAX may be imported (via transformers) but not yet used/initialized
+        # JAX import alone doesn't start threads - only JAX usage does. Since we fork
+        # before any JAX computation, the forked workers get a clean copy.
+        # See .garden/docs-agent/vecenv-fork-safety.md for details.
         mp_method = config.envs.get('vec_env_multiprocessing', 'fork')
         if mp_method not in ['fork', 'spawn', 'forkserver']:
             raise ValueError(f"Invalid vec_env_multiprocessing method: {mp_method}. Must be one of: fork, spawn, forkserver")
-
-        # Policy 1 guard: prevent fork when JAX is already imported in parent process
-        # JAX + fork after threads are started can cause deadlocks
-        # Note: skip_jax_guard=True is safe for training VecEnv created early, before JAX is actually used
-        if mp_method == 'fork' and not skip_jax_guard:
-            jax_modules = [m for m in sys.modules if m == 'jax' or m == 'jaxlib' or m == 'jaxmarl'
-                          or m.startswith('jax.') or m.startswith('jaxlib.') or m.startswith('jaxmarl.')]
-            if jax_modules and not os.environ.get('VERL_ALLOW_UNSAFE_FORK_WITH_JAX', '').strip().lower() in ('1', 'true', 'yes'):
-                raise RuntimeError(
-                    f"[VecEnv] Cannot use fork multiprocessing when JAX is already imported in parent process. "
-                    f"Found JAX modules: {jax_modules[:5]}{'...' if len(jax_modules) > 5 else ''}. "
-                    f"This can cause deadlocks. Options:\n"
-                    f"  1. Create VecEnv BEFORE importing JAX (use prewarm)\n"
-                    f"  2. Use vec_env_multiprocessing=spawn (slower on NFS)\n"
-                    f"  3. Set VERL_ALLOW_UNSAFE_FORK_WITH_JAX=1 to override (at your own risk)"
-                )
 
         self.mp_context = multiprocessing.get_context(mp_method)
         self.mp_method = mp_method  # Store for hard_reset to check
