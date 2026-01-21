@@ -50,13 +50,30 @@ IGNORE_CONFIG_PREFIXES = [
 
 # Default metrics patterns for comparison
 DEFAULT_METRIC_PATTERNS = [
+    # Eval metrics
     "eval_*/rewards_mean",
     "eval_*/score_mean",
     "eval_*/traj_length_mean",
     "eval_*/pos_reward_any_prop_mean",
     "eval_*/tokens_per_step",
+    # Exploration metrics
+    "eval_*/action_entropy_mean",
+    "eval_*/n_distinct_state_actions_valid_mean",
+    "eval_*/distinct_state_actions_valid_coverage_mean",
+    "eval_*/valid_action_ratio",
+    # Val metrics
+    "val/rewards_mean",
+    "val/traj_length_mean",
+    "val/pos_reward_total_prop_mean",
+    # Learning metrics
+    "actor/entropy",
+    "actor/pg_loss",
+    "actor/ppo_kl",
+    "critic/vf_loss",
+    "critic/score/mean",
+    "critic/rewards/mean",
+    # Other
     "generation/success_rate",
-    "val/*/rewards_mean",
 ]
 
 # Metrics where higher is better (for "best" final mode)

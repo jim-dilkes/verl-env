@@ -290,6 +290,15 @@ class WandBFetcher:
         df = pd.DataFrame(records)
         if not df.empty:
             df = df.set_index("run_id")
+            # Clean up mixed-type columns for parquet compatibility
+            for col in df.columns:
+                if col in ["run_name", "group"]:
+                    continue
+                # Replace string "NaN" with actual NaN
+                if df[col].dtype == object:
+                    df[col] = df[col].replace("NaN", float("nan"))
+                    # Try to convert to numeric if possible
+                    df[col] = pd.to_numeric(df[col], errors="ignore")
 
         # Cache result
         df.to_parquet(cache_path)

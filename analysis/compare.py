@@ -286,3 +286,133 @@ def summarize_experiment_history(
         best_runs=best_runs,
         date_range=date_range,
     )
+
+
+def aggregate_by_group(
+    summaries_df: pd.DataFrame,
+    metrics: list[str] | None = None,
+    metric_patterns: list[str] | None = None,
+) -> pd.DataFrame:
+    """Aggregate metrics by group (mean ± std across seeds).
+
+    Args:
+        summaries_df: DataFrame with run summaries (must have 'group' column)
+        metrics: Specific metric names to aggregate
+        metric_patterns: Glob patterns for metrics
+
+    Returns:
+        DataFrame with group as index, columns: n_runs, {metric}_mean, {metric}_std
+    """
+    if "group" not in summaries_df.columns:
+        raise ValueError("summaries_df must have 'group' column")
+
+    # Find metrics to aggregate
+    if metrics is None:
+        metrics = []
+    if metric_patterns:
+        metrics = list(set(metrics + find_matching_keys(summaries_df, metric_patterns)))
+
+    if not metrics:
+        # Default to all numeric columns
+        exclude_cols = ["run_name", "group", "tags", "state", "created_at"]
+        metrics = [
+            c for c in summaries_df.select_dtypes(include="number").columns
+            if c not in exclude_cols
+        ]
+
+    # Filter to existing columns
+    metrics = [m for m in metrics if m in summaries_df.columns]
+
+    # Group and aggregate
+    grouped = summaries_df.groupby("group")
+
+    records = []
+    for group_name, group_df in grouped:
+        record = {"group": group_name, "n_runs": len(group_df)}
+        for metric in metrics:
+            values = group_df[metric].dropna()
+            if len(values) > 0:
+                record[f"{metric}_mean"] = values.mean()
+                record[f"{metric}_std"] = values.std() if len(values) > 1 else 0.0
+            else:
+                record[f"{metric}_mean"] = float("nan")
+                record[f"{metric}_std"] = float("nan")
+        records.append(record)
+
+    result = pd.DataFrame(records)
+    if not result.empty:
+        result = result.set_index("group")
+
+    return result
+
+
+def diff_configs_between_groups(
+    configs_df: pd.DataFrame,
+    ignore_prefixes: list[str] | None = None,
+) -> pd.DataFrame:
+    """Show config differences between groups (not individual runs).
+
+    Takes most common value within each group, then identifies keys
+    where groups have different values.
+
+    Args:
+        configs_df: DataFrame with run configs (must have 'group' column)
+        ignore_prefixes: Config key prefixes to ignore
+
+    Returns:
+        DataFrame with columns: key, group_1, group_2, ..., differs
+    """
+    if ignore_prefixes is None:
+        ignore_prefixes = IGNORE_CONFIG_PREFIXES
+
+    if "group" not in configs_df.columns:
+        raise ValueError("configs_df must have 'group' column")
+
+    # Get config columns (exclude metadata)
+    metadata_cols = ["run_name", "group", "tags", "state", "created_at", "hostname", "gpu_type"]
+    config_cols = [c for c in configs_df.columns if c not in metadata_cols]
+
+    # Filter by prefix
+    config_cols = [
+        c for c in config_cols
+        if not any(c.startswith(p) for p in ignore_prefixes)
+    ]
+
+    # Get unique groups
+    groups = sorted(configs_df["group"].unique())
+
+    # For each group, get the most common value for each config key
+    group_configs = {}
+    for group in groups:
+        group_df = configs_df[configs_df["group"] == group]
+        group_config = {}
+        for col in config_cols:
+            values = group_df[col].dropna()
+            if len(values) > 0:
+                # Most common value
+                group_config[col] = values.mode().iloc[0] if len(values.mode()) > 0 else values.iloc[0]
+            else:
+                group_config[col] = None
+        group_configs[group] = group_config
+
+    # Build comparison records (only keys that differ between groups)
+    records = []
+    for col in sorted(config_cols):
+        group_values = {g: group_configs[g].get(col) for g in groups}
+        unique_values = set(str(v) for v in group_values.values() if v is not None)
+        differs = len(unique_values) > 1
+
+        if not differs:
+            continue
+
+        record = {"key": col, "differs": differs}
+        for group in groups:
+            record[group] = group_values[group]
+        records.append(record)
+
+    df = pd.DataFrame(records)
+    if not df.empty:
+        # Reorder columns: key, differs, then group columns
+        df = df[["key", "differs"] + groups]
+
+    return df
