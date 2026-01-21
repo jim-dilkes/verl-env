@@ -634,3 +634,30 @@ Card selected from backlog - already fully specified with decisions made in "Fin
 - `verl/trainer/ppo/multi_env_evaluator.py`: pool eviction on unusable, config path in error msg
 
 **Ready for:** Commit and cluster testing
+
+### 2026-01-21 - Memory Profiling Results
+
+**Local memory profiling with `scripts/profile_vecenv_memory.py`:**
+
+| Stage | Workers | Memory |
+|-------|---------|--------|
+| Baseline | 0 | 18 MB |
+| After imports | 0 | 295 MB |
+| Training VecEnv | 4 | 420 MB |
+| + eval_small (4) | 8 | 544 MB |
+| + eval_medium (50) | 58 | 2.1 GB |
+| + eval_large (100) | 158 | 5.2 GB |
+| + eval_xlarge (400) | 558 | 17.5 GB |
+
+**Key finding:** ~31 MB per worker process (fastsnake).
+
+**Cluster eval config (`snake_evals_combined.yaml`):**
+- Prewarmed pools: {50, 400} workers
+- Total VecEnv memory estimate: 450 workers × 31 MB ≈ 14 GB
+
+**Cluster was using 527 GB (175% of 300 GB allocation):**
+- VecEnv contribution: ~14 GB (small fraction)
+- Bulk must be model weights, vLLM inference state, Ray overhead
+- The early exit after 1 step may be memory preemption, not VecEnv-related
+
+**Conclusion:** VecEnv pooling adds modest memory overhead (~14 GB for snake evals). The 175% memory issue is likely from model/vLLM, not this feature. Should test on adequately-resourced compute node
