@@ -1079,524 +1079,524 @@ class RayMultistepTrainer(object):
                     obs_vec, info_vec = self.env.reset(seed=seed, seed_group_size=self.seed_group_size)
 
                 self.critic_warmup_step = self.config.trainer.critic_warmup # TODO: move to the config file
-            if self.global_steps <= self.critic_warmup_step:
-                bsize = self.config.data.train_batch_size * self.config.trainer.critic_warmup
-            else:
-                bsize = self.config.data.train_batch_size
-                
-            if self.global_steps == 1 or self.global_steps > self.critic_warmup_step:
-                esize = self.config.envs.n_rollouts
-                plen = self.config.data.max_prompt_length
-                rlen = self.config.data.max_response_length
-                meta_size = bsize + esize
-                batch_dict = {
-                    "input_ids": torch.zeros([bsize + esize, plen + rlen], dtype=torch.int64),
-                    "attention_mask": torch.zeros([bsize + esize, plen + rlen], dtype=torch.int64),
-                    "position_ids": torch.zeros([bsize + esize, plen + rlen], dtype=torch.int64),
-                    "responses": torch.zeros([bsize + esize, rlen], dtype=torch.int64),
-                    "reward": torch.zeros([bsize + esize], dtype=torch.float64),
-                    "done": torch.zeros([bsize + esize], dtype=torch.float64),
-                    "data_source": np.zeros([meta_size]),
-                    "ability": np.zeros([meta_size]),
-                    "reward_model": np.zeros([meta_size]),
-                    "extra_info": np.zeros([meta_size]),
-                    "raw_prompt_ids": np.zeros([meta_size]),
-                    "index": np.zeros([meta_size]),
-                    "frozen_mask": torch.zeros([bsize + esize], dtype=torch.int64),
-                }
-    
-            metrics = {}
-            timing_raw = {}
-            bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
-            any_epsilon_retokenized = False  # Track if any epsilon modifications occurred
-
-            is_last_step = self.global_steps >= self.total_training_steps
-            
-            batch: DataProto = DataProto.from_single_dict(batch_dict)
-            max_seq_len = self.config.data.max_prompt_length # TODO: query from config
-            
-            with _timer('step', timing_raw):
-
-                assert self.config.data.train_batch_size % self.config.envs.n_rollouts == 0, \
-                    f"train_batch_size ({self.config.data.train_batch_size}) must be divisible by n_rollouts ({self.config.envs.n_rollouts})."
-                episode_len = bsize // self.config.envs.n_rollouts
+                if self.global_steps <= self.critic_warmup_step:
+                    bsize = self.config.data.train_batch_size * self.config.trainer.critic_warmup
+                else:
+                    bsize = self.config.data.train_batch_size
                 
                 if self.global_steps == 1 or self.global_steps > self.critic_warmup_step:
+                    esize = self.config.envs.n_rollouts
+                    plen = self.config.data.max_prompt_length
+                    rlen = self.config.data.max_response_length
+                    meta_size = bsize + esize
+                    batch_dict = {
+                        "input_ids": torch.zeros([bsize + esize, plen + rlen], dtype=torch.int64),
+                        "attention_mask": torch.zeros([bsize + esize, plen + rlen], dtype=torch.int64),
+                        "position_ids": torch.zeros([bsize + esize, plen + rlen], dtype=torch.int64),
+                        "responses": torch.zeros([bsize + esize, rlen], dtype=torch.int64),
+                        "reward": torch.zeros([bsize + esize], dtype=torch.float64),
+                        "done": torch.zeros([bsize + esize], dtype=torch.float64),
+                        "data_source": np.zeros([meta_size]),
+                        "ability": np.zeros([meta_size]),
+                        "reward_model": np.zeros([meta_size]),
+                        "extra_info": np.zeros([meta_size]),
+                        "raw_prompt_ids": np.zeros([meta_size]),
+                        "index": np.zeros([meta_size]),
+                        "frozen_mask": torch.zeros([bsize + esize], dtype=torch.int64),
+                    }
+    
+                metrics = {}
+                timing_raw = {}
+                bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
+                any_epsilon_retokenized = False  # Track if any epsilon modifications occurred
+
+                is_last_step = self.global_steps >= self.total_training_steps
+            
+                batch: DataProto = DataProto.from_single_dict(batch_dict)
+                max_seq_len = self.config.data.max_prompt_length # TODO: query from config
+            
+                with _timer('step', timing_raw):
+
+                    assert self.config.data.train_batch_size % self.config.envs.n_rollouts == 0, \
+                        f"train_batch_size ({self.config.data.train_batch_size}) must be divisible by n_rollouts ({self.config.envs.n_rollouts})."
+                    episode_len = bsize // self.config.envs.n_rollouts
+                
+                    if self.global_steps == 1 or self.global_steps > self.critic_warmup_step:
                     
-                    # Initialize episode tracking for freezing logic
-                    # This prevents cross-batch episode issues by freezing environments when episodes complete
-                    # Frozen environments receive "__SKIP__" actions and return cached data
-                    if self.freeze_completed_episodes:
-                        # Track which environments have completed episodes
-                        env_frozen = np.zeros(self.config.envs.n_rollouts, dtype=bool)
+                        # Initialize episode tracking for freezing logic
+                        # This prevents cross-batch episode issues by freezing environments when episodes complete
+                        # Frozen environments receive "__SKIP__" actions and return cached data
+                        if self.freeze_completed_episodes:
+                            # Track which environments have completed episodes
+                            env_frozen = np.zeros(self.config.envs.n_rollouts, dtype=bool)
                     
-                    for time_step in range(episode_len+1):
+                        for time_step in range(episode_len+1):
                         
-                        # TODO: move this to a function 
+                            # TODO: move this to a function 
                         
-                        with _timer_accumulate('text_gen_proc', timing_raw):
-                            self.tokenizer.padding_side = "left"
-                            input_obs = self.tokenizer.apply_chat_template(obs_vec, tokenize=False, add_generation_prompt=True) #, enable_thinking=True)
+                            with _timer_accumulate('text_gen_proc', timing_raw):
+                                self.tokenizer.padding_side = "left"
+                                input_obs = self.tokenizer.apply_chat_template(obs_vec, tokenize=False, add_generation_prompt=True) #, enable_thinking=True)
                             
-                            input_obs = self.tokenizer(input_obs, return_tensors='pt', padding='max_length', truncation=True, max_length=max_seq_len)
+                                input_obs = self.tokenizer(input_obs, return_tensors='pt', padding='max_length', truncation=True, max_length=max_seq_len)
                                     
-                            input_ids = input_obs['input_ids']
-                            attention_mask = input_obs['attention_mask']
-                            position_ids = attention_mask.long().cumsum(-1) - 1
-                            position_ids.masked_fill_(attention_mask == 0, 1)
+                                input_ids = input_obs['input_ids']
+                                attention_mask = input_obs['attention_mask']
+                                position_ids = attention_mask.long().cumsum(-1) - 1
+                                position_ids.masked_fill_(attention_mask == 0, 1)
                             
-                            obs_data = {
-                                'input_ids': input_ids,
-                                'attention_mask': attention_mask,
-                                'position_ids': position_ids,
-                            }
-                            gen_batch = DataProto.from_dict(tensors=obs_data)
+                                obs_data = {
+                                    'input_ids': input_ids,
+                                    'attention_mask': attention_mask,
+                                    'position_ids': position_ids,
+                                }
+                                gen_batch = DataProto.from_dict(tensors=obs_data)
                             
-                            if time_step == episode_len:
-                                batch.insert(
-                                    gen_batch,
-                                    start_idx = time_step * self.config.envs.n_rollouts,
-                                    end_idx = (time_step + 1) * self.config.envs.n_rollouts,
-                                    diff_size=True,
-                                )
-                                break
+                                if time_step == episode_len:
+                                    batch.insert(
+                                        gen_batch,
+                                        start_idx = time_step * self.config.envs.n_rollouts,
+                                        end_idx = (time_step + 1) * self.config.envs.n_rollouts,
+                                        diff_size=True,
+                                    )
+                                    break
                                 
-                            gen_batch.meta_info["step"] = time_step if time_step < episode_len - 1 else -1
+                                gen_batch.meta_info["step"] = time_step if time_step < episode_len - 1 else -1
                             
-                            # Handle episode freezing logic
-                            if self.freeze_completed_episodes:
-                                # Only generate actions for non-frozen environments
-                                active_envs = ~env_frozen
-                                if np.any(active_envs):
-                                    # Filter observations for active environments only
-                                    active_obs_data = {}
-                                    for key in gen_batch.batch.keys():
-                                        active_obs_data[key] = gen_batch.batch[key][active_envs]
+                                # Handle episode freezing logic
+                                if self.freeze_completed_episodes:
+                                    # Only generate actions for non-frozen environments
+                                    active_envs = ~env_frozen
+                                    if np.any(active_envs):
+                                        # Filter observations for active environments only
+                                        active_obs_data = {}
+                                        for key in gen_batch.batch.keys():
+                                            active_obs_data[key] = gen_batch.batch[key][active_envs]
                                     
-                                    active_gen_batch = DataProto.from_dict(tensors=active_obs_data)
-                                    active_gen_batch.meta_info = gen_batch.meta_info.copy()
+                                        active_gen_batch = DataProto.from_dict(tensors=active_obs_data)
+                                        active_gen_batch.meta_info = gen_batch.meta_info.copy()
                                     
-                                    # Pad the batch to be divisible by the number of GPUs
-                                    dp_size = self.actor_rollout_wg.world_size
-                                    active_gen_batch_padded, pad_size = pad_dataproto_to_divisor(active_gen_batch, dp_size)
+                                        # Pad the batch to be divisible by the number of GPUs
+                                        dp_size = self.actor_rollout_wg.world_size
+                                        active_gen_batch_padded, pad_size = pad_dataproto_to_divisor(active_gen_batch, dp_size)
                                     
-                                    with _timer_accumulate('text_gen', timing_raw):
-                                        active_gen_batch_output = self.actor_rollout_wg.generate_sequences(active_gen_batch_padded)
+                                        with _timer_accumulate('text_gen', timing_raw):
+                                            active_gen_batch_output = self.actor_rollout_wg.generate_sequences(active_gen_batch_padded)
                                     
-                                    # Remove padding from the output
-                                    if pad_size > 0:
-                                        active_gen_batch_output = unpad_dataproto(active_gen_batch_output, pad_size)
+                                        # Remove padding from the output
+                                        if pad_size > 0:
+                                            active_gen_batch_output = unpad_dataproto(active_gen_batch_output, pad_size)
                                     
-                                    # Decode actions for active environments
-                                    active_response_ids = active_gen_batch_output.batch['responses']
-                                    active_actions = self.tokenizer.batch_decode(active_response_ids, skip_special_tokens=True)
+                                        # Decode actions for active environments
+                                        active_response_ids = active_gen_batch_output.batch['responses']
+                                        active_actions = self.tokenizer.batch_decode(active_response_ids, skip_special_tokens=True)
                                 
-                                    # Create full action array with skip actions for frozen environments
-                                    actions = ['__SKIP__'] * self.config.envs.n_rollouts
-                                    active_idx = 0
-                                    for i in range(self.config.envs.n_rollouts):
-                                        if active_envs[i]:
-                                            actions[i] = active_actions[active_idx]
-                                            active_idx += 1
+                                        # Create full action array with skip actions for frozen environments
+                                        actions = ['__SKIP__'] * self.config.envs.n_rollouts
+                                        active_idx = 0
+                                        for i in range(self.config.envs.n_rollouts):
+                                            if active_envs[i]:
+                                                actions[i] = active_actions[active_idx]
+                                                active_idx += 1
+                                    else:
+                                        actions = ['__SKIP__'] * self.config.envs.n_rollouts
                                 else:
-                                    actions = ['__SKIP__'] * self.config.envs.n_rollouts
+                                    # Original behavior when freezing is disabled
+                                    with _timer_accumulate('text_gen', timing_raw):
+                                        gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                                    response_ids = gen_batch_output.batch['responses']
+                                    actions = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
+                                    active_envs = np.ones(self.config.envs.n_rollouts, dtype=bool)
+                        
+                            with _timer_accumulate('env_step', timing_raw):
+                                obs_vec, reward_vec, terminated_vec, truncated_vec, info_vec = self.env.step(actions)
+
+                            # Handle epsilon-greedy re-tokenization for on-policy training
+                            # When epsilon triggers, we need to update the response tokens to match executed action
+                            epsilon_retokenize_count = 0
+                            epsilon_retokenize_failed = 0
+                            for orig_idx, (active_flag, info) in enumerate(zip(active_envs, info_vec)):
+                                if not active_flag:
+                                    continue
+                                if not info.get('epsilon_explored', False):
+                                    continue
+
+                                executed_action = info.get('executed_action_text')
+                                if not executed_action:
+                                    epsilon_retokenize_failed += 1
+                                    continue
+
+                                # Rewrite <decision>X</decision> tag with executed action
+                                original_response = actions[orig_idx]
+                                new_response, success = rewrite_decision_tag(original_response, executed_action)
+                                if not success:
+                                    # No <decision> tag found (single-action mode not supported)
+                                    epsilon_retokenize_failed += 1
+                                    continue
+
+                                # Get prompt tokens and masks from gen_batch (the input to generation)
+                                if self.freeze_completed_episodes and 'active_gen_batch' in locals():
+                                    # Map original index to active index
+                                    active_idx = sum(active_envs[:orig_idx])
+                                    prompt_ids = active_gen_batch.batch['input_ids'][active_idx]
+                                    prompt_attention_mask = active_gen_batch.batch['attention_mask'][active_idx]
+                                    prompt_position_ids = active_gen_batch.batch['position_ids'][active_idx]
+                                    batch_output_ref = active_gen_batch_output
+                                    batch_idx = active_idx
+                                else:
+                                    prompt_ids = gen_batch.batch['input_ids'][orig_idx]
+                                    prompt_attention_mask = gen_batch.batch['attention_mask'][orig_idx]
+                                    prompt_position_ids = gen_batch.batch['position_ids'][orig_idx]
+                                    batch_output_ref = gen_batch_output
+                                    batch_idx = orig_idx
+
+                                # Re-tokenize and update tensors
+                                max_response_length = self.config.data.max_response_length
+                                device = batch_output_ref.batch['responses'].device
+
+                                new_tensors = retokenize_epsilon_sample(
+                                    tokenizer=self.tokenizer,
+                                    new_response_text=new_response,
+                                    prompt_ids=prompt_ids,
+                                    prompt_attention_mask=prompt_attention_mask,
+                                    prompt_position_ids=prompt_position_ids,
+                                    max_response_length=max_response_length,
+                                    device=device,
+                                )
+
+                                # Update tensors in batch output
+                                batch_output_ref.batch['responses'][batch_idx] = new_tensors['responses']
+                                batch_output_ref.batch['input_ids'][batch_idx] = new_tensors['input_ids']
+                                batch_output_ref.batch['attention_mask'][batch_idx] = new_tensors['attention_mask']
+                                batch_output_ref.batch['position_ids'][batch_idx] = new_tensors['position_ids']
+
+                                # Update actions list for consistency (used in logging/debugging)
+                                actions[orig_idx] = new_response
+                                epsilon_retokenize_count += 1
+
+                            # Track epsilon re-tokenization metrics
+                            if epsilon_retokenize_count > 0:
+                                any_epsilon_retokenized = True
+                                if 'epsilon_retokenized' not in metrics:
+                                    metrics['epsilon_retokenized'] = []
+                                metrics['epsilon_retokenized'].append(epsilon_retokenize_count)
+                            if epsilon_retokenize_failed > 0:
+                                if 'epsilon_retokenize_failed' not in metrics:
+                                    metrics['epsilon_retokenize_failed'] = []
+                                metrics['epsilon_retokenize_failed'].append(epsilon_retokenize_failed)
+
+                            # Collect metrics from each environment's info for this step
+                            # Later these are used to calculate mean value of the metrics per executed step across all environments
+                            for active_flag, info in zip(active_envs, info_vec):
+                                if active_flag:
+                                    for key, value in info['metrics'].items():
+                                        if key in metrics:
+                                            metrics[key].append(value)
+                                        else:
+                                            metrics[key] = [value]
+                        
+                            done_vec = np.logical_or(terminated_vec, truncated_vec)
+                        
+                            # Handle batch insertion based on freezing logic
+                            if self.freeze_completed_episodes:
+                                # Create batch output for all environments (including frozen ones)
+                                if 'active_gen_batch_output' in locals() and np.any(active_envs):
+                                    # Create full batch output with correct dimensions from the start
+                                    # We need to create a batch with n_rollouts elements, preserving the exact ordering
+                                
+                                    # First, create the full batch structure with correct dimensions
+                                    full_batch_dict = {}
+                                
+                                    # Initialize all tensors with the correct batch size (n_rollouts)
+                                    for key in active_gen_batch_output.batch.keys():
+                                        # Create full tensor with correct dimensions for all keys
+                                        full_data = torch.zeros((self.config.envs.n_rollouts, *active_gen_batch_output.batch[key].shape[1:]), dtype=active_gen_batch_output.batch[key].dtype)
+                                    
+                                        # Fill in the data for active environments at their correct indices
+                                        active_idx = 0
+                                        for i in range(self.config.envs.n_rollouts):
+                                            if active_envs[i]:
+                                                full_data[i] = active_gen_batch_output.batch[key][active_idx]
+                                                active_idx += 1
+                                            # For frozen environments, leave as zeros (must be 0 for attention mask, otherwise just dummy data)
+                                    
+                                        full_batch_dict[key] = full_data
+                                
+                                    # Create the full batch output with correct dimensions and preserved ordering
+                                    full_batch_output = DataProto.from_dict(tensors=full_batch_dict)
+                                    full_batch_output.meta_info = active_gen_batch_output.meta_info.copy()
+                                
+                                    # Set done and reward for all environments
+                                    # For frozen environments, ensure done=True for proper GAE behavior
+                                    full_batch_output.batch["done"] = torch.tensor(done_vec, dtype=torch.float64)
+                                    full_batch_output.batch["reward"] = torch.tensor(reward_vec, dtype=torch.float64)
+                                    full_batch_output.batch["frozen_mask"] = torch.tensor(env_frozen, dtype=torch.int64)
+                                
+                                    batch.insert(
+                                        full_batch_output,
+                                        start_idx = time_step * self.config.envs.n_rollouts,
+                                        end_idx = (time_step + 1) * self.config.envs.n_rollouts,
+                                    )
+                                else:
+                                    # All environments frozen, create dummy batch with correct dimensions
+                                    # Create dummy batch with proper dimensions for all environments
+                                    dummy_batch_dict = {}
+                                
+                                    # Create dummy tensors with correct dimensions
+                                    # The batch expects specific dimensions: plen + rlen for input tensors, rlen for responses
+                                    plen = self.config.data.max_prompt_length
+                                    rlen = self.config.data.max_response_length
+                                
+                                    for key in gen_batch.batch.keys():
+                                        if key == 'responses':
+                                            # Responses should have max_response_length dimension
+                                            dummy_batch_dict[key] = torch.zeros((self.config.envs.n_rollouts, rlen), dtype=torch.long)
+                                        else:
+                                            # For other keys (input_ids, attention_mask, position_ids), use plen + rlen dimensions
+                                            dummy_batch_dict[key] = torch.zeros((self.config.envs.n_rollouts, plen + rlen), dtype=gen_batch.batch[key].dtype)
+                                
+                                    # Add the required fields
+                                    dummy_batch_dict["done"] = torch.zeros(self.config.envs.n_rollouts, dtype=torch.float64)
+                                    dummy_batch_dict["reward"] = torch.zeros(self.config.envs.n_rollouts, dtype=torch.float64)
+                                    dummy_batch_dict["frozen_mask"] = torch.ones(self.config.envs.n_rollouts, dtype=torch.int64)
+                                
+                                    # Create the dummy batch
+                                    dummy_batch = DataProto.from_dict(tensors=dummy_batch_dict)
+                                    dummy_batch.meta_info = gen_batch.meta_info.copy()
+                                
+                                    batch.insert(
+                                        dummy_batch,
+                                        start_idx = time_step * self.config.envs.n_rollouts,
+                                        end_idx = (time_step + 1) * self.config.envs.n_rollouts,
+                                    )
                             else:
                                 # Original behavior when freezing is disabled
-                                with _timer_accumulate('text_gen', timing_raw):
-                                    gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                                response_ids = gen_batch_output.batch['responses']
-                                actions = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
-                                active_envs = np.ones(self.config.envs.n_rollouts, dtype=bool)
-                        
-                        with _timer_accumulate('env_step', timing_raw):
-                            obs_vec, reward_vec, terminated_vec, truncated_vec, info_vec = self.env.step(actions)
+                                gen_batch_output.batch["done"] = torch.tensor(done_vec, dtype=torch.float64)
+                                gen_batch_output.batch["reward"] = torch.tensor(reward_vec, dtype=torch.float64)
+                                gen_batch_output.batch["frozen_mask"] = torch.zeros(self.config.envs.n_rollouts, dtype=torch.int64)
 
-                        # Handle epsilon-greedy re-tokenization for on-policy training
-                        # When epsilon triggers, we need to update the response tokens to match executed action
-                        epsilon_retokenize_count = 0
-                        epsilon_retokenize_failed = 0
-                        for orig_idx, (active_flag, info) in enumerate(zip(active_envs, info_vec)):
-                            if not active_flag:
-                                continue
-                            if not info.get('epsilon_explored', False):
-                                continue
-
-                            executed_action = info.get('executed_action_text')
-                            if not executed_action:
-                                epsilon_retokenize_failed += 1
-                                continue
-
-                            # Rewrite <decision>X</decision> tag with executed action
-                            original_response = actions[orig_idx]
-                            new_response, success = rewrite_decision_tag(original_response, executed_action)
-                            if not success:
-                                # No <decision> tag found (single-action mode not supported)
-                                epsilon_retokenize_failed += 1
-                                continue
-
-                            # Get prompt tokens and masks from gen_batch (the input to generation)
-                            if self.freeze_completed_episodes and 'active_gen_batch' in locals():
-                                # Map original index to active index
-                                active_idx = sum(active_envs[:orig_idx])
-                                prompt_ids = active_gen_batch.batch['input_ids'][active_idx]
-                                prompt_attention_mask = active_gen_batch.batch['attention_mask'][active_idx]
-                                prompt_position_ids = active_gen_batch.batch['position_ids'][active_idx]
-                                batch_output_ref = active_gen_batch_output
-                                batch_idx = active_idx
-                            else:
-                                prompt_ids = gen_batch.batch['input_ids'][orig_idx]
-                                prompt_attention_mask = gen_batch.batch['attention_mask'][orig_idx]
-                                prompt_position_ids = gen_batch.batch['position_ids'][orig_idx]
-                                batch_output_ref = gen_batch_output
-                                batch_idx = orig_idx
-
-                            # Re-tokenize and update tensors
-                            max_response_length = self.config.data.max_response_length
-                            device = batch_output_ref.batch['responses'].device
-
-                            new_tensors = retokenize_epsilon_sample(
-                                tokenizer=self.tokenizer,
-                                new_response_text=new_response,
-                                prompt_ids=prompt_ids,
-                                prompt_attention_mask=prompt_attention_mask,
-                                prompt_position_ids=prompt_position_ids,
-                                max_response_length=max_response_length,
-                                device=device,
-                            )
-
-                            # Update tensors in batch output
-                            batch_output_ref.batch['responses'][batch_idx] = new_tensors['responses']
-                            batch_output_ref.batch['input_ids'][batch_idx] = new_tensors['input_ids']
-                            batch_output_ref.batch['attention_mask'][batch_idx] = new_tensors['attention_mask']
-                            batch_output_ref.batch['position_ids'][batch_idx] = new_tensors['position_ids']
-
-                            # Update actions list for consistency (used in logging/debugging)
-                            actions[orig_idx] = new_response
-                            epsilon_retokenize_count += 1
-
-                        # Track epsilon re-tokenization metrics
-                        if epsilon_retokenize_count > 0:
-                            any_epsilon_retokenized = True
-                            if 'epsilon_retokenized' not in metrics:
-                                metrics['epsilon_retokenized'] = []
-                            metrics['epsilon_retokenized'].append(epsilon_retokenize_count)
-                        if epsilon_retokenize_failed > 0:
-                            if 'epsilon_retokenize_failed' not in metrics:
-                                metrics['epsilon_retokenize_failed'] = []
-                            metrics['epsilon_retokenize_failed'].append(epsilon_retokenize_failed)
-
-                        # Collect metrics from each environment's info for this step
-                        # Later these are used to calculate mean value of the metrics per executed step across all environments
-                        for active_flag, info in zip(active_envs, info_vec):
-                            if active_flag:
-                                for key, value in info['metrics'].items():
-                                    if key in metrics:
-                                        metrics[key].append(value)
-                                    else:
-                                        metrics[key] = [value]
-                        
-                        done_vec = np.logical_or(terminated_vec, truncated_vec)
-                        
-                        # Handle batch insertion based on freezing logic
-                        if self.freeze_completed_episodes:
-                            # Create batch output for all environments (including frozen ones)
-                            if 'active_gen_batch_output' in locals() and np.any(active_envs):
-                                # Create full batch output with correct dimensions from the start
-                                # We need to create a batch with n_rollouts elements, preserving the exact ordering
-                                
-                                # First, create the full batch structure with correct dimensions
-                                full_batch_dict = {}
-                                
-                                # Initialize all tensors with the correct batch size (n_rollouts)
-                                for key in active_gen_batch_output.batch.keys():
-                                    # Create full tensor with correct dimensions for all keys
-                                    full_data = torch.zeros((self.config.envs.n_rollouts, *active_gen_batch_output.batch[key].shape[1:]), dtype=active_gen_batch_output.batch[key].dtype)
-                                    
-                                    # Fill in the data for active environments at their correct indices
-                                    active_idx = 0
-                                    for i in range(self.config.envs.n_rollouts):
-                                        if active_envs[i]:
-                                            full_data[i] = active_gen_batch_output.batch[key][active_idx]
-                                            active_idx += 1
-                                        # For frozen environments, leave as zeros (must be 0 for attention mask, otherwise just dummy data)
-                                    
-                                    full_batch_dict[key] = full_data
-                                
-                                # Create the full batch output with correct dimensions and preserved ordering
-                                full_batch_output = DataProto.from_dict(tensors=full_batch_dict)
-                                full_batch_output.meta_info = active_gen_batch_output.meta_info.copy()
-                                
-                                # Set done and reward for all environments
-                                # For frozen environments, ensure done=True for proper GAE behavior
-                                full_batch_output.batch["done"] = torch.tensor(done_vec, dtype=torch.float64)
-                                full_batch_output.batch["reward"] = torch.tensor(reward_vec, dtype=torch.float64)
-                                full_batch_output.batch["frozen_mask"] = torch.tensor(env_frozen, dtype=torch.int64)
-                                
-                                batch.insert(
-                                    full_batch_output,
-                                    start_idx = time_step * self.config.envs.n_rollouts,
-                                    end_idx = (time_step + 1) * self.config.envs.n_rollouts,
-                                )
-                            else:
-                                # All environments frozen, create dummy batch with correct dimensions
-                                # Create dummy batch with proper dimensions for all environments
-                                dummy_batch_dict = {}
-                                
-                                # Create dummy tensors with correct dimensions
-                                # The batch expects specific dimensions: plen + rlen for input tensors, rlen for responses
-                                plen = self.config.data.max_prompt_length
-                                rlen = self.config.data.max_response_length
-                                
-                                for key in gen_batch.batch.keys():
-                                    if key == 'responses':
-                                        # Responses should have max_response_length dimension
-                                        dummy_batch_dict[key] = torch.zeros((self.config.envs.n_rollouts, rlen), dtype=torch.long)
-                                    else:
-                                        # For other keys (input_ids, attention_mask, position_ids), use plen + rlen dimensions
-                                        dummy_batch_dict[key] = torch.zeros((self.config.envs.n_rollouts, plen + rlen), dtype=gen_batch.batch[key].dtype)
-                                
-                                # Add the required fields
-                                dummy_batch_dict["done"] = torch.zeros(self.config.envs.n_rollouts, dtype=torch.float64)
-                                dummy_batch_dict["reward"] = torch.zeros(self.config.envs.n_rollouts, dtype=torch.float64)
-                                dummy_batch_dict["frozen_mask"] = torch.ones(self.config.envs.n_rollouts, dtype=torch.int64)
-                                
-                                # Create the dummy batch
-                                dummy_batch = DataProto.from_dict(tensors=dummy_batch_dict)
-                                dummy_batch.meta_info = gen_batch.meta_info.copy()
-                                
-                                batch.insert(
-                                    dummy_batch,
-                                    start_idx = time_step * self.config.envs.n_rollouts,
-                                    end_idx = (time_step + 1) * self.config.envs.n_rollouts,
-                                )
-                        else:
-                            # Original behavior when freezing is disabled
-                            gen_batch_output.batch["done"] = torch.tensor(done_vec, dtype=torch.float64)
-                            gen_batch_output.batch["reward"] = torch.tensor(reward_vec, dtype=torch.float64)
-                            gen_batch_output.batch["frozen_mask"] = torch.zeros(self.config.envs.n_rollouts, dtype=torch.int64)
-
-                            if self.config.envs.group_rollout_size is not None and type(self.config.envs.group_rollout_size) == int:
-                                gen_batch_output.batch["uid"] = np.array([i // self.config.envs.group_rollout_size for i in range(self.config.envs.n_rollouts)])
+                                if self.config.envs.group_rollout_size is not None and type(self.config.envs.group_rollout_size) == int:
+                                    gen_batch_output.batch["uid"] = np.array([i // self.config.envs.group_rollout_size for i in range(self.config.envs.n_rollouts)])
                             
-                            batch.insert(
-                                gen_batch_output,
-                                start_idx = time_step * self.config.envs.n_rollouts,
-                                end_idx = (time_step + 1) * self.config.envs.n_rollouts,
-                            )
+                                batch.insert(
+                                    gen_batch_output,
+                                    start_idx = time_step * self.config.envs.n_rollouts,
+                                    end_idx = (time_step + 1) * self.config.envs.n_rollouts,
+                                )
                         
-                        # Update any newly completed episodes to be frozen
-                        if self.freeze_completed_episodes:
-                            # Freeze environments that have completed episodes
-                            env_frozen = np.logical_or(env_frozen, done_vec)
+                            # Update any newly completed episodes to be frozen
+                            if self.freeze_completed_episodes:
+                                # Freeze environments that have completed episodes
+                                env_frozen = np.logical_or(env_frozen, done_vec)
                     
-                    # merge batch metrics
-                    for key in metrics.keys():
-                        metrics[key] = np.mean(metrics[key]) # Mean per exectued step
+                        # merge batch metrics
+                        for key in metrics.keys():
+                            metrics[key] = np.mean(metrics[key]) # Mean per exectued step
                         
-                if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
-                    with _timer('gen_max', timing_raw):
-                        gen_baseline_batch = deepcopy(gen_batch)
-                        gen_baseline_batch.meta_info['do_sample'] = False
-                        gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+                    if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
+                        with _timer('gen_max', timing_raw):
+                            gen_baseline_batch = deepcopy(gen_batch)
+                            gen_baseline_batch.meta_info['do_sample'] = False
+                            gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
-                        batch = batch.union(gen_baseline_output)
-                        reward_baseline_tensor = self.reward_fn(batch)
-                        reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
+                            batch = batch.union(gen_baseline_output)
+                            reward_baseline_tensor = self.reward_fn(batch)
+                            reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
 
-                        batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+                            batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
 
-                        batch.batch['reward_baselines'] = reward_baseline_tensor
+                            batch.batch['reward_baselines'] = reward_baseline_tensor
 
-                        del gen_baseline_batch, gen_baseline_output
+                            del gen_baseline_batch, gen_baseline_output
                 
-                if self.config.envs.group_rollout_size is None:
-                    batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                                                            dtype=object)
-                else:
-                    step_uids = np.array([i // self.config.envs.group_rollout_size for i in range(self.config.envs.n_rollouts)])
-                    full_uids = np.repeat(step_uids, episode_len+1)
-                    batch.non_tensor_batch['uid'] = full_uids
+                    if self.config.envs.group_rollout_size is None:
+                        batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
+                                                                dtype=object)
+                    else:
+                        step_uids = np.array([i // self.config.envs.group_rollout_size for i in range(self.config.envs.n_rollouts)])
+                        full_uids = np.repeat(step_uids, episode_len+1)
+                        batch.non_tensor_batch['uid'] = full_uids
 
-                # # repeat to align with repeated responses in rollout
-                # batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-                # batch = batch.union(gen_batch_output)
-                assert self.config.actor_rollout_ref.rollout.n == 1, "For multi-turn rollout, we only support n=1"
+                    # # repeat to align with repeated responses in rollout
+                    # batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    # batch = batch.union(gen_batch_output)
+                    assert self.config.actor_rollout_ref.rollout.n == 1, "For multi-turn rollout, we only support n=1"
     
-                batch.batch['response_mask'] = compute_response_mask(batch)
-                # balance the number of valid tokens on each dp rank.
-                # Note that this breaks the order of data inside the batch.
-                # Please take care when you implement group based adv computation such as GRPO and rloo
-                if self.config.trainer.balance_batch:
-                    self._balance_batch(batch, metrics=metrics)
+                    batch.batch['response_mask'] = compute_response_mask(batch)
+                    # balance the number of valid tokens on each dp rank.
+                    # Note that this breaks the order of data inside the batch.
+                    # Please take care when you implement group based adv computation such as GRPO and rloo
+                    if self.config.trainer.balance_batch:
+                        self._balance_batch(batch, metrics=metrics)
 
-                # compute global_valid tokens
-                batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
+                    # compute global_valid tokens
+                    batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
-                # Force recompute logprobs if epsilon modifications occurred
-                # Epsilon-modified samples have different tokens than rollout_log_probs were computed on
-                if any_epsilon_retokenized and bypass_recomputing_logprobs:
-                    bypass_recomputing_logprobs = False
+                    # Force recompute logprobs if epsilon modifications occurred
+                    # Epsilon-modified samples have different tokens than rollout_log_probs were computed on
+                    if any_epsilon_retokenized and bypass_recomputing_logprobs:
+                        bypass_recomputing_logprobs = False
 
-                # Operating Mode Selection:
-                # - Bypass mode: Uses rollout_log_probs as anchor (no recompute)
-                # - Decoupled mode: Recomputes old_log_probs as proximal anchor
-                if bypass_recomputing_logprobs:
-                    apply_rollout_correction(
-                        batch=batch,
-                        rollout_corr_config=rollout_corr_config,
-                        policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
-                    )
-                else:
-                    # recompute old_log_probs
-                    with _timer('old_log_prob', timing_raw):
-                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        entropys = old_log_prob.batch["entropys"]
-                        response_masks = batch.batch["response_mask"]
-                        actor_config = self.config.actor_rollout_ref.actor
-                        entropy_agg = agg_loss(
-                            loss_mat=entropys,
-                            loss_mask=response_masks,
-                            loss_agg_mode=actor_config.loss_agg_mode,
-                            loss_scale_factor=actor_config.loss_scale_factor,
+                    # Operating Mode Selection:
+                    # - Bypass mode: Uses rollout_log_probs as anchor (no recompute)
+                    # - Decoupled mode: Recomputes old_log_probs as proximal anchor
+                    if bypass_recomputing_logprobs:
+                        apply_rollout_correction(
+                            batch=batch,
+                            rollout_corr_config=rollout_corr_config,
+                            policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
                         )
-                        metrics.update({"actor/entropy": entropy_agg.detach().item()})
-                        old_log_prob.batch.pop("entropys")
-                        batch = batch.union(old_log_prob)
+                    else:
+                        # recompute old_log_probs
+                        with _timer('old_log_prob', timing_raw):
+                            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                            entropys = old_log_prob.batch["entropys"]
+                            response_masks = batch.batch["response_mask"]
+                            actor_config = self.config.actor_rollout_ref.actor
+                            entropy_agg = agg_loss(
+                                loss_mat=entropys,
+                                loss_mask=response_masks,
+                                loss_agg_mode=actor_config.loss_agg_mode,
+                                loss_scale_factor=actor_config.loss_scale_factor,
+                            )
+                            metrics.update({"actor/entropy": entropy_agg.detach().item()})
+                            old_log_prob.batch.pop("entropys")
+                            batch = batch.union(old_log_prob)
 
-                if self.use_reference_policy:
-                    # compute reference log_prob
-                    with _timer('ref', timing_raw):
-                        if not self.ref_in_actor:
-                            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
-                        else:
-                            ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
-                        batch = batch.union(ref_log_prob)
+                    if self.use_reference_policy:
+                        # compute reference log_prob
+                        with _timer('ref', timing_raw):
+                            if not self.ref_in_actor:
+                                ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+                            else:
+                                ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob(batch)
+                            batch = batch.union(ref_log_prob)
 
-                # compute values
-                if self.use_critic:
-                    with _timer('values', timing_raw):
-                        values = self.critic_wg.compute_values(batch)
-                        batch = batch.union(values)
+                    # compute values
+                    if self.use_critic:
+                        with _timer('values', timing_raw):
+                            values = self.critic_wg.compute_values(batch)
+                            batch = batch.union(values)
 
-                with _timer('adv', timing_raw):
+                    with _timer('adv', timing_raw):
 
-                    # compute rewards. apply_kl_penalty if available
-                    batch.batch['token_level_rewards'] = torch.zeros_like(batch.batch['response_mask'], dtype=torch.float64)
-                    seq_len = batch.batch['response_mask'].sum(-1) - 1
-                    indices = torch.arange(batch.batch['response_mask'].shape[0], device=seq_len.device)
-                    batch.batch['token_level_rewards'][indices, seq_len] = batch.batch['reward']
-                    batch.batch['token_level_scores'] = batch.batch['token_level_rewards'].clone() 
-                    if self.config.algorithm.use_kl_in_reward:
-                        batch, kl_metrics = apply_kl_penalty(batch,
-                                                                kl_ctrl=self.kl_ctrl_in_reward,
-                                                                kl_penalty=self.config.algorithm.kl_penalty)
-                        metrics.update(kl_metrics)
+                        # compute rewards. apply_kl_penalty if available
+                        batch.batch['token_level_rewards'] = torch.zeros_like(batch.batch['response_mask'], dtype=torch.float64)
+                        seq_len = batch.batch['response_mask'].sum(-1) - 1
+                        indices = torch.arange(batch.batch['response_mask'].shape[0], device=seq_len.device)
+                        batch.batch['token_level_rewards'][indices, seq_len] = batch.batch['reward']
+                        batch.batch['token_level_scores'] = batch.batch['token_level_rewards'].clone() 
+                        if self.config.algorithm.use_kl_in_reward:
+                            batch, kl_metrics = apply_kl_penalty(batch,
+                                                                    kl_ctrl=self.kl_ctrl_in_reward,
+                                                                    kl_penalty=self.config.algorithm.kl_penalty)
+                            metrics.update(kl_metrics)
 
-                    if rollout_corr_config is not None and 'rollout_log_probs' in batch.batch and not bypass_recomputing_logprobs:
-                        batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
-                        metrics.update(is_metrics)
+                        if rollout_corr_config is not None and 'rollout_log_probs' in batch.batch and not bypass_recomputing_logprobs:
+                            batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
+                            metrics.update(is_metrics)
 
-                    # compute advantages, executed on the driver process
-                    batch = compute_advantage(batch,
-                                                adv_estimator=self.config.algorithm.adv_estimator,
-                                                step_gamma=self.config.algorithm.step_gamma,
-                                                step_lam=self.config.algorithm.step_lam,
-                                                token_gamma=self.config.algorithm.token_gamma,
-                                                token_lam=self.config.algorithm.token_lam,
-                                                n_rollouts=self.config.envs.n_rollouts,
-                                                group_all=self.config.envs.group_rollout_size is None)
+                        # compute advantages, executed on the driver process
+                        batch = compute_advantage(batch,
+                                                    adv_estimator=self.config.algorithm.adv_estimator,
+                                                    step_gamma=self.config.algorithm.step_gamma,
+                                                    step_lam=self.config.algorithm.step_lam,
+                                                    token_gamma=self.config.algorithm.token_gamma,
+                                                    token_lam=self.config.algorithm.token_lam,
+                                                    n_rollouts=self.config.envs.n_rollouts,
+                                                    group_all=self.config.envs.group_rollout_size is None)
 
-                if self.global_steps > self.critic_warmup_step:
-                    batch4train = deepcopy(batch)
-                    batch4train.batch = batch4train.batch[:bsize].contiguous()
-                    for key in batch4train.non_tensor_batch.keys():
-                        batch4train.non_tensor_batch[key] = batch4train.non_tensor_batch[key][:bsize]
-                    for key in batch4train.meta_info.keys():
-                        if isinstance(batch4train.meta_info[key], list):
-                            batch4train.meta_info[key] = batch4train.meta_info[key][:bsize]
-                else:
-                    batch4train = deepcopy(batch)
-                    random_len = self.config.data.train_batch_size * 10
-                    random_indices = torch.randperm(bsize)[:random_len]
-                    batch4train.batch = batch4train.batch[random_indices].contiguous()
-                    for key in batch4train.non_tensor_batch.keys():
-                        batch4train.non_tensor_batch[key] = batch4train.non_tensor_batch[key][random_indices]
-                    for key in batch4train.meta_info.keys():
-                        if isinstance(batch4train.meta_info[key], list):
-                            batch4train.meta_info[key] = [batch4train.meta_info[key][i.item()] for i in random_indices]
+                    if self.global_steps > self.critic_warmup_step:
+                        batch4train = deepcopy(batch)
+                        batch4train.batch = batch4train.batch[:bsize].contiguous()
+                        for key in batch4train.non_tensor_batch.keys():
+                            batch4train.non_tensor_batch[key] = batch4train.non_tensor_batch[key][:bsize]
+                        for key in batch4train.meta_info.keys():
+                            if isinstance(batch4train.meta_info[key], list):
+                                batch4train.meta_info[key] = batch4train.meta_info[key][:bsize]
+                    else:
+                        batch4train = deepcopy(batch)
+                        random_len = self.config.data.train_batch_size * 10
+                        random_indices = torch.randperm(bsize)[:random_len]
+                        batch4train.batch = batch4train.batch[random_indices].contiguous()
+                        for key in batch4train.non_tensor_batch.keys():
+                            batch4train.non_tensor_batch[key] = batch4train.non_tensor_batch[key][random_indices]
+                        for key in batch4train.meta_info.keys():
+                            if isinstance(batch4train.meta_info[key], list):
+                                batch4train.meta_info[key] = [batch4train.meta_info[key][i.item()] for i in random_indices]
 
 
-                # update critic
-                if self.use_critic:
-                    # Add flag to indicate if we're in critic warmup phase
-                    is_critic_warmup = self.global_steps <= self.critic_warmup_step
-                    batch4train.meta_info['is_critic_warmup'] = is_critic_warmup
-                    warmup_micro_batch_size = None
-                    if is_critic_warmup and self.critic_warmup_micro_batch_size_per_gpu is not None:
-                        warmup_micro_batch_size = self.critic_warmup_micro_batch_size_per_gpu
-                        batch4train.meta_info['critic_micro_batch_size_per_gpu'] = warmup_micro_batch_size
-                    with _timer('update_critic', timing_raw):
-                        critic_output = self.critic_wg.update_critic(batch4train)
-                    critic_output_metrics = reduce_metrics(_flatten_metrics(critic_output.meta_info['metrics']))
-                    metrics.update(critic_output_metrics)
-                    if warmup_micro_batch_size is not None:
-                        batch4train.meta_info.pop('critic_micro_batch_size_per_gpu', None)
-                    # Clear the warmup flag after use to avoid memory issues
-                    if 'is_critic_warmup' in batch4train.meta_info:
-                        del batch4train.meta_info['is_critic_warmup']
-                # implement critic warmup
-                if self.critic_warmup_step <= self.global_steps:
-                    # update actor
-                    # Pass step info for entropy bounds decay
-                    batch4train.meta_info['global_step'] = self.global_steps
-                    batch4train.meta_info['total_training_steps'] = self.total_training_steps
-                    with _timer('update_actor', timing_raw):
-                        actor_output = self.actor_rollout_wg.update_actor(batch4train)
-                    actor_output_metrics = reduce_metrics(_flatten_metrics(actor_output.meta_info['metrics']))
-                    metrics.update(actor_output_metrics)
+                    # update critic
+                    if self.use_critic:
+                        # Add flag to indicate if we're in critic warmup phase
+                        is_critic_warmup = self.global_steps <= self.critic_warmup_step
+                        batch4train.meta_info['is_critic_warmup'] = is_critic_warmup
+                        warmup_micro_batch_size = None
+                        if is_critic_warmup and self.critic_warmup_micro_batch_size_per_gpu is not None:
+                            warmup_micro_batch_size = self.critic_warmup_micro_batch_size_per_gpu
+                            batch4train.meta_info['critic_micro_batch_size_per_gpu'] = warmup_micro_batch_size
+                        with _timer('update_critic', timing_raw):
+                            critic_output = self.critic_wg.update_critic(batch4train)
+                        critic_output_metrics = reduce_metrics(_flatten_metrics(critic_output.meta_info['metrics']))
+                        metrics.update(critic_output_metrics)
+                        if warmup_micro_batch_size is not None:
+                            batch4train.meta_info.pop('critic_micro_batch_size_per_gpu', None)
+                        # Clear the warmup flag after use to avoid memory issues
+                        if 'is_critic_warmup' in batch4train.meta_info:
+                            del batch4train.meta_info['is_critic_warmup']
+                    # implement critic warmup
+                    if self.critic_warmup_step <= self.global_steps:
+                        # update actor
+                        # Pass step info for entropy bounds decay
+                        batch4train.meta_info['global_step'] = self.global_steps
+                        batch4train.meta_info['total_training_steps'] = self.total_training_steps
+                        with _timer('update_actor', timing_raw):
+                            actor_output = self.actor_rollout_wg.update_actor(batch4train)
+                        actor_output_metrics = reduce_metrics(_flatten_metrics(actor_output.meta_info['metrics']))
+                        metrics.update(actor_output_metrics)
 
-                # validate
-                # Use evaluation test_freq if available, otherwise fall back to trainer test_freq
-                eval_test_freq = getattr(self.config.evaluation, 'test_freq', None) if hasattr(self.config, 'evaluation') else None
-                test_freq = eval_test_freq if eval_test_freq is not None else self.config.trainer.test_freq
+                    # validate
+                    # Use evaluation test_freq if available, otherwise fall back to trainer test_freq
+                    eval_test_freq = getattr(self.config.evaluation, 'test_freq', None) if hasattr(self.config, 'evaluation') else None
+                    test_freq = eval_test_freq if eval_test_freq is not None else self.config.trainer.test_freq
                 
-                if self.val_reward_fn is not None and test_freq > 0 and \
-                    (is_last_step or self.global_steps % test_freq == 0) and (self.global_steps > self.critic_warmup_step):
-                    with _timer('testing', timing_raw):
-                        if self.multi_env_evaluator is not None:
-                            # With VecEnv pooling, keep training env alive during eval
-                            # (eval uses separate prewarmed pools, no memory benefit from closing)
-                            evaluation_metrics: dict = self.multi_env_evaluator.evaluate(self.global_steps)
-                            tracking_logger.log(data=evaluation_metrics, step=self.global_steps)
+                    if self.val_reward_fn is not None and test_freq > 0 and \
+                        (is_last_step or self.global_steps % test_freq == 0) and (self.global_steps > self.critic_warmup_step):
+                        with _timer('testing', timing_raw):
+                            if self.multi_env_evaluator is not None:
+                                # With VecEnv pooling, keep training env alive during eval
+                                # (eval uses separate prewarmed pools, no memory benefit from closing)
+                                evaluation_metrics: dict = self.multi_env_evaluator.evaluate(self.global_steps)
+                                tracking_logger.log(data=evaluation_metrics, step=self.global_steps)
+                                if is_last_step:
+                                    last_val_metrics.update(evaluation_metrics)
+
+                            validation_metrics: dict = self._validate()
                             if is_last_step:
-                                last_val_metrics.update(evaluation_metrics)
+                                last_val_metrics.update(validation_metrics)
+                        metrics.update(validation_metrics)
 
-                        validation_metrics: dict = self._validate()
-                        if is_last_step:
-                            last_val_metrics.update(validation_metrics)
-                    metrics.update(validation_metrics)
+                    # Save checkpoint periodically or always save final checkpoint
+                    if (self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0) or is_last_step:
+                        with _timer('save_checkpoint', timing_raw):
+                            self._save_checkpoint()
 
-                # Save checkpoint periodically or always save final checkpoint
-                if (self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0) or is_last_step:
-                    with _timer('save_checkpoint', timing_raw):
-                        self._save_checkpoint()
+                # collect metrics
+                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+                metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                # TODO: implement actual tflpo and theoretical tflpo
+                n_gpus = self.resource_pool_manager.get_n_gpus()
+                metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
-            # collect metrics
-            metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
-            metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
-            # TODO: implement actual tflpo and theoretical tflpo
-            n_gpus = self.resource_pool_manager.get_n_gpus()
-            metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                tracking_logger.log(data=metrics, step=self.global_steps)
 
-            tracking_logger.log(data=metrics, step=self.global_steps)
+                if is_last_step:
+                    pprint(f'Final validation metrics: {last_val_metrics}')
+                    progress_bar.close()
+                    return
 
-            if is_last_step:
-                pprint(f'Final validation metrics: {last_val_metrics}')
-                progress_bar.close()
-                return
-
-            progress_bar.update(1)
-            self.global_steps += 1
+                progress_bar.update(1)
+                self.global_steps += 1
         finally:
             # Ensure cleanup runs on all exit paths (normal, is_last_step, exception)
             if self.multi_env_evaluator is not None:
