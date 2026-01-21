@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from .fetch import WandBFetcher, RunInfo
+from .fetch import WandBFetcher, RunInfo, normalize_group
 from .compare import (
     diff_configs,
     compare_metrics,
@@ -218,18 +218,20 @@ def group_summary_cmd(project, group, exclude_group, state, metrics, pattern, sh
         click.echo("No runs found.")
         return
 
-    # Apply exclude-group filter
+    # Apply exclude-group filter (use normalize_group for consistency)
     if exclude_group:
         run_infos = [
             r for r in run_infos
-            if not any(fnmatch.fnmatch(r.group, x) for x in exclude_group)
+            if not any(fnmatch.fnmatch(normalize_group(r.group), x) for x in exclude_group)
         ]
 
     if not run_infos:
         click.echo("No runs remaining after exclusion filter.")
         return
 
-    click.echo(f"Found {len(run_infos)} runs across {len(set(r.group for r in run_infos))} groups", err=True)
+    # Count groups (use same normalization as aggregation layer)
+    unique_groups = set(normalize_group(r.group) for r in run_infos)
+    click.echo(f"Found {len(run_infos)} runs across {len(unique_groups)} groups", err=True)
 
     # Fetch summaries
     summaries_df = fetcher.fetch_summaries(run_infos, refresh=refresh)

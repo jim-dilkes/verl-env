@@ -2,12 +2,14 @@
 
 import fnmatch
 import re
+import sys
 from dataclasses import dataclass
 from typing import Literal
 
 import pandas as pd
 
 from .config import HIGHER_IS_BETTER, IGNORE_CONFIG_PREFIXES
+from .fetch import normalize_group
 
 
 def diff_configs(
@@ -302,29 +304,49 @@ def aggregate_by_group(
 
     Returns:
         DataFrame with group as index, columns: n_runs, {metric}_mean, {metric}_std
+
+    Note:
+        Uses sample std (ddof=1). Runs with missing/null group are aggregated
+        under "(no-group)".
     """
     if "group" not in summaries_df.columns:
         raise ValueError("summaries_df must have 'group' column")
+
+    # Normalize group column to handle None/NaN
+    df = summaries_df.copy()
+    df["_group_normalized"] = df["group"].apply(normalize_group)
 
     # Find metrics to aggregate
     if metrics is None:
         metrics = []
     if metric_patterns:
-        metrics = list(set(metrics + find_matching_keys(summaries_df, metric_patterns)))
+        metrics = list(set(metrics + find_matching_keys(df, metric_patterns)))
 
     if not metrics:
         # Default to all numeric columns
-        exclude_cols = ["run_name", "group", "tags", "state", "created_at"]
+        exclude_cols = ["run_name", "group", "_group_normalized", "tags", "state", "created_at"]
         metrics = [
-            c for c in summaries_df.select_dtypes(include="number").columns
+            c for c in df.select_dtypes(include="number").columns
             if c not in exclude_cols
         ]
 
     # Filter to existing columns
-    metrics = [m for m in metrics if m in summaries_df.columns]
+    metrics = [m for m in metrics if m in df.columns]
 
-    # Group and aggregate
-    grouped = summaries_df.groupby("group")
+    # Coerce metric columns to numeric (handles mixed types from summaries)
+    for metric in metrics:
+        original_valid = df[metric].notna().sum()
+        df[metric] = pd.to_numeric(df[metric], errors="coerce")
+        coerced_valid = df[metric].notna().sum()
+        if coerced_valid < original_valid:
+            lost = original_valid - coerced_valid
+            pct = (lost / original_valid) * 100 if original_valid > 0 else 0
+            if pct > 50:
+                print(f"[warning] {metric}: {lost}/{original_valid} values ({pct:.0f}%) "
+                      f"coerced to NaN (non-numeric)", file=sys.stderr)
+
+    # Group and aggregate (using normalized group)
+    grouped = df.groupby("_group_normalized")
 
     records = []
     for group_name, group_df in grouped:
@@ -361,6 +383,10 @@ def diff_configs_between_groups(
 
     Returns:
         DataFrame with columns: key, group_1, group_2, ..., differs
+
+    Note:
+        Uses mode (most common value) per group, which hides within-group
+        variation. Runs with missing/null group are grouped under "(no-group)".
     """
     if ignore_prefixes is None:
         ignore_prefixes = IGNORE_CONFIG_PREFIXES
@@ -368,9 +394,13 @@ def diff_configs_between_groups(
     if "group" not in configs_df.columns:
         raise ValueError("configs_df must have 'group' column")
 
+    # Normalize group column to handle None/NaN and ensure string type for sorting
+    df = configs_df.copy()
+    df["_group_normalized"] = df["group"].apply(normalize_group)
+
     # Get config columns (exclude metadata)
-    metadata_cols = ["run_name", "group", "tags", "state", "created_at", "hostname", "gpu_type"]
-    config_cols = [c for c in configs_df.columns if c not in metadata_cols]
+    metadata_cols = ["run_name", "group", "_group_normalized", "tags", "state", "created_at", "hostname", "gpu_type"]
+    config_cols = [c for c in df.columns if c not in metadata_cols]
 
     # Filter by prefix
     config_cols = [
@@ -378,13 +408,13 @@ def diff_configs_between_groups(
         if not any(c.startswith(p) for p in ignore_prefixes)
     ]
 
-    # Get unique groups
-    groups = sorted(configs_df["group"].unique())
+    # Get unique groups (now all strings, safe to sort)
+    groups = sorted(df["_group_normalized"].unique())
 
     # For each group, get the most common value for each config key
     group_configs = {}
     for group in groups:
-        group_df = configs_df[configs_df["group"] == group]
+        group_df = df[df["_group_normalized"] == group]
         group_config = {}
         for col in config_cols:
             values = group_df[col].dropna()
@@ -410,9 +440,9 @@ def diff_configs_between_groups(
             record[group] = group_values[group]
         records.append(record)
 
-    df = pd.DataFrame(records)
-    if not df.empty:
+    result = pd.DataFrame(records)
+    if not result.empty:
         # Reorder columns: key, differs, then group columns
-        df = df[["key", "differs"] + groups]
+        result = result[["key", "differs"] + groups]
 
-    return df
+    return result
