@@ -22,6 +22,27 @@ from .config import (
 )
 
 
+NO_GROUP_SENTINEL = "(no-group)"
+
+
+def normalize_group(group_val) -> str:
+    """Normalize group value to string, replacing None/NaN/empty with sentinel.
+
+    Handles: None, float NaN, numpy.nan, pd.NA, empty string.
+    """
+    if group_val is None:
+        return NO_GROUP_SENTINEL
+    try:
+        if pd.isna(group_val):
+            return NO_GROUP_SENTINEL
+    except (TypeError, ValueError):
+        pass
+    str_val = str(group_val)
+    if str_val == "" or str_val.strip() == "":
+        return NO_GROUP_SENTINEL
+    return str_val
+
+
 @dataclass
 class RunInfo:
     """Lightweight run reference."""
@@ -88,6 +109,58 @@ def filter_config_keys(
         filtered = {k: v for k, v in filtered.items() if k in allowlist}
 
     return filtered
+
+
+def _serialize_summary_value(v):
+    """Serialize a summary value for parquet compatibility.
+
+    Handles: None, NaN (float/numpy/pd.NA), string "NaN", dict/list.
+    Returns float("nan") for missing values, JSON string for complex types,
+    str() for any other non-primitive types.
+    """
+    # Check for None
+    if v is None:
+        return float("nan")
+    # Check for NaN-like values (handles float, numpy.float64, pd.NA)
+    try:
+        if pd.isna(v):
+            return float("nan")
+    except (TypeError, ValueError):
+        pass  # pd.isna() can fail on some types
+    # Check for string "NaN"
+    if isinstance(v, str):
+        return float("nan") if v == "NaN" else v
+    # Primitives pass through
+    if isinstance(v, (int, float, bool)):
+        return v
+    # Serialize complex types to JSON
+    if isinstance(v, (dict, list)):
+        try:
+            return json.dumps(v, default=str)
+        except (TypeError, ValueError):
+            return str(v)
+    # Fallback: stringify unknown types (images, histograms, etc.)
+    return str(v)
+
+
+def _clean_summary_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean summary DataFrame columns for parquet compatibility.
+
+    - Converts None/NaN/string "NaN" to float NaN
+    - Serializes dict/list to JSON strings
+    - Attempts numeric conversion for object columns
+    """
+    for col in df.columns:
+        if col in ["run_name", "group"]:
+            continue
+        if df[col].dtype == object:
+            df[col] = df[col].apply(_serialize_summary_value)
+            # Try to convert to numeric if all values are numeric-compatible
+            try:
+                df[col] = pd.to_numeric(df[col], errors="raise")
+            except (ValueError, TypeError):
+                pass  # Keep as object/string
+    return df
 
 
 class WandBFetcher:
@@ -187,7 +260,7 @@ class WandBFetcher:
             info = RunInfo(
                 id=run.id,
                 name=run.name,
-                group=run.group or "",
+                group=normalize_group(run.group),
                 tags=list(run.tags) if run.tags else [],
                 state=run.state,
                 created_at=run.created_at,
@@ -290,6 +363,7 @@ class WandBFetcher:
         df = pd.DataFrame(records)
         if not df.empty:
             df = df.set_index("run_id")
+            df = _clean_summary_columns(df)
 
         # Cache result
         df.to_parquet(cache_path)
