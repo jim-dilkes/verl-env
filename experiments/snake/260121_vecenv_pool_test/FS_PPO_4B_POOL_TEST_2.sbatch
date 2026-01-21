@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=FS_PPO_4B_POOL_TEST_1
+#SBATCH --job-name=FS_PPO_4B_POOL_TEST_2
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=350GB
@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --partition=scavenger_mathsa100,a100
 #SBATCH --time=2:00:00
-#SBATCH --gpus-per-node=2
+#SBATCH --gpus-per-node=1
 
 # --- VecEnv Pool Test ---
 # Minimal memory test for VecEnv pooling feature
@@ -17,9 +17,9 @@
 
 # --- Define experiment variables ---
 project_name=verl_env
-experiment_name=FS_PPO_4B_POOL_TEST_1
+experiment_name=FS_PPO_4B_POOL_TEST_2
 run_number=1
-number_of_gpus=2
+number_of_gpus=1
 WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1","vecenv-pool-test"]'
 
 job_id=${SLURM_JOB_ID:-local}
@@ -67,7 +67,7 @@ export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=false
 export VERL_PPO_LOGGING_LEVEL=DEBUG
 
-MODEL_ID=Qwen/Qwen3-4B-Instruct-2507
+MODEL_ID=Qwen/Qwen3-0.6B-Base
 FOLDER_NAME="models--$(echo "$MODEL_ID" | sed 's/\//--/')"
 SNAPSHOT_DIR="$HF_HOME/hub/$FOLDER_NAME/snapshots"
 
