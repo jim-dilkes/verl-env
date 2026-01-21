@@ -54,6 +54,25 @@ class CloudpickleWrapper(object):
         self.x = pickle.loads(ob)
 
 class VecEnv:
+    # Class-level tracking of active VecEnv instances and workers
+    _active_instances = 0
+    _total_workers = 0
+    _instance_lock = None  # Lazy init to avoid multiprocessing issues
+
+    @classmethod
+    def _get_lock(cls):
+        if cls._instance_lock is None:
+            import threading
+            cls._instance_lock = threading.Lock()
+        return cls._instance_lock
+
+    @classmethod
+    def get_stats(cls) -> dict:
+        """Get current VecEnv usage stats."""
+        return {
+            "active_vecenvs": cls._active_instances,
+            "total_workers": cls._total_workers,
+        }
 
     def __init__(self, env_name, config, env_fns, captioner_fns, worker_debug: bool | None = None):
         """Create a vectorized environment with parallel workers.
@@ -113,6 +132,13 @@ class VecEnv:
         
         for remote in self.work_remotes:
             remote.close()
+
+        # Track active instances and workers
+        with self._get_lock():
+            VecEnv._active_instances += 1
+            VecEnv._total_workers += self.n_rollouts
+        logger.info(f"[VecEnv] Created {env_name} with {self.n_rollouts} workers. "
+                    f"Active: {VecEnv._active_instances} VecEnvs, {VecEnv._total_workers} workers total")
 
         # Flag to mark VecEnv as unusable after partial hard_reset failure
         # Once set, this VecEnv should be closed and removed from any pool
@@ -428,10 +454,14 @@ class VecEnv:
             except Exception as e:
                 logger.warning(f"[VecEnv.close] Failed to close remote connection: {e}")
         
-        logger.info(f"[VecEnv] Successfully closed {len(self.processes)} worker processes")
- 
+        # Update tracking
+        with self._get_lock():
+            VecEnv._active_instances -= 1
+            VecEnv._total_workers -= self.n_rollouts
+        logger.info(f"[VecEnv] Closed {self.env_name} ({len(self.processes)} workers). "
+                    f"Active: {VecEnv._active_instances} VecEnvs, {VecEnv._total_workers} workers total")
 
-    
+
 def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_wrapper, epsilon=0.0, debug: bool = True):
     random.seed(rank)
     np.random.seed(rank)
