@@ -295,6 +295,79 @@ def format_experiment_summary(
     return "\n".join(lines)
 
 
+def format_group_summary(
+    agg_df: pd.DataFrame,
+    config_diff_df: pd.DataFrame | None = None,
+    format: str = "markdown",
+    precision: int = DEFAULT_FLOAT_PRECISION,
+    combine_mean_std: bool = True,
+) -> str:
+    """Format group-aggregated metrics table.
+
+    Args:
+        agg_df: Output from compare.aggregate_by_group()
+        config_diff_df: Optional config diff from compare.diff_configs_between_groups()
+        format: "markdown", "csv", or "json"
+        precision: Float precision
+        combine_mean_std: Combine mean/std into single column as "mean ± std"
+
+    Returns:
+        Formatted string
+    """
+    if format == "json":
+        result = {}
+        if config_diff_df is not None and not config_diff_df.empty:
+            result["config_diff"] = config_diff_df.to_dict(orient="records")
+        result["metrics"] = agg_df.reset_index().to_dict(orient="records")
+        return to_json(result)
+
+    if format == "csv":
+        # For CSV, keep separate mean/std columns
+        return to_csv(agg_df.reset_index())
+
+    # Markdown: combine mean ± std
+    df = agg_df.reset_index().copy()
+
+    if combine_mean_std:
+        # Find pairs of _mean/_std columns and combine
+        mean_cols = [c for c in df.columns if c.endswith("_mean")]
+        combined_df = df[["group", "n_runs"]].copy()
+
+        for mean_col in sorted(mean_cols):
+            base_name = mean_col.rsplit("_mean", 1)[0]
+            std_col = f"{base_name}_std"
+
+            if std_col in df.columns:
+                # Combine as "mean ± std"
+                combined_df[base_name] = df.apply(
+                    lambda row: f"{row[mean_col]:.{precision}f} ± {row[std_col]:.{precision}f}"
+                    if pd.notna(row[mean_col]) else "",
+                    axis=1,
+                )
+            else:
+                combined_df[base_name] = df[mean_col].apply(
+                    lambda x: f"{x:.{precision}f}" if pd.notna(x) else ""
+                )
+
+        df = combined_df
+
+    lines = []
+
+    # Config diff section
+    if config_diff_df is not None and not config_diff_df.empty:
+        lines.append("## Config Differences Between Groups")
+        lines.append("")
+        lines.append(to_markdown(config_diff_df))
+        lines.append("")
+
+    # Metrics table
+    lines.append("## Metrics by Group (mean ± std)")
+    lines.append("")
+    lines.append(to_markdown(df))
+
+    return "\n".join(lines)
+
+
 def generate_report(
     configs_df: pd.DataFrame,
     summaries_df: pd.DataFrame,
