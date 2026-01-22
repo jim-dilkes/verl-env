@@ -5,8 +5,15 @@ from pathlib import Path
 
 import click
 
-from .fetch import WandBFetcher, RunInfo
-from .compare import diff_configs, compare_metrics, extract_learning_curves, summarize_experiment_history
+from .fetch import WandBFetcher, RunInfo, normalize_group
+from .compare import (
+    diff_configs,
+    compare_metrics,
+    extract_learning_curves,
+    summarize_experiment_history,
+    aggregate_by_group,
+    diff_configs_between_groups,
+)
 from .export import (
     to_markdown,
     to_csv,
@@ -14,6 +21,7 @@ from .export import (
     format_config_diff,
     format_metrics_table,
     format_experiment_summary,
+    format_group_summary,
     generate_report,
 )
 from .config import DEFAULT_METRIC_PATTERNS
@@ -178,6 +186,84 @@ def compare_metrics_cmd(project, runs, group, metrics, pattern, final_mode, form
         return
 
     result = format_metrics_table(metrics_df, format=format)
+    output_result(result, output, format)
+
+
+@cli.command("group-summary")
+@click.option("--project", "-p", required=True, help="WandB project (entity/project)")
+@click.option("--group", "-g", multiple=True, help="Filter by group (supports wildcards, default: all)")
+@click.option("--exclude-group", "-x", multiple=True, help="Exclude groups matching pattern")
+@click.option("--state", "-s", multiple=True, default=["finished"], help="Filter by state (default: finished)")
+@click.option("--metric", "-m", "metrics", multiple=True, help="Specific metric names")
+@click.option("--pattern", multiple=True, help="Metric patterns (glob, e.g., 'eval_*/rewards_mean')")
+@click.option("--show-config-diff/--no-config-diff", default=True, help="Show config differences between groups")
+@click.option("--format", "-f", type=click.Choice(["markdown", "csv", "json"]), default="markdown")
+@click.option("--output", "-o", help="Output file")
+@click.option("--refresh", is_flag=True, help="Bypass cache")
+@click.option("--verbose", "-v", is_flag=True)
+def group_summary_cmd(project, group, exclude_group, state, metrics, pattern, show_config_diff, format, output, refresh, verbose):
+    """Compare metrics aggregated by group (mean ± std across seeds)."""
+    import fnmatch
+
+    entity, proj = parse_project(project)
+    fetcher = WandBFetcher(entity, proj, verbose=verbose)
+
+    # Get runs (filter by state)
+    run_infos = fetcher.fetch_runs(
+        groups=list(group) if group else None,
+        states=list(state) if state else None,
+    )
+
+    if not run_infos:
+        click.echo("No runs found.")
+        return
+
+    # Apply exclude-group filter (use normalize_group for consistency)
+    if exclude_group:
+        run_infos = [
+            r for r in run_infos
+            if not any(fnmatch.fnmatch(normalize_group(r.group), x) for x in exclude_group)
+        ]
+
+    if not run_infos:
+        click.echo("No runs remaining after exclusion filter.")
+        return
+
+    # Count groups (use same normalization as aggregation layer)
+    unique_groups = set(normalize_group(r.group) for r in run_infos)
+    click.echo(f"Found {len(run_infos)} runs across {len(unique_groups)} groups", err=True)
+
+    # Fetch summaries
+    summaries_df = fetcher.fetch_summaries(run_infos, refresh=refresh)
+
+    # Determine metric patterns
+    metric_list = list(metrics) if metrics else None
+    pattern_list = list(pattern) if pattern else DEFAULT_METRIC_PATTERNS
+
+    # Aggregate by group
+    agg_df = aggregate_by_group(
+        summaries_df,
+        metrics=metric_list,
+        metric_patterns=pattern_list,
+    )
+
+    if agg_df.empty:
+        click.echo("No metrics found to aggregate.")
+        return
+
+    # Config diff between groups (optional)
+    config_diff_df = None
+    if show_config_diff:
+        configs_df = fetcher.fetch_configs(run_infos, refresh=refresh)
+        config_diff_df = diff_configs_between_groups(configs_df)
+
+    # Format output
+    result = format_group_summary(
+        agg_df,
+        config_diff_df=config_diff_df if show_config_diff else None,
+        format=format,
+    )
+
     output_result(result, output, format)
 
 
