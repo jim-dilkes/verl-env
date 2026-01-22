@@ -219,7 +219,6 @@ class OvercookedGymWrapper(gym.Env):
             lines.extend(self._render_grid(info, grid))
 
         lines.append(f"\nStep: {info['time']}/{self.max_steps}")
-        lines.append(f"Last: {info['last_event']}")
 
         return "\n".join(lines)
 

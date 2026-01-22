@@ -2,11 +2,11 @@
 #SBATCH --job-name=OC_PPO_4B_multi_eps02_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=250GB
+#SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_a100
+#SBATCH --partition=swarm_a100,a100
 #SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
