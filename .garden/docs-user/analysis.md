@@ -2,12 +2,13 @@
 
 This repo includes a small “analysis toolkit” under `analysis/` for pulling runs from Weights & Biases (WandB), caching the results locally, and generating human-readable tables/reports.
 
-It’s designed for:
+It's designed for:
 - Listing runs with simple filters (group/tag/state/name)
 - Comparing configs across runs
 - Comparing summary metrics across runs
+- Aggregating metrics by group (mean ± std across seeds)
 - Exporting learning curves from run history to CSV
-- Generating a single markdown “report” across a set of runs
+- Generating a single markdown "report" across a set of runs
 
 List of metrics and their definitions can be found in .garden/docs-user/wandb-metrics.md
 
@@ -86,13 +87,15 @@ This file holds defaults used by both fetch + CLI:
 Main helpers:
 - `diff_configs(configs_df)`: returns a DataFrame of keys that vary across runs
 - `compare_metrics(summaries_df, ...)`: builds a table of metric columns from run summaries
+- `aggregate_by_group(summaries_df, ...)`: aggregates metrics by group (mean ± std)
+- `diff_configs_between_groups(configs_df)`: config differences between groups (using mode per group)
 - `extract_learning_curves(history_df, metrics, ...)`:
   - pivots long-form history into per-metric wide tables
   - optional resampling to a fixed number of x-axis points
 - `summarize_experiment_history(configs_df, summaries_df, ...)`:
   - counts runs by group and state
   - finds config keys that vary
-  - optionally identifies “best run” per key metric
+  - optionally identifies "best run" per key metric
 
 ### `analysis/export.py`: output formatting
 
@@ -105,6 +108,7 @@ Main helpers:
 - `format_config_diff(...)`
 - `format_metrics_table(...)` (optionally bolds best numeric values in markdown)
 - `format_experiment_summary(...)`
+- `format_group_summary(...)` formats group-aggregated metrics with config diff
 - `generate_report(...)` to assemble a multi-section markdown report
 
 ## CLI usage (command reference)
@@ -167,8 +171,49 @@ python -m analysis compare-metrics --project entity/project --group "my-group" \
 ```
 
 Notes:
-- This command reads from `run.summary` (i.e., whatever WandB reports as the run’s summary), not the full time-series history.
-- The CLI has a `--final` option, but today the command uses summary values directly (it does not compute “best”/“last” from history).
+- This command reads from `run.summary` (i.e., whatever WandB reports as the run's summary), not the full time-series history.
+- The CLI has a `--final` option, but today the command uses summary values directly (it does not compute "best"/"last" from history).
+
+### `group-summary`
+Aggregate metrics by WandB group (mean ± std across seeds within each group).
+
+```bash
+# Default metric patterns
+python -m analysis group-summary --project entity/project
+
+# Specific patterns
+python -m analysis group-summary --project entity/project \
+  --pattern "eval_*/rewards_mean" \
+  --pattern "actor/entropy"
+
+# Exclude certain groups
+python -m analysis group-summary --project entity/project \
+  --exclude-group "test_*" \
+  --exclude-group "debug_*"
+
+# Output to CSV
+python -m analysis group-summary --project entity/project \
+  --format csv --output summary.csv
+```
+
+Useful options:
+- `--group` filter to specific groups (supports wildcards)
+- `--exclude-group` / `-x` exclude groups matching pattern
+- `--pattern` metric glob patterns (default: eval_*/rewards_mean, actor/entropy, etc.)
+- `--show-config-diff/--no-config-diff` include config differences between groups
+- `--format` one of `markdown|csv|json`
+- `--state` filter by run state (default: `finished`)
+
+Output structure:
+- **Markdown**: Shows config differences section (keys that vary between groups) followed by metrics table with "mean ± std" columns
+- **CSV**: Separate `_mean` and `_std` columns for each metric
+- **JSON**: Dict with `config_diff` and `metrics` arrays
+
+Notes:
+- Assumes WandB `group` field corresponds to "same experiment, different seeds"
+- Uses sample std (ddof=1)
+- Runs with missing/null group are aggregated under "(no-group)"
+- Config diff uses mode (most common value) per group, which hides within-group variation
 
 ### `curves`
 Extract learning curves from run history to CSV.
