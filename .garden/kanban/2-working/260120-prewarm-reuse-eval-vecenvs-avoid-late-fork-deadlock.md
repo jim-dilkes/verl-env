@@ -661,3 +661,37 @@ Card selected from backlog - already fully specified with decisions made in "Fin
 - The early exit after 1 step may be memory preemption, not VecEnv-related
 
 **Conclusion:** VecEnv pooling adds modest memory overhead (~14 GB for snake evals). The 175% memory issue is likely from model/vLLM, not this feature. Should test on adequately-resourced compute node
+
+### 2026-01-21 - Session End
+
+**Accomplished:**
+- Fixed critical epoch loop indentation bug (training only ran 1 step)
+- Created memory profiling scripts (`profile_vecenv_memory.py`, `profile_vecenv_scaling.py`)
+- Created test sbatch configs for memory isolation testing
+- Ran successful cluster tests:
+  - `FS_PPO_4B_POOL_TEST_1`: 44 GB, 1 step (before indent fix)
+  - `FS_PPO_4B_SMALL_VECENV_1`: 65 GB, completed 20 steps successfully
+- VecEnv pooling feature confirmed working
+
+**State:**
+- Feature functionally complete and tested on cluster
+- Memory usage reasonable (~66 GB with full batch sizes, small VecEnv)
+- User running full baseline config to verify with large eval worker counts
+
+**Open investigation:**
+- User reports eval metrics showing std=0 (single episode?) - but earlier test showed std=0.866
+- Need to clarify which run/metrics they're seeing this on
+- Multi-action evals need longer context (per-eval length overrides not wired up - user will adjust training config)
+
+**Next steps:**
+1. Clarify the "single episode" eval issue with user
+2. If needed, wire up per-eval max_prompt_length/max_response_length overrides
+3. Test with full eval config (632 workers) to verify memory with large pools
+4. Consider PR once confirmed stable
+
+**Blockers:** None
+
+**Notes for next session:**
+- Commits on branch: `94b20598` (latest), `5cd2f1cb` (indent fix), `55083d5a` (profiling)
+- Log book entry at: `Log Book/2026-01-21 - Debug Experiments.md`
+- User suspects VecEnvs using more memory than profiled - isolation test showed 65 GB which is reasonable
