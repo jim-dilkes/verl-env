@@ -2,7 +2,7 @@
 #SBATCH --job-name=OC_PPO_14B_MA_NT_eps00_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=250GB
+#SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
@@ -80,7 +80,7 @@ fi
 micro_batch_size=16
 
 max_prompt_length=2048
-max_response_length=256
+max_response_length=512
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
 critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
 

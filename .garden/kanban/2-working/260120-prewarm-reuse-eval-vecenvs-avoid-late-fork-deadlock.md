@@ -1,10 +1,10 @@
 # Prewarm + Reuse Eval VecEnvs (Keep `fork` Speed, Avoid Late-Fork Deadlock)
 
 **Type:** perf / stability
-**Branch:** (tbd)
+**Branch:** perf/reuse-eval-vecenvs
 **Created:** 2026-01-20
-**Started:**
-**Completed:**
+**Started:** 2026-01-20 16:00
+**Completed:** —
 
 ## Problem Statement
 We need evaluation-time VecEnv creation to be as fast as `fork` (NFS makes `spawn`/`forkserver` prohibitively slow), but our current evaluation flow creates VecEnv workers *late* in the driver process lifetime (after Ray + torch distributed + vLLM CUDA graphs + threadpools). Forking at that point can deadlock/hang.
@@ -257,6 +257,10 @@ Integration:
 ## Outstanding Questions
 None blocking for implementation based on current decisions.
 
+---
+
+<details>
+<summary>## Historical: Pre-Decision Context (Click to expand)</summary>
 
 ## Ensuring Behavioral Parity
 ### Reset / seeding parity
@@ -398,6 +402,8 @@ Decision needed: which strategy is acceptable?
 
 Decision needed: which failure mode is acceptable?
 
+</details>
+
 ---
 
 ## Implementation Notes (sketch; not final)
@@ -410,3 +416,282 @@ If `hard_reset` is chosen:
 - Extend `verl/envs/vec_env.py` worker protocol with `hard_reset`
 - Change VecEnv worker initialization so it can recreate `env`/`captioner` from config payloads
 
+---
+
+## Working Notes
+<!-- Session handoff and working context goes here -->
+
+### 2026-01-20 - Feature Started
+Card selected from backlog - already fully specified with decisions made in "Final Specification" section.
+
+**Key decisions already made:**
+- Pool keyed by worker-count only (Strategy A)
+- `hard_reset` to rebuild env+captioner inside existing workers
+- Policy 1 guard: fail if JAX imported before fork
+- Keep training VecEnv alive during eval (no close/recreate)
+
+**Implementation checklist (from spec):**
+1. `verl/envs/vec_env.py`: Policy 1 guard, `hard_reset()` method, worker protocol extension
+2. `verl/trainer/ppo/multi_env_evaluator.py`: pool dict, `prewarm()`, modified evaluate path
+3. `verl/trainer/ppo/ray_multistep_trainer.py`: call `prewarm()` before `init_workers()`
+
+**Next steps:** Read current implementation of VecEnv and MultiEnvEvaluator to understand starting point.
+
+### 2026-01-20 - Context from Docs
+
+**From `codebase/file-structure-scope.md`:**
+- Key files: `verl/trainer/ppo/ray_multistep_trainer.py`, `multi_env_evaluator.py`
+- `verl/envs/environments/__init__.py` has factory: `make_env()`, `get_action_extraction_fn()`
+- Captioners in `verl/envs/captioners/` - need `make_captioner()` for hard_reset
+
+**From `environments/overcooked-jaxmarl-implementation.md`:**
+- **CRITICAL**: Overcooked currently requires `vec_env_multiprocessing=spawn` due to JAX fork deadlock
+- JAX CPU backend set via `os.environ.setdefault('JAX_PLATFORM_NAME', 'cpu')` at import time
+- Fork fails when parent has threads (PyTorch, vLLM, Ray) and children import JAX
+- Symptom: workers hang after spawn, before env creation logs appear
+- This is exactly the problem we're solving - but with prewarm, JAX import happens in worker before parent has threads
+
+**From `environments/wrapper-interface-api.md`:**
+- Factory: `make_env(env_name, task, config, render_mode=None) -> EnvWrapper`
+- VecEnv worker calls: `env.extract_action(action)`, `env.step()`, `env.reset(seed=seed)`
+- Observation format: `{text: {long_term_context, short_term_context}, state, image?}`
+
+**Implications for hard_reset:**
+- Worker needs access to `make_env()` and `make_captioner()` factories
+- Config must be picklable (use OmegaConf.to_container for resolved dict)
+- After hard_reset, worker state should be as if freshly constructed
+
+### 2026-01-20 - Implementation Complete
+
+**Changes made:**
+
+1. **`verl/envs/vec_env.py`** (+160 lines):
+   - Added Policy 1 guard: fails if JAX modules imported before fork (line ~72-86)
+   - Override via `VERL_ALLOW_UNSAFE_FORK_WITH_JAX=1`
+   - Added `VecEnv.hard_reset()` method (lines ~285-357) - rebuilds env+captioner in workers
+   - Extended worker protocol with `cmd == 'hard_reset'` handler (lines ~560-610)
+
+2. **`verl/trainer/ppo/multi_env_evaluator.py`** (+140/-3 lines):
+   - Added `_pool_by_worker_count: Dict[int, VecEnv]` pool dict
+   - Added `prewarm()` method - creates VecEnv pools early
+   - Added `close()` method - cleans up pooled VecEnvs
+   - Modified `_evaluate_single_env_body()` to use pool + hard_reset when available
+
+3. **`verl/trainer/ppo/ray_multistep_trainer.py`** (+45/-47 lines):
+   - Call `multi_env_evaluator.prewarm()` right after evaluator creation (before init_workers)
+   - Call `multi_env_evaluator.close()` at end of training (both normal exit and is_last_step)
+   - Removed training env close/recreate around evaluation (keep alive per spec)
+
+**Testing needed:**
+- Cluster run with `vec_env_multiprocessing=fork` to verify no hangs
+- Verify prewarm logs appear before `init_workers()`
+- Verify `hard_reset` logs appear during evaluation
+- Check VecEnv pool is reused (no new process creation after prewarm)
+
+### 2026-01-20 16:51 - Session End
+
+**Accomplished:**
+- Full implementation of VecEnv pooling + hard_reset per spec
+- Policy 1 guard (JAX import check before fork)
+- MultiEnvEvaluator prewarm/pool/close lifecycle
+- Trainer integration (prewarm early, close at end, keep training env alive)
+
+**State:** Implementation complete, syntax verified, imports work. Ready for cluster testing.
+
+**Next steps:**
+1. Commit changes
+2. Push to cluster and run test with `experiments/snake/test_login_node.sh`
+3. Verify no hangs during initial validation with fork multiprocessing
+4. Check logs for prewarm -> init_workers ordering
+
+**Blockers:** None - needs GPU cluster to test
+
+**Notes for next session:**
+- Main test: does evaluation NOT hang with `vec_env_multiprocessing=fork`?
+- Should see "[MultiEnvEvaluator] Prewarming VecEnv pools..." BEFORE heavy init
+- Should see "[VecEnv] hard_reset completed..." during each evaluation
+
+### 2026-01-20 17:15 - Code Review Feedback Fixes
+
+**Review feedback addressed:**
+
+1. **Cleanup coverage was incomplete** (FIXED)
+   - `val_only` path now closes evaluator and training env before return
+   - Added `try/finally` around main training loop in `ray_multistep_trainer.py`
+   - Ensures cleanup runs on all exit paths (normal, is_last_step, exception)
+
+2. **Worker hard_reset was not transactional** (FIXED)
+   - Changed to build-then-swap pattern in `vec_env.py` worker handler
+   - New env/captioner created FIRST, then old ones closed and swapped
+   - If creation fails, old env/captioner remain intact, worker stays usable
+
+3. **Print logging was noisy** (FIXED)
+   - Added `import logging` and `logger = logging.getLogger(__name__)` to both files
+   - Converted key prints to `logger.info()`, `logger.warning()`, `logger.error()`
+   - Keeps worker-side debug prints as `print()` (appropriate for subprocess logging)
+
+4. **No smoke test** (FIXED)
+   - Created `tests/envs/test_vecenv_hard_reset.py`
+   - Tests: basic hard_reset, cache clearing, worker count preservation, multiple resets
+   - Tests: JAX fork guard raises when expected, override env var works
+
+**Files modified:**
+- `verl/envs/vec_env.py`: transactional hard_reset, logging
+- `verl/trainer/ppo/multi_env_evaluator.py`: logging
+- `verl/trainer/ppo/ray_multistep_trainer.py`: try/finally cleanup, val_only cleanup
+- NEW: `tests/envs/test_vecenv_hard_reset.py`
+
+### 2026-01-20 17:45 - Second Code Review Fixes
+
+**Critical issues fixed:**
+
+1. **Late-fork fallback removed** (multi_env_evaluator.py)
+   - Changed fallback `make_vec_env()` to `raise RuntimeError`
+   - Now fails fast with clear error message if pool is missing
+   - Matches spec: "If missing: fail fast (do not late-fork)"
+
+2. **last_info aliasing bug** (vec_env.py)
+   - Fixed `[{"metrics": {}}] * n` → `[{"metrics": {}} for _ in range(n)]`
+   - Prevents shared dict reference across all rollouts
+   - Fixed in both `__init__` and `hard_reset`
+
+3. **JAX guard test fixed** (test_vecenv_hard_reset.py)
+   - Changed `n_rollouts=1` to match the 1 env_fn/captioner_fn passed
+   - Test was failing on assertion before reaching JAX guard
+
+4. **Captioner close on hard_reset** (vec_env.py)
+   - Added best-effort `old_captioner.close()` call
+   - Prevents resource leaks if captioner holds resources
+
+**Next:** Commit and test on cluster
+
+### 2026-01-20 18:30 - Post-Review Hardening
+
+**Code review feedback addressed (all items from comprehensive review):**
+
+1. **Timeout added to hard_reset recv()** (vec_env.py)
+   - Uses `poll(timeout)` pattern to avoid hanging forever on wedged workers
+   - Timeout configurable via `VERL_HARD_RESET_TIMEOUT` env var (default: 60s)
+   - Reports which worker(s) timed out if any
+
+2. **n_rollouts validation in hard_reset()** (vec_env.py)
+   - Now raises `ValueError` if `config.envs.n_rollouts` doesn't match pool worker count
+   - Prevents subtle bugs from mismatched configs
+
+3. **Config flags wired** (multi_env_evaluator.py)
+   - Added support for `eval.vecenv_pooling.enabled`, `eval.vecenv_pooling.prewarm`, `eval.vecenv_pooling.fail_if_missing_pool`
+   - All default to `True` per spec
+   - Late creation fallback available if `fail_if_missing_pool=False` (with warning)
+
+4. **env_name mismatch warning** (multi_env_evaluator.py)
+   - Logs warning if eval env_name differs from training env_name
+   - Helps catch unintended cross-env evaluation during training
+
+5. **Print noise reduced** (ray_multistep_trainer.py, multi_env_evaluator.py)
+   - Added proper logger setup
+   - Debug probes converted to `logger.debug()`
+   - Info-level messages use `logger.info()`
+   - Renamed Tracking logger to `tracking_logger` to avoid shadowing
+
+6. **VecEnvContextManager deprecated** (multi_env_evaluator.py)
+   - Added DeprecationWarning pointing to new pooling pattern
+   - Updated docstring to explain migration path
+
+7. **Tests strengthened** (test_vecenv_hard_reset.py)
+   - Added `TestHardResetValidation`: n_rollouts mismatch, matching config, env usable after error
+   - Added `TestHardResetTimeout`: env var is respected
+   - Added `TestVecEnvContextManagerDeprecation`: warning is raised
+
+**Scope items complete:** All original scope items done + review fixes applied.
+
+**Ready for:** Commit and cluster testing
+
+### 2026-01-20 - Final Review Fixes
+
+**Issues from external code review addressed:**
+
+1. **Partial-reset inconsistency across workers** (FIXED)
+   - Added `_unusable` flag to VecEnv, set on hard_reset failure
+   - Added `unusable` property to check state
+   - MultiEnvEvaluator now evicts and closes unusable VecEnvs from pool
+   - Prevents reuse of VecEnv in mixed/corrupted state after partial failure
+
+2. **Captioner close on worker shutdown** (FIXED)
+   - Worker `close` command now closes both env and captioner (best-effort)
+   - Matches hard_reset cleanup pattern, prevents resource leaks
+
+3. **Config path naming mismatch** (FIXED)
+   - Error message now says `evaluation.vecenv_pooling.fail_if_missing_pool`
+   - Matches actual config path used in code
+
+4. **psutil dependency** (VERIFIED OK)
+   - psutil imported at module level in many files across codebase
+   - Is transitive dependency of Ray, always available
+   - Consistent with existing codebase patterns
+
+**Files modified:**
+- `verl/envs/vec_env.py`: _unusable flag, unusable property, captioner close on shutdown
+- `verl/trainer/ppo/multi_env_evaluator.py`: pool eviction on unusable, config path in error msg
+
+**Ready for:** Commit and cluster testing
+
+### 2026-01-21 - Memory Profiling Results
+
+**Local memory profiling with `scripts/profile_vecenv_memory.py`:**
+
+| Stage | Workers | Memory |
+|-------|---------|--------|
+| Baseline | 0 | 18 MB |
+| After imports | 0 | 295 MB |
+| Training VecEnv | 4 | 420 MB |
+| + eval_small (4) | 8 | 544 MB |
+| + eval_medium (50) | 58 | 2.1 GB |
+| + eval_large (100) | 158 | 5.2 GB |
+| + eval_xlarge (400) | 558 | 17.5 GB |
+
+**Key finding:** ~31 MB per worker process (fastsnake).
+
+**Cluster eval config (`snake_evals_combined.yaml`):**
+- Prewarmed pools: {50, 400} workers
+- Total VecEnv memory estimate: 450 workers × 31 MB ≈ 14 GB
+
+**Cluster was using 527 GB (175% of 300 GB allocation):**
+- VecEnv contribution: ~14 GB (small fraction)
+- Bulk must be model weights, vLLM inference state, Ray overhead
+- The early exit after 1 step may be memory preemption, not VecEnv-related
+
+**Conclusion:** VecEnv pooling adds modest memory overhead (~14 GB for snake evals). The 175% memory issue is likely from model/vLLM, not this feature. Should test on adequately-resourced compute node
+
+### 2026-01-21 - Session End
+
+**Accomplished:**
+- Fixed critical epoch loop indentation bug (training only ran 1 step)
+- Created memory profiling scripts (`profile_vecenv_memory.py`, `profile_vecenv_scaling.py`)
+- Created test sbatch configs for memory isolation testing
+- Ran successful cluster tests:
+  - `FS_PPO_4B_POOL_TEST_1`: 44 GB, 1 step (before indent fix)
+  - `FS_PPO_4B_SMALL_VECENV_1`: 65 GB, completed 20 steps successfully
+- VecEnv pooling feature confirmed working
+
+**State:**
+- Feature functionally complete and tested on cluster
+- Memory usage reasonable (~66 GB with full batch sizes, small VecEnv)
+- User running full baseline config to verify with large eval worker counts
+
+**Open investigation:**
+- User reports eval metrics showing std=0 (single episode?) - but earlier test showed std=0.866
+- Need to clarify which run/metrics they're seeing this on
+- Multi-action evals need longer context (per-eval length overrides not wired up - user will adjust training config)
+
+**Next steps:**
+1. Clarify the "single episode" eval issue with user
+2. If needed, wire up per-eval max_prompt_length/max_response_length overrides
+3. Test with full eval config (632 workers) to verify memory with large pools
+4. Consider PR once confirmed stable
+
+**Blockers:** None
+
+**Notes for next session:**
+- Commits on branch: `94b20598` (latest), `5cd2f1cb` (indent fix), `55083d5a` (profiling)
+- Log book entry at: `Log Book/2026-01-21 - Debug Experiments.md`
+- User suspects VecEnvs using more memory than profiled - isolation test showed 65 GB which is reasonable

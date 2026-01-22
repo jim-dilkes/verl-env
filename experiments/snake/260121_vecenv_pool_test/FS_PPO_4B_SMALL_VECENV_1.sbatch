@@ -1,21 +1,34 @@
 #!/bin/bash
-#SBATCH --job-name=BAI_PPO_4B_GoTo_BL_1
+#SBATCH --job-name=FS_PPO_4B_SMALL_VECENV_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=250GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_a100,a100
-#SBATCH --time=48:00:00
+#SBATCH --partition=scavenger_mathsa100,a100,swarm_a100
+#SBATCH --time=2:00:00
 #SBATCH --gpus-per-node=2
 
+# --- VecEnv Memory Isolation Test ---
+# IDENTICAL to FS_PPO_4B_BL_1 baseline EXCEPT:
+# - envs.n_rollouts=4 (was 32)
+# - evaluation=snake_evals_minimal (was snake_evals with 600 workers)
+# - Short run (20 steps) for quick testing
+#
+# This isolates VecEnv worker count as the ONLY difference to measure
+# its memory impact vs baseline.
+#
+# Baseline VecEnv workers: 32 train + 600 eval = 632 total
+# This test VecEnv workers: 4 train + 4 eval = 8 total
+# Expected memory delta from VecEnv: ~15 GB (based on profiling)
+
 # --- Define experiment variables ---
-project_name=rl_sdm
-experiment_name=BAI_PPO_4B_GoTo_BL
+project_name=verl_env
+experiment_name=FS_PPO_4B_SMALL_VECENV_1
 run_number=1
 number_of_gpus=2
-WANDB_TAGS='["babyai","project:verl-env","vllm:0.9.1","singl-act","GoToLocalS5N2"]'
+WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1","vecenv-isolation-test"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -25,7 +38,7 @@ mkdir -p "$short_temp_dir"
 readable_log_root=/scratch/${user_name}/ray_logs
 mkdir -p "$readable_log_root"
 
-experiment_run_name=${experiment_name}_run${run_number}_slu${job_id}
+experiment_run_name=${experiment_name}_run${run_number}_slu${SLURM_JOB_ID}
 export WANDB_DIR="wandb/${experiment_run_name}"
 mkdir -p "$WANDB_DIR"
 profile_dump_dir=/scratch/${user_name}/profile_dumps/${experiment_run_name}
@@ -87,7 +100,7 @@ critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
 rollout_max_num_batched_tokens=$((micro_batch_size * max_token_len_per_gpu + 2560))
 rollout_max_num_seqs=$((2048))
 
-PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
+PYTHONUNBUFFERED=1 CUDA_LAUNCH_BLOCKING=1 python3 -m verl.trainer.main_ppo \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
   data.train_batch_size=256 \
@@ -122,8 +135,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.load_format=dummy_dtensor \
   actor_rollout_ref.rollout.update_weights_bucket_megabytes=256 \
   +actor_rollout_ref.model.override_config.torch_dtype=bfloat16 \
-  actor_rollout_ref.model.use_remove_padding=True \
-  actor_rollout_ref.model.use_fused_kernels=True \
   actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
   +critic.model.override_config.torch_dtype=bfloat16 \
   critic.model.fsdp_config.model_dtype=bfloat16 \
@@ -138,17 +149,21 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
   envs.enable=True \
-  envs.n_rollouts=32 \
+  envs.n_rollouts=4 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
-  envs.env_name=babyai \
-  envs.task=BabyAI-GoToLocalS5N2-v0 \
+  envs.env_name=fastsnake \
   envs.format_penalty=1 \
   envs.binary_reward=False \
   envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
   envs.captioner.max_cot_history=1 \
-  envs.babyai_kwargs.max_steps=16 \
+  envs.fastsnake_kwargs.width=10 \
+  envs.fastsnake_kwargs.height=10 \
+  envs.fastsnake_kwargs.max_rounds=8 \
+  envs.fastsnake_kwargs.num_external_snakes=1 \
+  envs.fastsnake_kwargs.num_random_snakes=1 \
+  envs.fastsnake_kwargs.death_reward=-1 \
   envs.vec_env_multiprocessing=fork \
   actor_rollout_ref.rollout.calculate_log_probs=true \
   algorithm.rollout_correction.rollout_is=sequence \
@@ -169,18 +184,18 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.critic_warmup_micro_batch_size_per_gpu=16 \
   trainer.n_gpus_per_node=$number_of_gpus \
   trainer.nnodes=1 \
-  trainer.save_freq=100 \
-  trainer.test_freq=100 \
+  trainer.save_freq=50 \
+  trainer.test_freq=10 \
   trainer.render=False \
   trainer.total_epochs=1000 \
-  trainer.total_training_steps=1000 \
+  trainer.total_training_steps=20 \
   trainer.default_local_dir=/scratch/${user_name}/checkpoints/${project_name}/${experiment_name}_run${run_number} \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
   trainer.tags=$WANDB_TAGS \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=babyai_evals_combined \
-  prompt=babyai 2>&1 | tee verl_demo.log
+  evaluation=snake_evals_minimal \
+  prompt=snake 2>&1 | tee verl_demo.log
 
 actual_session_dir="${short_temp_dir}/session_latest"
 readable_log_path="${readable_log_root}/${experiment_run_name}"

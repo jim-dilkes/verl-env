@@ -19,30 +19,48 @@ across multiple, distinct environments as specified in the configuration.
 """
 
 import json
+import logging
 import numpy as np
 import time
 import gc
 import psutil
 import os
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 from collections.abc import Mapping
-from typing import Any, Dict, List, Optional, Sequence, Callable
+from typing import Any, Dict, List, Optional, Sequence, Callable, Set
 from verl import DataProto
 from verl.utils.tracking import ValidationGenerationsLogger
 
 from verl.envs.environments import get_action_extraction_fn
+from verl.envs.vec_env import VecEnv
 
 
 class VecEnvContextManager:
-    """Context manager to ensure proper cleanup of vectorized environments."""
-    
+    """Context manager to ensure proper cleanup of vectorized environments.
+
+    .. deprecated::
+        This class is deprecated. Use MultiEnvEvaluator with VecEnv pooling instead,
+        which prewarms worker processes early to avoid late-fork deadlocks.
+        See MultiEnvEvaluator.prewarm() and hard_reset() for the new pattern.
+    """
+
     def __init__(self, env_name, task, config, render_mode=None):
+        import warnings
+        warnings.warn(
+            "VecEnvContextManager is deprecated. Use MultiEnvEvaluator with VecEnv pooling instead. "
+            "The new pattern prewarms worker processes early via prewarm() and reconfigures them "
+            "via hard_reset(), avoiding late-fork deadlocks.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self.env_name = env_name
         self.task = task
         self.config = config
         self.render_mode = render_mode
         self.val_env = None
-    
+
     def __enter__(self):
         self.val_env = make_vec_env(
             self.env_name,
@@ -51,23 +69,21 @@ class VecEnvContextManager:
             render_mode=self.render_mode
         )
         return self.val_env
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.val_env is not None:
             try:
                 self.val_env.close()
-                print(f"[VecEnvContextManager] Successfully closed environment {self.env_name}")
+                logger.debug(f"[VecEnvContextManager] Closed environment {self.env_name}")
             except Exception as e:
-                print(f"[ERROR] VecEnvContextManager: Failed to close environment {self.env_name}: {e}")
-                import traceback
-                print(f"[ERROR] VecEnvContextManager: Close traceback: {traceback.format_exc()}")
+                logger.warning(f"[VecEnvContextManager] Failed to close environment {self.env_name}: {e}")
         return False  # Don't suppress exceptions
 
 
 def make_vec_env(env_name, task, config, render_mode=None):
     """
     Create a vectorized environment.
-    
+
     This function is copied from ray_trainer.py to ensure the evaluator
     can create new vectorized environments independently.
     """
@@ -147,6 +163,32 @@ class MultiEnvEvaluator:
         for i, env_config in enumerate(self.eval_environments):
             self._dbg_print(f"  Environment {i}: {env_config.get('name', f'env_{i}')} ")
 
+        # VecEnv pool for reuse across evaluations (keyed by worker count)
+        # This avoids late-fork deadlocks by creating workers early
+        self._pool_by_worker_count: Dict[int, VecEnv] = {}
+
+        # Extract pooling config from eval_config (with defaults per spec)
+        pooling_config = getattr(eval_config, 'vecenv_pooling', None) if eval_config else None
+        if pooling_config is None:
+            # Also check config.evaluation.vecenv_pooling
+            if hasattr(config, 'evaluation') and hasattr(config.evaluation, 'vecenv_pooling'):
+                pooling_config = config.evaluation.vecenv_pooling
+
+        # Config flags with defaults (spec: all default to True)
+        self._pool_enabled = True
+        self._pool_prewarm = True
+        self._pool_fail_if_missing = True
+
+        if pooling_config is not None:
+            self._pool_enabled = getattr(pooling_config, 'enabled', True)
+            self._pool_prewarm = getattr(pooling_config, 'prewarm', True)
+            self._pool_fail_if_missing = getattr(pooling_config, 'fail_if_missing_pool', True)
+
+        logger.info(
+            f"[MultiEnvEvaluator] VecEnv pooling config: enabled={self._pool_enabled}, "
+            f"prewarm={self._pool_prewarm}, fail_if_missing={self._pool_fail_if_missing}"
+        )
+
     @staticmethod
     def _parse_env_flag(name: str, default: bool, override: Optional[bool] = None) -> bool:
         if override is not None:
@@ -164,7 +206,97 @@ class MultiEnvEvaluator:
     def _dbg_print(self, msg: str) -> None:
         if self._debug:
             print(msg, flush=True)
-    
+
+    def prewarm(self) -> None:
+        """
+        Pre-create VecEnv worker processes before heavy runtime init.
+
+        This must be called BEFORE Ray/torch distributed/vLLM initialization
+        to avoid late-fork deadlocks. Creates one VecEnv pool entry per
+        distinct worker count needed by evaluation configs.
+
+        The pool entries use a neutral config (workers will be reconfigured
+        via hard_reset before actual evaluation).
+        """
+        if not self._pool_enabled:
+            logger.info("[MultiEnvEvaluator] Pooling disabled, skipping prewarm")
+            return
+
+        if not self._pool_prewarm:
+            logger.info("[MultiEnvEvaluator] Prewarm disabled, pools will be created lazily (may cause late-fork issues)")
+            return
+
+        # Compute all distinct worker counts needed
+        worker_counts: Set[int] = set()
+        for env_config in self.eval_environments:
+            n_rollouts = env_config.get('n_rollouts')
+            if n_rollouts is None or n_rollouts <= 0:
+                continue
+            batch_size = env_config.get('batch_size')
+            if batch_size is not None and batch_size > 0 and batch_size < n_rollouts:
+                # Batched eval: VecEnv has batch_size workers
+                worker_counts.add(batch_size)
+            else:
+                # Non-batched: VecEnv has n_rollouts workers
+                worker_counts.add(n_rollouts)
+
+        if not worker_counts:
+            logger.info("[MultiEnvEvaluator] No worker counts to prewarm")
+            return
+
+        logger.info(f"[MultiEnvEvaluator] Prewarming VecEnv pools for worker counts: {sorted(worker_counts)}")
+
+        # Use first eval env's config as base for prewarm (will be hard_reset before use)
+        base_env_config = self.eval_environments[0]
+        base_env_name = base_env_config.get('env_name', self.config.envs.env_name)
+        base_task = base_env_config.get('task', getattr(self.config.envs, 'task', None))
+
+        for worker_count in sorted(worker_counts):
+            if worker_count in self._pool_by_worker_count:
+                logger.debug(f"[MultiEnvEvaluator] Pool for worker_count={worker_count} already exists, skipping")
+                continue
+
+            start_time = time.perf_counter()
+
+            # Create temp config with this worker count
+            temp_config = self._create_env_config(base_env_config, n_rollouts_override=worker_count)
+
+            # Create VecEnv (this forks worker processes early, before heavy runtime init)
+            vec_env = make_vec_env(
+                base_env_name,
+                base_task,
+                temp_config,
+                render_mode=None,
+            )
+
+            self._pool_by_worker_count[worker_count] = vec_env
+
+            elapsed = time.perf_counter() - start_time
+            logger.info(f"[MultiEnvEvaluator] Prewarmed pool for worker_count={worker_count} in {elapsed:.2f}s")
+
+        logger.info(f"[MultiEnvEvaluator] Prewarm complete. Pool sizes: {list(self._pool_by_worker_count.keys())}")
+
+    def close(self) -> None:
+        """Close all pooled VecEnvs and release resources."""
+        if not self._pool_by_worker_count:
+            return
+
+        logger.info(f"[MultiEnvEvaluator] Closing {len(self._pool_by_worker_count)} pooled VecEnv(s)")
+
+        for worker_count, vec_env in list(self._pool_by_worker_count.items()):
+            try:
+                vec_env.close()
+                logger.debug(f"[MultiEnvEvaluator] Closed pool for worker_count={worker_count}")
+            except Exception as e:
+                logger.error(f"[MultiEnvEvaluator] Failed to close pool for worker_count={worker_count}: {e}")
+
+        self._pool_by_worker_count.clear()
+        logger.info("[MultiEnvEvaluator] All pooled VecEnvs closed")
+
+    def _get_pooled_vecenv(self, worker_count: int) -> Optional[VecEnv]:
+        """Get a VecEnv from the pool, or None if not available."""
+        return self._pool_by_worker_count.get(worker_count)
+
     def evaluate(self, global_step):
         """
         Run evaluation across all configured environments.
@@ -228,9 +360,9 @@ class MultiEnvEvaluator:
                 print(f"Completed evaluation for {eval_name} ({', '.join(timing_parts)})")
 
             except Exception as e:
-                print(f"[ERROR] MultiEnvEvaluator: Failed to evaluate environment {eval_name}: {e}")
+                logger.error(f"[MultiEnvEvaluator] Failed to evaluate environment {eval_name}: {e}")
                 import traceback
-                print(f"[ERROR] MultiEnvEvaluator: Traceback: {traceback.format_exc()}")
+                logger.error(f"[MultiEnvEvaluator] Traceback: {traceback.format_exc()}")
                 raise
 
             gc.collect()
@@ -659,18 +791,77 @@ class MultiEnvEvaluator:
         total_state_action_accum_time = 0.0
         total_tokenizer_time = 0.0
 
-        # =========== CREATE VECENV ONCE (reused across batches) ===========
-        # Create VecEnv with batch_size workers - workers are expensive to init,
-        # so we reuse them across batches instead of creating/destroying per batch.
+        # =========== GET OR CREATE VECENV ===========
+        # Try to use pooled VecEnv first (avoids late-fork deadlock).
+        # If pooled, use hard_reset to reconfigure for this eval env.
         temp_config = self._create_env_config(env_config, n_rollouts_override=batch_size)
 
         vecenv_create_start = time.perf_counter()
-        vec_envs = make_vec_env(
-            env_config['env_name'],
-            temp_config.envs.task,
-            temp_config,
-            render_mode=None
-        )
+        vec_envs = self._get_pooled_vecenv(batch_size)
+        used_pooled_vecenv = vec_envs is not None
+
+        if used_pooled_vecenv:
+            # Reconfigure pooled VecEnv for this evaluation
+            self._dbg_print(f"[MultiEnvEvaluator] {eval_name}: Using pooled VecEnv (worker_count={batch_size})")
+
+            # Warn if eval env_name differs from training env_name (spec constraint)
+            training_env_name = self.config.envs.env_name
+            eval_env_name_for_reset = env_config['env_name']
+            if eval_env_name_for_reset != training_env_name:
+                logger.warning(
+                    f"[MultiEnvEvaluator] {eval_name}: eval env_name '{eval_env_name_for_reset}' differs from "
+                    f"training env_name '{training_env_name}'. Cross-env evaluation during training is not fully "
+                    f"supported and may produce unexpected behavior."
+                )
+
+            try:
+                vec_envs.hard_reset(
+                    env_name=env_config['env_name'],
+                    task=temp_config.envs.task,
+                    config=temp_config,
+                    render_mode=None
+                )
+            except RuntimeError as e:
+                # hard_reset failed - VecEnv may be in mixed state
+                if vec_envs.unusable:
+                    # Evict from pool and close to prevent reuse of corrupted state
+                    logger.error(
+                        f"[MultiEnvEvaluator] {eval_name}: hard_reset failed, VecEnv marked unusable. "
+                        f"Evicting from pool and closing."
+                    )
+                    del self._pool_by_worker_count[batch_size]
+                    try:
+                        vec_envs.close()
+                    except Exception as close_err:
+                        logger.warning(f"[MultiEnvEvaluator] {eval_name}: Failed to close unusable VecEnv: {close_err}")
+                raise
+        else:
+            # No pooled VecEnv available
+            if self._pool_fail_if_missing:
+                # FAIL FAST: Do not late-fork. This would reintroduce the deadlock risk.
+                raise RuntimeError(
+                    f"[MultiEnvEvaluator] {eval_name}: No pooled VecEnv for worker_count={batch_size}. "
+                    f"This would require late process creation which can deadlock. "
+                    f"Ensure prewarm() was called before init_workers() and that batch_size ({batch_size}) "
+                    f"matches one of the prewarmed worker counts: {list(self._pool_by_worker_count.keys())}. "
+                    f"Check eval config n_rollouts/batch_size values. "
+                    f"Set evaluation.vecenv_pooling.fail_if_missing_pool=false to allow late creation (risky)."
+                )
+            else:
+                # FALLBACK: Late creation allowed (user explicitly opted in via config)
+                logger.warning(
+                    f"[MultiEnvEvaluator] {eval_name}: Creating VecEnv late (worker_count={batch_size}). "
+                    f"This may cause deadlocks if fork is used after threads are started. "
+                    f"Consider prewarming all needed worker counts."
+                )
+                vec_envs = make_vec_env(
+                    env_config['env_name'],
+                    temp_config.envs.task,
+                    temp_config,
+                    render_mode=None
+                )
+                # Don't add to pool - this is a one-off late creation
+                used_pooled_vecenv = False
         vecenv_create_end = time.perf_counter()
         total_vecenv_create_time = vecenv_create_end - vecenv_create_start
 
@@ -814,9 +1005,9 @@ class MultiEnvEvaluator:
                         env_step_end = time.perf_counter()
                         total_env_step_time += (env_step_end - env_step_start)
                     except Exception as e:
-                        print(f"[ERROR] MultiEnvEvaluator: Exception in val_env.step: {e}")
+                        logger.error(f"[MultiEnvEvaluator] Exception in val_env.step: {e}")
                         import traceback
-                        print(f"[ERROR] MultiEnvEvaluator: Traceback: {traceback.format_exc()}")
+                        logger.error(f"[MultiEnvEvaluator] Traceback: {traceback.format_exc()}")
                         raise
 
                     was_valid_list = self._extract_from_info(info_vec, "action_was_valid")
@@ -931,12 +1122,16 @@ class MultiEnvEvaluator:
             # =========== END BATCH LOOP ===========
 
         finally:
-            # Close VecEnv once after all batches (with timing)
+            # Pooled VecEnvs are NOT closed here - they're reused across evaluations
+            # and closed by MultiEnvEvaluator.close() at trainer shutdown.
+            # But late-created (non-pooled) VecEnvs MUST be closed to avoid leaks.
             vecenv_close_start = time.perf_counter()
-            try:
-                vec_envs.close()
-            except Exception as e:
-                print(f"[ERROR] MultiEnvEvaluator: Failed to close VecEnv: {e}")
+            if not used_pooled_vecenv and vec_envs is not None:
+                try:
+                    vec_envs.close()
+                    logger.debug(f"[MultiEnvEvaluator] {eval_name}: Closed late-created VecEnv")
+                except Exception as e:
+                    logger.warning(f"[MultiEnvEvaluator] {eval_name}: Failed to close late-created VecEnv: {e}")
             vecenv_close_end = time.perf_counter()
             total_vecenv_close_time = vecenv_close_end - vecenv_close_start
 

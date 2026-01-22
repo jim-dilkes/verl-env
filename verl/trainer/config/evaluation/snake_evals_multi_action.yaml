@@ -256,7 +256,8 @@ evaluation:
     # --- Config: FastSnake StateVisitation (Multi-Action) ---
     # Uses inherit_training_multiaction to measure exploration with same epsilon as training
     - name: "FastSnake-Default-StateVisitation"
-      n_rollouts: 400
+      n_rollouts: 300
+      batch_size: 50
       episode_length: 8
       generation:
         temperature: 1.25
