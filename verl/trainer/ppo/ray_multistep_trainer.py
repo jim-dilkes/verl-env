@@ -709,19 +709,33 @@ class RayMultistepTrainer(object):
             self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
             self.config.critic.optim.total_training_steps = total_training_steps
 
-    def _maybe_log_val_generations(self, inputs, outputs, scores):
-        """Log a table of validation samples to the configured logger (wandb or swanlab)"""
+    def _format_episode(self, ep_content_list):
+        """Format episode content (inputs or outputs) into a readable string with step headers."""
+        if not ep_content_list:
+            return "No content recorded"
 
+        formatted_steps = []
+        for i, text in enumerate(ep_content_list):
+            formatted_steps.append(f"---\nStep {i+1}\n---\n{text}")
+
+        return "\n\n---\n\n".join(formatted_steps)
+
+    def _maybe_log_val_generations(self, episode_samples):
+        """Log validation episode samples to the configured logger (wandb or swanlab).
+
+        Args:
+            episode_samples: List of tuples (formatted_input, formatted_output, score, reward, max_length_steps)
+                Each tuple represents a full episode from one environment.
+        """
         generations_to_log = self.config.trainer.log_val_generations
 
-        if generations_to_log == 0:
+        if generations_to_log == 0 or not episode_samples:
             return
 
         import numpy as np
 
-        # Create tuples of (input, output, score) and sort by input text
-        samples = list(zip(inputs, outputs, scores))
-        samples.sort(key=lambda x: x[0])  # Sort by input text
+        # Sort by first input text for consistency
+        samples = sorted(episode_samples, key=lambda x: x[0])
 
         # Use fixed random seed for deterministic shuffling
         rng = np.random.RandomState(42)
@@ -730,7 +744,7 @@ class RayMultistepTrainer(object):
         # Take first N samples after shuffling
         samples = samples[:generations_to_log]
 
-        # Log to each configured logger
+        # Log to each configured logger (5-tuple format: input, output, score, reward, max_length_steps)
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps, table_name="val_gen/generations")
 
     def _validate(self):
@@ -745,50 +759,57 @@ class RayMultistepTrainer(object):
         else:
             val_seed = 0
         val_obs, _ = self.val_env.reset(seed=val_seed, use_incremental_seeds=True)
-        
-        # Lists to collect samples for the table
-        sample_inputs = []
-        sample_outputs = []
-        sample_scores = []
+
+        n_envs = len(val_obs)
+
+        # Per-env tracking for episode logging (like eval tables)
+        env_inputs = [[] for _ in range(n_envs)]
+        env_outputs = [[] for _ in range(n_envs)]
+        env_max_length_steps = [[] for _ in range(n_envs)]
+
         end_of_traj = None
         rew_of_traj = 0.
         len_of_traj = 0.
-        
+        step_idx = 0
+
         while True:
-            
+
             self.tokenizer.padding_side = "left"
-            val_input_obs_text = self.tokenizer.apply_chat_template(val_obs, tokenize=False, add_generation_prompt=True) #, enable_thinking=True)
-            sample_inputs.extend(val_input_obs_text)
+            val_input_obs_text = self.tokenizer.apply_chat_template(val_obs, tokenize=False, add_generation_prompt=True)
             val_input_obs = self.tokenizer(val_input_obs_text, return_tensors='pt', padding='max_length', truncation=True, max_length=max_seq_len)
             input_ids = val_input_obs['input_ids']
             attention_mask = val_input_obs['attention_mask']
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
-            
+
+            # Track per-env inputs and detect max_length truncation
+            for env_idx in range(n_envs):
+                if end_of_traj is None or not end_of_traj[env_idx]:
+                    env_inputs[env_idx].append(val_input_obs_text[env_idx])
+                    # Check if input hit max_seq_len (truncation)
+                    if attention_mask[env_idx].sum().item() >= max_seq_len:
+                        env_max_length_steps[env_idx].append(step_idx)
+
             val_obs_data = {
                 'input_ids': input_ids,
                 'attention_mask': attention_mask,
                 'position_ids': position_ids,
             }
             val_gen_batch = DataProto.from_dict(tensors=val_obs_data)
-            
-            # val_gen_batch.meta_info = {
-            #     'eos_token_id': self.tokenizer.eos_token_id,
-            #     'pad_token_id': self.tokenizer.pad_token_id,
-            #     'recompute_log_prob': False,
-            #     'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
-            #     'validate': True,
-            # }
-            
+
             val_gen_batch.meta_info["step"] = None
             val_gen_batch_output = self.actor_rollout_wg.generate_sequences(val_gen_batch)
-                        
+
             response_ids = val_gen_batch_output.batch['responses']
             actions = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
-            sample_outputs.extend(actions)
-            
+
+            # Track per-env outputs
+            for env_idx in range(n_envs):
+                if end_of_traj is None or not end_of_traj[env_idx]:
+                    env_outputs[env_idx].append(actions[env_idx])
+
             val_obs, val_reward, val_terminated, val_truncated, _ = self.val_env.step(actions)
-            
+
             if end_of_traj is None:
                 end_of_traj = np.logical_or(val_terminated, val_truncated)
                 rew_of_traj = val_reward
@@ -800,13 +821,24 @@ class RayMultistepTrainer(object):
                 len_of_traj += (~end_of_traj).astype(np.float32)
                 end_of_traj = np.logical_or(end_of_traj, done)
                 pos_rew_of_traj = np.logical_or(pos_rew_of_traj, (np.array(val_reward) > 0.) * 1.)
-            sample_scores.extend(rew_of_traj)
-            
+
+            step_idx += 1
+
             if end_of_traj.all():
                 break
-        
-        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
-        
+
+        # Format episode samples for logging (matching eval table format)
+        episode_samples = []
+        for env_idx in range(n_envs):
+            formatted_input = self._format_episode(env_inputs[env_idx])
+            formatted_output = self._format_episode(env_outputs[env_idx])
+            score = float(rew_of_traj[env_idx])
+            reward = float(rew_of_traj[env_idx])  # For val, score and reward are the same
+            max_length_steps = str(env_max_length_steps[env_idx])
+            episode_samples.append((formatted_input, formatted_output, score, reward, max_length_steps))
+
+        self._maybe_log_val_generations(episode_samples)
+
         succ_of_traj = (np.array(rew_of_traj) > 0.) * 1.
         
         metric_dict = {
@@ -1593,10 +1625,28 @@ class RayMultistepTrainer(object):
                 if is_last_step:
                     pprint(f'Final validation metrics: {last_val_metrics}')
                     progress_bar.close()
+                    tracking_logger.finish()  # Ensure wandb syncs final data before exit
                     return
 
                 progress_bar.update(1)
                 self.global_steps += 1
+
+            # If loop ended without reaching is_last_step (total_epochs < total_training_steps),
+            # run final evaluation to ensure we always have end-of-training metrics
+            print(f"[RayPPOTrainer] Training loop ended at global_step={self.global_steps}")
+            if self.val_reward_fn is not None and self.global_steps > self.critic_warmup_step:
+                print(f"[RayPPOTrainer] Running final evaluation (loop ended before is_last_step)")
+                if self.multi_env_evaluator is not None:
+                    evaluation_metrics = self.multi_env_evaluator.evaluate(self.global_steps)
+                    tracking_logger.log(data=evaluation_metrics, step=self.global_steps)
+                    pprint(f'Final evaluation metrics: {evaluation_metrics}')
+                else:
+                    validation_metrics = self._validate()
+                    tracking_logger.log(data=validation_metrics, step=self.global_steps)
+                    pprint(f'Final validation metrics: {validation_metrics}')
+
+            progress_bar.close()
+            tracking_logger.finish()  # Ensure wandb syncs final data before exit
         finally:
             # Ensure cleanup runs on all exit paths (normal, is_last_step, exception)
             if self.multi_env_evaluator is not None:
