@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=swarm_h100,dual_h200,quad_h200
+#SBATCH --partition=dual_h200,quad_h200
 #SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
