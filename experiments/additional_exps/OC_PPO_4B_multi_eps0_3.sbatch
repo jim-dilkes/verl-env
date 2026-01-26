@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_a100,a100
+#SBATCH --partition=swarm_h100,swarm_a100,a100
 #SBATCH --time=48:00:00
 #SBATCH --gpus-per-node=2
 
@@ -24,6 +24,17 @@ short_temp_dir=/tmp/ray/${user_name}/${job_id}
 mkdir -p "$short_temp_dir"
 readable_log_root=/scratch/${user_name}/ray_logs
 mkdir -p "$readable_log_root"
+
+# Tell Ray to place its session_* dir (raylet/plasma/gcs logs) here.
+# Without this, Ray defaults to something like /tmp/ray/session_*/ on the compute node,
+# and the symlink below will usually point at a non-existent path.
+export RAY_TMPDIR="$short_temp_dir"
+export TMPDIR="$short_temp_dir"
+
+# Useful when Ray dies early (raylet crash -> workers get EOF). Captures raylet/plasma logs in SLURM output.
+export RAY_LOG_TO_STDERR=1
+
+
 
 experiment_run_name=${experiment_name}_run${run_number}_slu${job_id}
 export WANDB_DIR="wandb/${experiment_run_name}"
@@ -87,6 +98,7 @@ critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
 rollout_max_num_batched_tokens=$((micro_batch_size * max_token_len_per_gpu + 2560))
 rollout_max_num_seqs=$((2048))
 
+set +e
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
@@ -183,16 +195,23 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
   trainer.tags=$WANDB_TAGS \
+  ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-32} \
+  +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
   evaluation=overcooked_evals_combined \
   prompt=overcooked_multi_action \
   prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
+python_status=${PIPESTATUS[0]}
+set -e
 
-actual_session_dir="${short_temp_dir}/session_latest"
+
+actual_session_dir="${short_temp_dir}/ray/session_latest"
 readable_log_path="${readable_log_root}/${experiment_run_name}"
 if [ -d "$actual_session_dir" ]; then
-    ln -sfn "$actual_session_dir" "$readable_log_path"
-    echo "Ray logs accessible at: $readable_log_path"
+    mkdir -p "$readable_log_path"
+    # Copy logs to shared scratch so they survive node-local /tmp cleanup.
+    cp -a "$actual_session_dir/logs" "$readable_log_path/" || true
+    echo "Ray logs copied to: $readable_log_path/logs"
 fi
 
 if [ -n "$RAY_HEAD_PID" ]; then
@@ -201,3 +220,5 @@ if [ -n "$RAY_HEAD_PID" ]; then
     kill $RAY_HEAD_PID 2>/dev/null || true
     echo "Ray cluster stopped."
 fi
+
+exit $python_status
