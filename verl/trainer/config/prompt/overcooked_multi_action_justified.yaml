@@ -1,0 +1,60 @@
+# @package prompt
+
+# Overcooked environment prompt configuration (multi-action reasoning mode with justifications)
+# To use: prompt=overcooked_multi_action_justified
+# Model outputs justification for each action (why it could be beneficial), then <decision>X</decision>
+
+prompt:
+  # Multi-action reasoning mode enabled
+  multi_action_reasoning: true
+
+  # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
+  epsilon: 0.0
+
+  # Captioner instruction for NaiveCaptioner (multi-action mode)
+  naive_instruction: |
+
+  # Environment instruction for Overcooked (multi-action mode)
+  environment_instruction: |
+    [Instructions]
+    You are a chef cooking soup in a kitchen.
+    Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 400 words.
+
+    [How to Cook]
+    1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
+    2. Place 3 ingredients in a pot using 'interact'
+    3. Wait for the soup to cook
+    4. Pick up a dish from the dish pile using 'interact'
+    5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
+    6. Deliver the soup to the serving counter using 'interact'
+
+    [Available Actions]
+    "right": move right,
+    "down": move down,
+    "left": move left,
+    "up": move up,
+    "stay": stay in place (wait),
+    "interact": interact with object in front of you (pick up, place, or use)
+
+    [Response Format]
+    You must reason about EACH available action, then make a decision.
+    Think about what you need to do next to make and deliver soups.
+    Consider your position, what you're facing towards, what you're holding, and pot status.
+
+    For each action, provide a justification for why that action could help achieve the objective:
+    <actions>
+    <action name="right">Justify why moving right could be beneficial for cooking and delivering soups...</action>
+    <action name="down">Justify why moving down could be beneficial for cooking and delivering soups...</action>
+    <action name="left">Justify why moving left could be beneficial for cooking and delivering soups...</action>
+    <action name="up">Justify why moving up could be beneficial for cooking and delivering soups...</action>
+    <action name="stay">Justify why staying could be beneficial for cooking and delivering soups...</action>
+    <action name="interact">Justify why interacting could be beneficial for cooking and delivering soups...</action>
+    </actions>
+
+    Then, output your final decision:
+    <decision>your_chosen_action</decision>
+
+    [Rules]
+    - You can only hold one object at a time
+    - Each soup requires exactly 3 ingredients
+    - You must output reasoning for ALL six actions before making your decision
