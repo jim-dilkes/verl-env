@@ -1,22 +1,40 @@
 #!/bin/bash
-#SBATCH --job-name=FS_PPO_4B_multi_eps0_1_h100
+#SBATCH --job-name=FS_PPO_4B_h100_test_2
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=250GB
+#SBATCH --mem=150GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=8
 #SBATCH --partition=swarm_h100
-#SBATCH --time=48:00:00
-#SBATCH --gpus-per-node=2
+#SBATCH --time=01:00:00
+#SBATCH --gpus-per-node=1
 
 set -euo pipefail
 
+# --- Diagnostics (helps explain partition-specific Ray failures) ---
+echo "==================== DIAGNOSTICS ===================="
+date
+echo "host: $(hostname)"
+echo "slurm: job=$SLURM_JOB_ID partition=$SLURM_JOB_PARTITION nodes=${SLURM_JOB_NUM_NODES:-?} cpus_per_task=${SLURM_CPUS_PER_TASK:-?} gpus=${SLURM_GPUS:-${SLURM_GPUS_ON_NODE:-?}}"
+echo "pwd: $PWD"
+echo "whoami: $(whoami)"
+echo "nproc: $(nproc)"
+echo "ulimit -a:"; ulimit -a || true
+echo "--- /proc/self/cgroup ---"; cat /proc/self/cgroup || true
+echo "--- cgroup mounts ---"; mount | grep -E 'cgroup|cgroup2' || true
+echo "--- /sys/fs/cgroup (top) ---"; ls -la /sys/fs/cgroup 2>/dev/null | head -n 80 || true
+echo "--- df -h (/dev/shm, /tmp, $TMPDIR) ---"; df -h /dev/shm /tmp "${TMPDIR:-/tmp}" 2>/dev/null || true
+echo "--- env (ray/cuda/nccl/ucx) ---"; env | grep -E '^(RAY|CUDA|NCCL|UCX|SLURM|TMPDIR|HF_HOME|TRANSFORMERS_|WANDB_)' | sort || true
+echo "python: $(command -v python3 || true)"; python3 -V || true
+python3 -c "import ray; print('ray:', ray.__version__)" 2>/dev/null || true
+echo "====================================================="
+
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=FS_PPO_4B_multi_eps0
+experiment_name=FS_PPO_4B_h100_test_2
 run_number=1
-number_of_gpus=2
+number_of_gpus=1
 WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1","multi-act","epsilon:0.0"]'
 
 job_id=${SLURM_JOB_ID:-local}
@@ -73,7 +91,7 @@ export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=false
 export VERL_PPO_LOGGING_LEVEL=DEBUG
 
-MODEL_ID=Qwen/Qwen3-4B-Instruct-2507
+MODEL_ID=Qwen/Qwen3-0.6B-Base
 FOLDER_NAME="models--$(echo "$MODEL_ID" | sed 's/\//--/')"
 SNAPSHOT_DIR="$HF_HOME/hub/$FOLDER_NAME/snapshots"
 
@@ -195,7 +213,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.max_critic_ckpt_to_keep=1 \
   trainer.tags=$WANDB_TAGS \
     ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-32} \
-    ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
+    +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
   evaluation=snake_evals_combined \
   prompt=snake_multi_action \
