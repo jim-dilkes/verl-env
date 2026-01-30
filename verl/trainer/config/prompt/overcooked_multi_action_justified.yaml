@@ -43,12 +43,12 @@ prompt:
 
     For each action, provide a justification for why that action could help achieve the objective:
     <actions>
-    <action name="right">Justify why moving right could be beneficial for cooking and delivering soups...</action>
-    <action name="down">Justify why moving down could be beneficial for cooking and delivering soups...</action>
-    <action name="left">Justify why moving left could be beneficial for cooking and delivering soups...</action>
-    <action name="up">Justify why moving up could be beneficial for cooking and delivering soups...</action>
-    <action name="stay">Justify why staying could be beneficial for cooking and delivering soups...</action>
-    <action name="interact">Justify why interacting could be beneficial for cooking and delivering soups...</action>
+    <action name="right">Justify why moving right could be beneficial...</action>
+    <action name="down">Justify why moving down could be beneficial...</action>
+    <action name="left">Justify why moving left could be beneficial...</action>
+    <action name="up">Justify why moving up could be beneficial...</action>
+    <action name="stay">Justify why staying could be beneficial...</action>
+    <action name="interact">Justify why interacting could be beneficial...</action>
     </actions>
 
     Then, output your final decision:
