@@ -144,32 +144,165 @@ Recommend **Batched** for efficiency (single forward pass).
 7. [ ] Add per-prompt metrics tracking
 8. [ ] Implement confidence-weighted aggregation
 9. [ ] Add minority-was-correct analysis
-10. [ ] Create diverse prompt templates for Snake/Overcooked
 
 ### Phase 3: Analysis Tools
-11. [ ] Wandb dashboard for diversity metrics
-12. [ ] Episode logging with all prompt responses (for qualitative analysis)
+10. [ ] Wandb dashboard for diversity metrics
+11. [ ] Episode logging with all prompt responses (for qualitative analysis)
 
 ---
 
-## Key Questions for Jim
+## Technical Implementation Details
 
-1. **Prompt design**: Should prompts be:
-   - Instruction suffixes (append to existing prompt)?
-   - Full instruction replacements?
-   - Persona-based ("You are a cautious player...")?
+### Config Structure
+```yaml
+parallel_diverse:
+  enabled: true
+  aggregation: "majority_vote"  # majority_vote | first_valid | unanimous
+  
+  prompts:
+    - name: "baseline"
+      suffix: null
+    - name: "cautious"
+      suffix: "CRITICAL: Safety first. Never collide..."
+    - name: "aggressive"
+      suffix: "PRIORITY: Serve dishes fast..."
+    # ... more prompts
+    
+  # Metrics config
+  track_agreement: true
+  track_per_prompt: true
+  log_all_responses: false  # Expensive, for debugging
+```
 
-2. **Aggregation priority**: Which method to implement first?
-   - Majority vote (simplest)
-   - Confidence-weighted (needs token prob extraction)
+### Code Changes (multi_env_evaluator.py)
 
-3. **Batching strategy**: 
-   - Accept K× inference cost per step?
-   - Or run fewer rollouts to compensate?
+**1. Config parsing in `_create_env_config()`:**
+```python
+# Extract parallel_diverse config
+parallel_diverse = env_config.get('parallel_diverse', None)
+if parallel_diverse and parallel_diverse.get('enabled', False):
+    temp_config.parallel_diverse = parallel_diverse
+```
 
-4. **Environments**: Start with Snake only, or both Snake + Overcooked?
+**2. New method `_apply_prompt_suffix()`:**
+```python
+def _apply_prompt_suffix(self, obs_text: str, suffix: Optional[str]) -> str:
+    """Append suffix to the last user message content."""
+    if suffix is None:
+        return obs_text
+    # Insert before the response format section or at end
+    return obs_text + "\n\n" + suffix.strip()
+```
 
-5. **Baseline comparison**: Should we always include a "no suffix" baseline prompt in the ensemble?
+**3. Modified inference loop:**
+```python
+# In _evaluate_single_env_body, if parallel_diverse enabled:
+diverse_cfg = env_config.get('parallel_diverse')
+prompts = diverse_cfg['prompts']
+K = len(prompts)
+
+# Expand batch: B observations → K×B observations with different suffixes
+expanded_obs = []
+for obs in val_input_obs_text:  # B observations
+    for prompt_cfg in prompts:  # K prompts
+        suffix = prompt_cfg.get('suffix')
+        expanded_obs.append(self._apply_prompt_suffix(obs, suffix))
+
+# Single batched inference: K×B prompts
+# ... tokenize expanded_obs ...
+val_gen_batch_output = self.actor_rollout_wg.generate_sequences(val_gen_batch)
+
+# Reshape responses: (K×B,) → (B, K)
+responses = responses.reshape(batch_size, K)
+
+# Aggregate per rollout
+final_actions = []
+for rollout_responses in responses:
+    actions = [extract_action(r) for r in rollout_responses]
+    final_action = self._majority_vote(actions)
+    final_actions.append(final_action)
+```
+
+**4. Majority vote aggregation:**
+```python
+def _majority_vote(self, actions: List[str]) -> str:
+    """Return most common action; tie-break by first occurrence."""
+    from collections import Counter
+    counts = Counter(actions)
+    return counts.most_common(1)[0][0]
+```
+
+**5. Agreement metrics:**
+```python
+def _compute_agreement_metrics(self, all_actions: np.ndarray) -> Dict:
+    """Compute agreement across prompts for each step."""
+    # all_actions: shape (n_steps, K)
+    agreement_ratios = []
+    for step_actions in all_actions:
+        unique = len(set(step_actions))
+        agreement_ratios.append(1.0 if unique == 1 else 0.0)
+    return {
+        "unanimous_ratio": np.mean(agreement_ratios),
+        "mean_unique_actions": np.mean([len(set(a)) for a in all_actions]),
+    }
+```
+
+### Eval Config File
+Create: `verl/trainer/config/evaluation/overcooked_diverse.yaml`
+
+---
+
+## Decisions (from Jim)
+
+1. **Prompt design**: Suffix with persona/approach + bio-inspired separation
+2. **Aggregation**: Majority vote (Dipper default)
+3. **Cost**: Accept K× inference — no backprop = more memory for batch
+4. **Environment**: Overcooked
+5. **Baseline**: Yes, include unmodified baseline
+
+---
+
+## Bio-Inspired Prompt Diversity
+
+Drawing from biological parallels (motor planning, bee swarms, Bayesian brain):
+
+| Prompt Name | Bio Inspiration | Focus |
+|-------------|-----------------|-------|
+| `baseline` | Control | No suffix — standard behavior |
+| `cautious` | Threat avoidance (amygdala) | Prioritize safety, avoid collisions/fire |
+| `aggressive` | Reward-seeking (dopamine) | Prioritize scoring, take calculated risks |
+| `strategic` | Prefrontal planning | Think ahead, optimize position |
+| `myopic` | Reactive (brainstem) | Immediate step only, fastest valid action |
+| `cooperative` | Social behavior | Focus on teammate coordination |
+
+**Overcooked-specific prompts:**
+```yaml
+prompts:
+  - name: "baseline"
+    suffix: null
+    
+  - name: "cautious"
+    suffix: |
+      CRITICAL: Safety first. Never collide with your teammate.
+      Avoid crowded areas. Wait rather than risk collision.
+    
+  - name: "aggressive"  
+    suffix: |
+      PRIORITY: Serve dishes as fast as possible. 
+      Take the shortest path to ingredients. Speed over safety.
+    
+  - name: "strategic"
+    suffix: |
+      THINK AHEAD: Consider what your teammate is doing.
+      Position yourself for the next dish, not just the current one.
+      Optimize your path for multiple future actions.
+    
+  - name: "cooperative"
+    suffix: |
+      TEAMWORK FOCUS: Watch your teammate's position and likely goal.
+      Stay out of their way. Pass items when it helps.
+      Two coordinated players beat two independent players.
+```
 
 ---
 
@@ -185,19 +318,29 @@ verl/envs/captioners/                     # Optional: DiverseCaptioner
 
 ## Connection to Dipper Paper
 
-**Dipper approach:**
-- Diverse prompts optimized for diversity (not hand-crafted)
-- Inference-time ensemble (no training)
-- Voting for final answer
+**Dipper approach (EMNLP 2025):**
+- 3 components: Prompt Generator → Prompt Selector → Response Aggregator
+- Optimizes prompt diversity using DPP-inspired selection (fidelity × diversity)
+- Uses majority vote aggregation
+- Key result: 3× Qwen2-1.5B ensemble beats single 7B model on MATH
 
-**Our adaptation:**
-- Start with hand-crafted diverse prompts (cautious/aggressive/strategic)
-- Sequential decision-making (not single-shot)
-- Can measure exploration benefits over episodes
+**Our adaptation for SDM:**
+- Hand-crafted bio-inspired diverse prompts (v1, can optimize later)
+- Sequential decision-making (not single-shot reasoning)
+- Track per-step agreement + per-episode outcomes
+- Can measure exploration benefits across trajectory
+
+**Key differences:**
+| Aspect | Dipper | Our Approach |
+|--------|--------|--------------|
+| Task type | Single-shot reasoning | Sequential decisions |
+| Prompt source | LLM-generated + optimized | Hand-crafted + bio-inspired |
+| Metrics | Accuracy | Reward + agreement + coverage |
+| Training | None | None (v1), RL on ensemble (v2) |
 
 **Future extensions:**
-- Learn optimal diverse prompt set
-- RL training on ensemble outputs
+- Learn optimal diverse prompt set (DPP-style selection)
+- RL training on ensemble outputs (reward all agreeing prompts)
 - Prompt baking (Project 6 integration)
 
 ---
