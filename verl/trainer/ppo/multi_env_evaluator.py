@@ -767,6 +767,24 @@ class MultiEnvEvaluator:
         entropy_unique_valid_actions: List[int] = []
         entropy_probe_time = 0.0
 
+        # Parallel diverse prompting configuration
+        diverse_config = env_config.get('parallel_diverse')
+        diverse_enabled = diverse_config is not None and diverse_config.get('enabled', False)
+        diverse_n_prompts = 1  # Will be set when first expansion happens
+        diverse_all_agreement_info: List[List[Dict]] = []  # Per-step agreement info
+
+        if diverse_enabled:
+            prompts_cfg = diverse_config.get('prompts', [])
+            if not prompts_cfg:
+                logger.warning(f"[MultiEnvEvaluator] {eval_name}: parallel_diverse enabled but no prompts configured")
+                diverse_enabled = False
+            else:
+                diverse_n_prompts = len(prompts_cfg)
+                print(
+                    f"[MultiEnvEvaluator] Parallel diverse prompting enabled for {eval_name}: "
+                    f"{diverse_n_prompts} prompt variants, aggregation={diverse_config.get('aggregation', 'majority_vote')}"
+                )
+
         # Track per-rollout output token counts for the *last generated step*.
         # This keeps toks_out_mean/std invariant to batch_size (concat batches -> n_rollouts).
         response_n_tokens_last_step: List[Optional[int]] = [None] * n_rollouts
@@ -947,6 +965,14 @@ class MultiEnvEvaluator:
                         if not track_standard_metrics and not pending_entropy_steps:
                             break
 
+                    # Expand prompts for parallel diverse evaluation
+                    # Store original for episode logging, expand for inference
+                    original_obs_text = val_input_obs_text
+                    if diverse_enabled:
+                        val_input_obs_text, diverse_n_prompts = self._expand_for_diverse_prompts(
+                            val_input_obs_text, diverse_config
+                        )
+
                     val_input_obs = self.tokenizer(
                         val_input_obs_text,
                         return_tensors='pt',
@@ -981,9 +1007,42 @@ class MultiEnvEvaluator:
                     response_ids = val_gen_batch_output.batch['responses']
                     full_responses = self.tokenizer.batch_decode(response_ids, skip_special_tokens=True)
 
+                    # Aggregate diverse responses back to batch_n responses
+                    if diverse_enabled:
+                        # Get action extraction function for aggregation
+                        if 'multi_action_reasoning' in env_config:
+                            multi_action = env_config['multi_action_reasoning']
+                        elif hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt'):
+                            multi_action = getattr(self.config.prompt.prompt, 'multi_action_reasoning', False)
+                        else:
+                            multi_action = False
+                        diverse_action_extraction_fn = get_action_extraction_fn(eval_env_name, multi_action=multi_action)
+
+                        full_responses, step_agreement_info = self._aggregate_diverse_responses(
+                            full_responses,
+                            batch_n,
+                            diverse_n_prompts,
+                            diverse_action_extraction_fn,
+                            diverse_config.get('aggregation', 'majority_vote'),
+                        )
+                        diverse_all_agreement_info.append(step_agreement_info)
+
+                        # Also fix response_ids shape for token counting (take first of each K group)
+                        # Note: token counts will be from the winning response after aggregation
+                        # For simplicity, we'll use the mean tokens across all K responses
+                        response_n_tokens_expanded = (response_ids != self.tokenizer.pad_token_id).sum(dim=-1)
+                        response_ids_aggregated = []
+                        for i in range(batch_n):
+                            # Use the token count from the response we're returning
+                            # For now, just take mean of all K responses for this rollout
+                            start_idx = i * diverse_n_prompts
+                            response_ids_aggregated.append(response_ids[start_idx])
+                        response_ids = response_ids[::diverse_n_prompts]  # Take every K-th (first of each group)
+
                     # Track first rollout for logging (only from first batch)
                     if track_standard_metrics and not episode_tracked and batch_idx == 0:
-                        episode_inputs.append(val_input_obs_text[0])
+                        # Use original (non-expanded) prompt for episode logging
+                        episode_inputs.append(original_obs_text[0] if diverse_enabled else val_input_obs_text[0])
                         episode_outputs.append(full_responses[0])
                         # Check if input was truncated (hit max_seq_len)
                         if attention_mask[0].sum().item() >= max_seq_len:
@@ -1356,6 +1415,11 @@ class MultiEnvEvaluator:
         # Always include VecEnv creation time (useful for diagnosing slow evals)
         metric_dict["vecenv_create_time_seconds"] = total_vecenv_create_time
 
+        # Add parallel diverse prompting metrics
+        if diverse_enabled and diverse_all_agreement_info:
+            diverse_metrics = self._compute_diverse_metrics(diverse_all_agreement_info)
+            metric_dict.update(diverse_metrics)
+
         episode_data = None
         if track_standard_metrics and episode_tracked:
             # Use reward as fallback for score when env doesn't provide score
@@ -1595,4 +1659,159 @@ class MultiEnvEvaluator:
                 seeds.append(initial_seed + i)
 
         return seeds
+
+    # =========================================================================
+    # Parallel Diverse Prompting (Dipper-style ensemble evaluation)
+    # =========================================================================
+
+    def _expand_for_diverse_prompts(
+        self,
+        prompt_texts: List[str],
+        diverse_config: Dict,
+    ) -> tuple:
+        """Expand B prompts to K×B prompts with suffix injection.
+
+        For each of B input prompts, creates K variants by appending different
+        suffixes (one per prompt configuration). Layout is interleaved:
+        [prompt0_suffix0, prompt0_suffix1, ..., prompt0_suffixK-1,
+         prompt1_suffix0, prompt1_suffix1, ..., prompt1_suffixK-1, ...]
+
+        Args:
+            prompt_texts: List of B prompt strings (after apply_chat_template)
+            diverse_config: The parallel_diverse configuration dict
+
+        Returns:
+            Tuple of (expanded_prompts, n_prompts) where:
+                expanded_prompts: List of K×B prompt strings
+                n_prompts: K (number of prompt variants)
+        """
+        prompts_config = diverse_config.get('prompts', [])
+        if not prompts_config:
+            # No prompts configured, return unchanged
+            return prompt_texts, 1
+
+        K = len(prompts_config)
+        expanded = []
+
+        for prompt_text in prompt_texts:
+            for prompt_cfg in prompts_config:
+                suffix = prompt_cfg.get('suffix')
+                if suffix:
+                    # Append suffix to end of prompt text
+                    modified = prompt_text.rstrip() + "\n\n" + suffix.strip()
+                    expanded.append(modified)
+                else:
+                    # No suffix (baseline prompt)
+                    expanded.append(prompt_text)
+
+        return expanded, K
+
+    def _aggregate_diverse_responses(
+        self,
+        responses: List[str],
+        n_rollouts: int,
+        n_prompts: int,
+        action_extraction_fn: Callable,
+        aggregation: str = "majority_vote",
+    ) -> tuple:
+        """Aggregate K×B responses to B actions via voting.
+
+        Takes responses laid out as [r0_p0, r0_p1, ..., r0_pK-1, r1_p0, ...]
+        and aggregates each group of K responses into a single winning response.
+
+        Args:
+            responses: List of K×B response strings
+            n_rollouts: B (number of rollouts/environments)
+            n_prompts: K (number of prompt variants)
+            action_extraction_fn: Function to extract action from response
+            aggregation: Aggregation method ("majority_vote" only for now)
+
+        Returns:
+            Tuple of (final_responses, agreement_info) where:
+                final_responses: List of B response strings (winning response per rollout)
+                agreement_info: List of B dicts with agreement statistics
+        """
+        if len(responses) != n_rollouts * n_prompts:
+            raise ValueError(
+                f"Expected {n_rollouts * n_prompts} responses, got {len(responses)}"
+            )
+
+        final_responses = []
+        agreement_info = []
+
+        for rollout_idx in range(n_rollouts):
+            # Extract this rollout's K responses
+            start_idx = rollout_idx * n_prompts
+            rollout_responses = responses[start_idx : start_idx + n_prompts]
+
+            # Extract action from each response
+            actions = []
+            action_to_response = {}
+            valid_count = 0
+
+            for resp in rollout_responses:
+                _, _, executed, is_valid, _ = action_extraction_fn(resp)
+                actions.append(executed)
+                valid_count += int(is_valid)
+                # Keep first response that produced each action
+                if executed not in action_to_response:
+                    action_to_response[executed] = resp
+
+            # Majority vote
+            action_counts = Counter(actions)
+            winner, winner_votes = action_counts.most_common(1)[0]
+
+            # Return the first response that produced the winning action
+            final_responses.append(action_to_response[winner])
+
+            # Compute agreement statistics
+            unique_actions = len(set(actions))
+            agreement_info.append({
+                "unanimous": unique_actions == 1,
+                "winner_votes": winner_votes,
+                "n_prompts": n_prompts,
+                "unique_actions": unique_actions,
+                "valid_count": valid_count,
+                "winner_action": winner,
+            })
+
+        return final_responses, agreement_info
+
+    def _compute_diverse_metrics(
+        self,
+        all_agreement_info: List[List[Dict]],
+    ) -> Dict[str, float]:
+        """Compute aggregate metrics from step-level agreement info.
+
+        Args:
+            all_agreement_info: List of (list of agreement dicts per rollout) per step
+
+        Returns:
+            Dict of metric name -> value
+        """
+        if not all_agreement_info:
+            return {}
+
+        # Flatten: all agreement dicts across all steps and rollouts
+        all_info = []
+        for step_info in all_agreement_info:
+            all_info.extend(step_info)
+
+        if not all_info:
+            return {}
+
+        n_prompts = all_info[0]["n_prompts"]
+        unanimous_count = sum(1 for info in all_info if info["unanimous"])
+        total_count = len(all_info)
+
+        avg_unique = np.mean([info["unique_actions"] for info in all_info])
+        avg_winner_votes = np.mean([info["winner_votes"] for info in all_info])
+
+        return {
+            "diverse/unanimous_ratio": unanimous_count / total_count,
+            "diverse/mean_unique_actions": avg_unique,
+            "diverse/winner_vote_ratio": avg_winner_votes / n_prompts,
+            "diverse/n_prompts": float(n_prompts),
+            "diverse/total_decisions": float(total_count),
+        }
  
