@@ -1,0 +1,223 @@
+# @package eval
+# Parallel Diverse Reasoning evaluation config for Overcooked
+# Use with: evaluation=overcooked_diverse
+#
+# Implements Dipper-style ensemble reasoning with bio-inspired diverse prompts.
+# Each step runs K parallel inferences with different prompt suffixes,
+# then aggregates via majority vote.
+
+evaluation:
+  environments:
+    # =============================================================================
+    # PARALLEL DIVERSE EVALUATION - CrampedRoom
+    # =============================================================================
+
+    - name: "Diverse-Overcooked-CrampedRoom"
+      n_rollouts: 50
+      episode_length: 40
+      generation:
+        temperature: 0.6
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 50000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      
+      instruction_prompt: |
+        [Instructions]
+        You are a chef cooking soup in a kitchen.
+        Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 200 words.
+
+        [How to Cook]
+        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
+        2. Place 3 ingredients in a pot using 'interact'
+        3. Wait for the soup to cook
+        4. Pick up a dish from the dish pile using 'interact'
+        5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
+        6. Deliver the soup to the serving counter using 'interact'
+
+        [Available Actions]
+        "right": move right,
+        "down": move down,
+        "left": move left,
+        "up": move up,
+        "stay": stay in place (wait),
+        "interact": interact with object in front of you (pick up, place, or use)
+
+        [Response Format]
+        Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
+
+        <plan>{Think about what you need to do next to make and deliver soups. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
+        <action>{Your selected action from the list above}</action>
+
+        [Rules]
+        - You can only hold one object at a time
+        - Each soup requires exactly 3 ingredients
+
+      captioner:
+        type: naive
+        max_text_history: 0
+      
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 40
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+
+      # =========================================
+      # PARALLEL DIVERSE CONFIG
+      # =========================================
+      parallel_diverse:
+        enabled: true
+        aggregation: majority_vote  # majority_vote | first_valid | unanimous
+        
+        # Track detailed metrics
+        track_agreement: true      # Log step-level agreement stats
+        track_per_prompt: true     # Log per-prompt performance
+        log_all_responses: false   # Log all K responses per step (expensive)
+        
+        # Bio-inspired diverse prompts
+        # Each adds a suffix to the base instruction_prompt
+        prompts:
+          - name: baseline
+            suffix: null  # No modification - control condition
+          
+          - name: cautious
+            suffix: |
+              [IMPORTANT PRIORITY]
+              Safety first. Never collide with your teammate or block their path.
+              If in doubt, use 'stay' to wait rather than risk getting in the way.
+              Avoid crowded areas near pots and counters.
+          
+          - name: aggressive
+            suffix: |
+              [IMPORTANT PRIORITY]
+              Speed is critical. Serve dishes as fast as possible.
+              Take the shortest path to ingredients and pots.
+              Don't waste time waiting - keep moving toward the goal.
+          
+          - name: strategic
+            suffix: |
+              [IMPORTANT PRIORITY]
+              Think several steps ahead. Consider the full cooking pipeline.
+              Position yourself for the NEXT task, not just the current one.
+              Optimize your path to minimize total steps across multiple soups.
+          
+          - name: cooperative
+            suffix: |
+              [IMPORTANT PRIORITY]
+              Teamwork focus. Observe your teammate's position and likely goal.
+              Stay out of their way when possible. 
+              If they're handling one task, focus on a different part of the pipeline.
+
+
+    # =============================================================================
+    # PARALLEL DIVERSE EVALUATION - AsymmetricAdvantages
+    # =============================================================================
+
+    - name: "Diverse-Overcooked-AsymmetricAdvantages"
+      n_rollouts: 50
+      episode_length: 40
+      generation:
+        temperature: 0.6
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 60000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      
+      instruction_prompt: |
+        [Instructions]
+        You are a chef cooking soup in a kitchen.
+        Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 200 words.
+
+        [How to Cook]
+        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
+        2. Place 3 ingredients in a pot using 'interact'
+        3. Wait for the soup to cook
+        4. Pick up a dish from the dish pile using 'interact'
+        5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
+        6. Deliver the soup to the serving counter using 'interact'
+
+        [Available Actions]
+        "right": move right,
+        "down": move down,
+        "left": move left,
+        "up": move up,
+        "stay": stay in place (wait),
+        "interact": interact with object in front of you (pick up, place, or use)
+
+        [Response Format]
+        Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
+
+        <plan>{Think about what you need to do next to make and deliver soups. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
+        <action>{Your selected action from the list above}</action>
+
+        [Rules]
+        - You can only hold one object at a time
+        - Each soup requires exactly 3 ingredients
+
+      captioner:
+        type: naive
+        max_text_history: 0
+      
+      overcooked_kwargs:
+        layout_name: asymm_advantages
+        horizon: 40
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+
+      parallel_diverse:
+        enabled: true
+        aggregation: majority_vote
+        track_agreement: true
+        track_per_prompt: true
+        log_all_responses: false
+        
+        prompts:
+          - name: baseline
+            suffix: null
+          
+          - name: cautious
+            suffix: |
+              [IMPORTANT PRIORITY]
+              Safety first. Never collide with your teammate or block their path.
+              If in doubt, use 'stay' to wait rather than risk getting in the way.
+              Avoid crowded areas near pots and counters.
+          
+          - name: aggressive
+            suffix: |
+              [IMPORTANT PRIORITY]
+              Speed is critical. Serve dishes as fast as possible.
+              Take the shortest path to ingredients and pots.
+              Don't waste time waiting - keep moving toward the goal.
+          
+          - name: strategic
+            suffix: |
+              [IMPORTANT PRIORITY]
+              Think several steps ahead. Consider the full cooking pipeline.
+              Position yourself for the NEXT task, not just the current one.
+              Optimize your path to minimize total steps across multiple soups.
+          
+          - name: cooperative
+            suffix: |
+              [IMPORTANT PRIORITY]
+              Teamwork focus. Observe your teammate's position and likely goal.
+              Stay out of their way when possible. 
+              If they're handling one task, focus on a different part of the pipeline.
