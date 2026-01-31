@@ -408,9 +408,22 @@ def compute_grpo_outcome_advantage(
     id2std = {}
 
     def _idx_value(idx_like):
+        # Handle tensor episode IDs
         if isinstance(idx_like, torch.Tensor):
-            return int(idx_like.item())
-        return int(idx_like)
+            val = idx_like.item()
+            return int(val) if isinstance(val, (int, float)) else val
+        # Handle numpy string types (UUID episode IDs)
+        if isinstance(idx_like, (str, np.str_, bytes)):
+            return str(idx_like)
+        # Handle numeric types
+        if isinstance(idx_like, (int, np.integer)):
+            return int(idx_like)
+        # Try to convert to int for backward compatibility
+        try:
+            return int(idx_like)
+        except (ValueError, TypeError):
+            # If conversion fails, return as-is (likely a string UUID)
+            return idx_like
 
     with torch.no_grad():
         bsz = scores.shape[0]
