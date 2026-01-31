@@ -1,22 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name=FS_GRPO_4B_H0p001_1
+#SBATCH --job-name=OC_PPO_14B_NT_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_h100,swarm_a100,a100
-#SBATCH --exclude=swarmh1002
-#SBATCH --time=48:00:00
-#SBATCH --gpus-per-node=1
+#SBATCH --partition=dual_h200,quad_h200
+#SBATCH --time=60:00:00
+#SBATCH --gpus-per-node=2
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=FS_GRPO_4B_H0p001
+experiment_name=OC_PPO_14B_NT
 run_number=1
-number_of_gpus=1
-WANDB_TAGS='["snake","project:verl-env","vllm:0.9.1","singl-act"]'
+number_of_gpus=2
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi_action","14B","from_scratch"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -26,13 +25,7 @@ mkdir -p "$short_temp_dir"
 readable_log_root=/scratch/${user_name}/ray_logs
 mkdir -p "$readable_log_root"
 
-# Tell Ray to place its session_* dir (raylet/plasma/gcs logs) here.
-# Without this, Ray defaults to something like /tmp/ray/session_*/ on the compute node,
-# and the symlink below will usually point at a non-existent path.
-export RAY_TMPDIR="$short_temp_dir"
-export TMPDIR="$short_temp_dir"
-
-experiment_run_name=${experiment_name}_run${run_number}_slu${job_id}
+experiment_run_name=${experiment_name}_run${run_number}_slu${SLURM_JOB_ID}
 export WANDB_DIR="wandb/${experiment_run_name}"
 mkdir -p "$WANDB_DIR"
 profile_dump_dir=/scratch/${user_name}/profile_dumps/${experiment_run_name}
@@ -69,7 +62,7 @@ export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=false
 export VERL_PPO_LOGGING_LEVEL=DEBUG
 
-MODEL_ID=Qwen/Qwen3-4B-Instruct-2507
+MODEL_ID=Qwen/Qwen3-14B
 FOLDER_NAME="models--$(echo "$MODEL_ID" | sed 's/\//--/')"
 SNAPSHOT_DIR="$HF_HOME/hub/$FOLDER_NAME/snapshots"
 
@@ -87,14 +80,13 @@ fi
 micro_batch_size=16
 
 max_prompt_length=2048
-max_response_length=384
+max_response_length=512
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
 critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
 
 rollout_max_num_batched_tokens=$((micro_batch_size * max_token_len_per_gpu + 2560))
 rollout_max_num_seqs=$((2048))
 
-set +e
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
@@ -103,6 +95,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.val_files=examples/data/placeholder.parquet \
   actor_rollout_ref.actor.ppo_mini_batch_size=128 \
   actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$micro_batch_size \
+  actor_rollout_ref.actor.optim.lr=5e-6 \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$max_token_len_per_gpu \
@@ -111,7 +104,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.max_num_seqs=$rollout_max_num_seqs \
   actor_rollout_ref.rollout.max_num_batched_tokens=$rollout_max_num_batched_tokens \
   actor_rollout_ref.rollout.engine_kwargs.vllm.max_seq_len_to_capture=$((max_token_len_per_gpu + critic_max_token_len_per_gpu)) \
-  actor_rollout_ref.rollout.gpu_memory_utilization=0.40 \
+  actor_rollout_ref.rollout.gpu_memory_utilization=0.38 \
   actor_rollout_ref.rollout.max_model_len=$max_token_len_per_gpu \
   actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.rollout.temperature=1.25 \
@@ -119,6 +112,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.mode=sync \
+  actor_rollout_ref.rollout.calculate_log_probs=true \
   actor_rollout_ref.actor.entropy_coeff=0.001 \
   actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$max_token_len_per_gpu \
@@ -137,6 +131,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   critic.model.fsdp_config.model_dtype=bfloat16 \
   critic.model.path=$MODEL_PATH \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
+  critic.optim.lr=5e-5 \
   critic.ppo_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   critic.forward_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   algorithm.step_gamma=0.99 \
@@ -145,25 +140,24 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.token_lam=1.0 \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
-  algorithm.adv_estimator=grpo \
   envs.enable=True \
   envs.n_rollouts=32 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
-  envs.env_name=fastsnake \
+  envs.env_name=overcooked \
   envs.format_penalty=1 \
   envs.binary_reward=False \
   envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
   envs.captioner.max_cot_history=1 \
-  envs.fastsnake_kwargs.width=10 \
-  envs.fastsnake_kwargs.height=10 \
-  envs.fastsnake_kwargs.max_rounds=8 \
-  envs.fastsnake_kwargs.num_external_snakes=1 \
-  envs.fastsnake_kwargs.num_random_snakes=1 \
-  envs.fastsnake_kwargs.death_reward=-1 \
+  envs.overcooked_kwargs.layout_name=cramped_room \
+  envs.overcooked_kwargs.horizon=20 \
+  envs.overcooked_kwargs.partner_policy=none \
+  envs.overcooked_kwargs.shaped_reward=True \
+  envs.overcooked_kwargs.pot_cook_time=3 \
+  envs.overcooked_kwargs.print_visualization=false \
+  envs.overcooked_kwargs.print_coordinates=true \
   envs.vec_env_multiprocessing=fork \
-  actor_rollout_ref.rollout.calculate_log_probs=true \
   algorithm.rollout_correction.rollout_is=sequence \
   algorithm.rollout_correction.rollout_is_threshold=3.0 \
   algorithm.rollout_correction.rollout_rs=null \
@@ -191,22 +185,15 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
   trainer.tags=$WANDB_TAGS \
-  ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-32} \
-  +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=snake_evals_combined \
-  prompt=snake 2>&1 | tee verl_demo.log
-python_status=${PIPESTATUS[0]}
-set -e
+  evaluation=overcooked_evals_combined \
+  prompt=overcooked 2>&1 | tee verl_demo.log
 
-
-actual_session_dir="${short_temp_dir}/ray/session_latest"
+actual_session_dir="${short_temp_dir}/session_latest"
 readable_log_path="${readable_log_root}/${experiment_run_name}"
 if [ -d "$actual_session_dir" ]; then
-    mkdir -p "$readable_log_path"
-    # Copy logs to shared scratch so they survive node-local /tmp cleanup.
-    cp -a "$actual_session_dir/logs" "$readable_log_path/" || true
-    echo "Ray logs copied to: $readable_log_path/logs"
+    ln -sfn "$actual_session_dir" "$readable_log_path"
+    echo "Ray logs accessible at: $readable_log_path"
 fi
 
 if [ -n "$RAY_HEAD_PID" ]; then
@@ -216,4 +203,3 @@ if [ -n "$RAY_HEAD_PID" ]; then
     echo "Ray cluster stopped."
 fi
 
-exit $python_status
