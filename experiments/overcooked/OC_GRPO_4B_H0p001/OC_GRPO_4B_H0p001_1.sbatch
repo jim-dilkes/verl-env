@@ -31,10 +31,6 @@ mkdir -p "$readable_log_root"
 export RAY_TMPDIR="$short_temp_dir"
 export TMPDIR="$short_temp_dir"
 
-# Useful when Ray dies early (raylet crash -> workers get EOF). Captures raylet/plasma logs in SLURM output.
-export RAY_LOG_TO_STDERR=1
-
-
 
 experiment_run_name=${experiment_name}_run${run_number}_slu${job_id}
 export WANDB_DIR="wandb/${experiment_run_name}"
