@@ -14,10 +14,11 @@ Implement Dipper-style parallel diverse prompting for evaluation. Run K parallel
 
 ### Phase 1: Core Implementation
 - [x] Create eval config file (`overcooked_diverse.yaml`)
-- [ ] Add `_expand_for_diverse_prompts()` helper method
-- [ ] Add `_aggregate_diverse_responses()` helper method  
-- [ ] Modify `_evaluate_single_env_body()` to handle parallel diverse mode
-- [ ] Track agreement metrics
+- [x] Add `_expand_for_diverse_prompts()` helper method
+- [x] Add `_aggregate_diverse_responses()` helper method  
+- [x] Add `_compute_diverse_metrics()` helper method
+- [x] Modify `_evaluate_single_env_body()` to handle parallel diverse mode
+- [x] Track agreement metrics
 
 ### Phase 2: Testing
 - [ ] Unit tests for expansion/aggregation helpers
@@ -198,6 +199,33 @@ parallel_diverse:
 | `diverse/winner_vote_ratio` | Average vote share of winning action |
 
 ## Working Notes
+
+### 2026-01-31 23:35 - Phase 1 Implementation Complete
+
+Implemented core functionality in `multi_env_evaluator.py`:
+
+**New helper methods (lines 1599-1720):**
+- `_expand_for_diverse_prompts()` - Expands B prompts to K×B with interleaved suffixes
+- `_aggregate_diverse_responses()` - Majority vote to aggregate K×B→B responses
+- `_compute_diverse_metrics()` - Computes unanimous_ratio, mean_unique_actions, winner_vote_ratio
+
+**Modifications to `_evaluate_single_env_body()`:**
+1. Added diverse config extraction + accumulators (lines 778-793)
+2. Added prompt expansion after apply_chat_template (lines 970-975)
+3. Added response aggregation after batch_decode (lines 1011-1041)
+4. Added diverse metrics to output (lines 1419-1422)
+
+**Metrics tracked:**
+- `diverse/unanimous_ratio` - % of steps where all K prompts agreed
+- `diverse/mean_unique_actions` - Average distinct actions per step
+- `diverse/winner_vote_ratio` - Avg vote share of winning action (e.g., 0.8 = 4/5)
+- `diverse/n_prompts` - K (number of prompt variants)
+- `diverse/total_decisions` - Total aggregation decisions made
+
+**Commits:**
+- `1e3816fa` - feat: Add parallel diverse prompting evaluation support
+
+**Next:** Phase 2 - Testing
 
 ### 2026-01-31 22:15 - Initial Planning
 
