@@ -51,4 +51,12 @@ def get_ppo_ray_runtime_env():
     for key in list(runtime_env["env_vars"].keys()):
         if os.environ.get(key) is not None:
             runtime_env["env_vars"].pop(key, None)
+
+    # Always include CUDA paths for Ray workers, even if set in parent
+    # Ray workers don't inherit LD_LIBRARY_PATH, causing "CUDA driver is a stub library" errors
+    if os.environ.get("LD_LIBRARY_PATH"):
+        runtime_env["env_vars"]["LD_LIBRARY_PATH"] = os.environ["LD_LIBRARY_PATH"]
+    if os.environ.get("CUDA_HOME"):
+        runtime_env["env_vars"]["CUDA_HOME"] = os.environ["CUDA_HOME"]
+
     return runtime_env
