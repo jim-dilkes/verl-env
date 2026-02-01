@@ -200,6 +200,23 @@ parallel_diverse:
 
 ## Working Notes
 
+### 2026-02-01 00:45 - Cluster Test Scripts Added
+
+Created test scripts for cluster validation:
+- `experiments/overcooked/test_diverse_eval.sh` - Login node test script
+- `experiments/overcooked/test_diverse_eval.sbatch` - SLURM job for swarm_l4
+
+Config:
+- 24GB L4 GPU, 30 min time limit
+- 5 diverse prompts (baseline, cautious, aggressive, strategic, cooperative)
+- Overcooked cramped_room environment
+- Qwen3-0.6B-Base model
+
+**Commits:**
+- `4e2002be` - test: Add diverse eval test script and sbatch for L4 swarm
+
+**Next:** Jim to run on Iridis cluster
+
 ### 2026-02-01 00:15 - Phase 2 Unit Tests Complete
 
 Created `tests/trainer/ppo/test_parallel_diverse_eval.py` with:
