@@ -41,7 +41,10 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
 export CUDA_MODULE_LOADING=LAZY
 
-# Debug: print CUDA paths that should be inherited by subprocess
+# CRITICAL: Remove CUDA stubs from LD_LIBRARY_PATH - they break CUDA detection
+export LD_LIBRARY_PATH=$(echo "$LD_LIBRARY_PATH" | tr ':' '\n' | grep -v '/stubs' | tr '\n' ':' | sed 's/:$//')
+
+# Debug: print CUDA paths
 echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 echo "CUDA_HOME: $CUDA_HOME"
 python -c "import torch; print(f'PyTorch CUDA: {torch.version.cuda}'); print(f'CUDA available: {torch.cuda.is_available()}')"
