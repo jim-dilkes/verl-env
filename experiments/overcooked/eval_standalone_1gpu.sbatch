@@ -36,7 +36,15 @@ unset HIP_VISIBLE_DEVICES
 export CUDA_VISIBLE_DEVICES=0
 export VLLM_USE_FLASHINFER_SAMPLER=0
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN
-export VLLM_USE_V1=0
+
+# Force single-process mode to avoid subprocess CUDA issues
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+export CUDA_MODULE_LOADING=LAZY
+
+# Debug: print CUDA paths that should be inherited by subprocess
+echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+echo "CUDA_HOME: $CUDA_HOME"
+python -c "import torch; print(f'PyTorch CUDA: {torch.version.cuda}'); print(f'CUDA available: {torch.cuda.is_available()}')"
 
 bash scripts/eval_overcooked_4b.sh ${N_ROLLOUTS:-10}
 

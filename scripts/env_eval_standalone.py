@@ -47,6 +47,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 import numpy as np
 import torch
+import ray
 from vllm import LLM, SamplingParams
 from transformers import AutoTokenizer
 
@@ -198,14 +199,22 @@ def main():
     print(f"Tensor Parallel: {args.tensor_parallel} GPU(s)")
     print("=" * 60)
     
+    # Initialize Ray (like training scripts do) to handle CUDA properly
+    print("\nInitializing Ray...")
+    ray.init(
+        num_cpus=8,
+        num_gpus=args.tensor_parallel,
+        ignore_reinit_error=True,
+    )
+    
     # Load tokenizer
     print("\nLoading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # Load vLLM - SINGLE model load, no FSDP overhead!
-    print("\nLoading vLLM engine (direct HF load, no FSDP)...")
+    # Load vLLM - using Ray for worker management like training scripts
+    print("\nLoading vLLM engine (with Ray worker management)...")
     start_time = time.time()
     
     llm = LLM(
@@ -216,6 +225,7 @@ def main():
         max_model_len=1024,
         enforce_eager=True,  # For stability
         tensor_parallel_size=args.tensor_parallel,
+        distributed_executor_backend="ray",  # Use Ray like training scripts
     )
     
     load_time = time.time() - start_time
@@ -263,6 +273,9 @@ def main():
     print(f"Episodes with positive reward: {sum(1 for r in rewards if r > 0)}/{len(rewards)}")
     
     print("\n" + "=" * 60)
+    
+    # Cleanup Ray
+    ray.shutdown()
 
 
 if __name__ == "__main__":
