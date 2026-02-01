@@ -200,6 +200,17 @@ parallel_diverse:
 
 ## Working Notes
 
+### 2026-02-01 01:00 - Code Review Fixes Applied
+
+Applied fixes from code review:
+1. **Token counting bug** - Now uses `winner_idx` to select correct response_ids
+2. **Aggregation validation** - Raises `ValueError` for unsupported methods
+3. **Config cleanup** - Removed unimplemented options
+
+Added `winner_idx` field to agreement_info. Updated tests.
+
+**Commit:** `e159ac75` - fix: Address code review issues
+
 ### 2026-02-01 00:45 - Cluster Test Scripts Added
 
 Created test scripts for cluster validation:
