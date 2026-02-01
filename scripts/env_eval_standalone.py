@@ -31,6 +31,18 @@ import time
 from typing import List, Dict, Any, Optional
 from collections import Counter
 
+# CRITICAL: Mock torchao BEFORE any torch/transformers imports
+# to prevent CUDA init during import on nodes with stub drivers
+class _FakeModule:
+    def __getattr__(self, name):
+        return _FakeModule()
+    def __call__(self, *args, **kwargs):
+        return _FakeModule()
+
+for mod in ['torchao', 'torchao.quantization', 'torchao.kernel', 
+            'torchao.kernel.bsr_triton_ops', 'torchao.quantization.quant_api']:
+    sys.modules[mod] = _FakeModule()
+
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 import numpy as np
