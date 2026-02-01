@@ -77,12 +77,10 @@ evaluation:
       # =========================================
       parallel_diverse:
         enabled: true
-        aggregation: majority_vote  # majority_vote | first_valid | unanimous
+        aggregation: majority_vote  # Only majority_vote currently supported
         
         # Track detailed metrics
         track_agreement: true      # Log step-level agreement stats
-        track_per_prompt: true     # Log per-prompt performance
-        log_all_responses: false   # Log all K responses per step (expensive)
         
         # Bio-inspired diverse prompts
         # Each adds a suffix to the base instruction_prompt
@@ -187,8 +185,6 @@ evaluation:
         enabled: true
         aggregation: majority_vote
         track_agreement: true
-        track_per_prompt: true
-        log_all_responses: false
         
         prompts:
           - name: baseline

@@ -52,6 +52,14 @@ def aggregate_diverse_responses(
     aggregation: str = "majority_vote",
 ) -> Tuple[List[str], List[Dict]]:
     """Standalone version of _aggregate_diverse_responses for testing."""
+    # Validate aggregation method
+    supported_aggregations = {"majority_vote"}
+    if aggregation not in supported_aggregations:
+        raise ValueError(
+            f"Unsupported aggregation method '{aggregation}'. "
+            f"Supported: {supported_aggregations}"
+        )
+
     if len(responses) != n_rollouts * n_prompts:
         raise ValueError(
             f"Expected {n_rollouts * n_prompts} responses, got {len(responses)}"
@@ -66,14 +74,16 @@ def aggregate_diverse_responses(
 
         actions = []
         action_to_response = {}
+        action_to_idx = {}
         valid_count = 0
 
-        for resp in rollout_responses:
+        for prompt_idx, resp in enumerate(rollout_responses):
             _, _, executed, is_valid, _ = action_extraction_fn(resp)
             actions.append(executed)
             valid_count += int(is_valid)
             if executed not in action_to_response:
                 action_to_response[executed] = resp
+                action_to_idx[executed] = prompt_idx
 
         action_counts = Counter(actions)
         winner, winner_votes = action_counts.most_common(1)[0]
@@ -81,6 +91,7 @@ def aggregate_diverse_responses(
         final_responses.append(action_to_response[winner])
 
         unique_actions = len(set(actions))
+        winner_idx = action_to_idx[winner]
         agreement_info.append({
             "unanimous": unique_actions == 1,
             "winner_votes": winner_votes,
@@ -88,6 +99,7 @@ def aggregate_diverse_responses(
             "unique_actions": unique_actions,
             "valid_count": valid_count,
             "winner_action": winner,
+            "winner_idx": winner_idx,
         })
 
     return final_responses, agreement_info
@@ -346,6 +358,32 @@ class TestAggregateDiverseResponses:
 
         # Should return first response with winning action (up)
         assert final[0] == "First response <action>up</action>"
+
+    def test_winner_idx_tracking(self, mock_action_extractor):
+        """Test winner_idx is correctly tracked."""
+        responses = [
+            "<action>down</action>",  # idx 0
+            "<action>up</action>",    # idx 1 - winner
+            "<action>up</action>",    # idx 2
+        ]
+        final, info = aggregate_diverse_responses(
+            responses, n_rollouts=1, n_prompts=3,
+            action_extraction_fn=mock_action_extractor
+        )
+
+        # Winner is "up", first occurrence at idx 1
+        assert info[0]["winner_action"] == "up"
+        assert info[0]["winner_idx"] == 1
+
+    def test_unsupported_aggregation_raises(self, mock_action_extractor):
+        """Test unsupported aggregation method raises ValueError."""
+        responses = ["<action>up</action>"] * 3
+        with pytest.raises(ValueError, match="Unsupported aggregation method"):
+            aggregate_diverse_responses(
+                responses, n_rollouts=1, n_prompts=3,
+                action_extraction_fn=mock_action_extractor,
+                aggregation="first_valid"  # Not implemented
+            )
 
 
 # ============================================================================

@@ -1027,17 +1027,14 @@ class MultiEnvEvaluator:
                         )
                         diverse_all_agreement_info.append(step_agreement_info)
 
-                        # Also fix response_ids shape for token counting (take first of each K group)
-                        # Note: token counts will be from the winning response after aggregation
-                        # For simplicity, we'll use the mean tokens across all K responses
-                        response_n_tokens_expanded = (response_ids != self.tokenizer.pad_token_id).sum(dim=-1)
-                        response_ids_aggregated = []
-                        for i in range(batch_n):
-                            # Use the token count from the response we're returning
-                            # For now, just take mean of all K responses for this rollout
-                            start_idx = i * diverse_n_prompts
-                            response_ids_aggregated.append(response_ids[start_idx])
-                        response_ids = response_ids[::diverse_n_prompts]  # Take every K-th (first of each group)
+                        # Extract response_ids for winning responses only (not first of each group)
+                        # step_agreement_info has winner_idx for each rollout
+                        winning_indices = []
+                        for i, info in enumerate(step_agreement_info):
+                            # Global index = rollout_start + winner's relative index
+                            global_idx = i * diverse_n_prompts + info["winner_idx"]
+                            winning_indices.append(global_idx)
+                        response_ids = response_ids[winning_indices]
 
                     # Track first rollout for logging (only from first batch)
                     if track_standard_metrics and not episode_tracked and batch_idx == 0:
@@ -1724,13 +1721,24 @@ class MultiEnvEvaluator:
             n_rollouts: B (number of rollouts/environments)
             n_prompts: K (number of prompt variants)
             action_extraction_fn: Function to extract action from response
-            aggregation: Aggregation method ("majority_vote" only for now)
+            aggregation: Aggregation method (currently only "majority_vote" supported)
 
         Returns:
             Tuple of (final_responses, agreement_info) where:
                 final_responses: List of B response strings (winning response per rollout)
                 agreement_info: List of B dicts with agreement statistics
+
+        Raises:
+            ValueError: If aggregation method is not supported
         """
+        # Validate aggregation method
+        supported_aggregations = {"majority_vote"}
+        if aggregation not in supported_aggregations:
+            raise ValueError(
+                f"Unsupported aggregation method '{aggregation}'. "
+                f"Supported: {supported_aggregations}"
+            )
+
         if len(responses) != n_rollouts * n_prompts:
             raise ValueError(
                 f"Expected {n_rollouts * n_prompts} responses, got {len(responses)}"
@@ -1747,15 +1755,17 @@ class MultiEnvEvaluator:
             # Extract action from each response
             actions = []
             action_to_response = {}
+            action_to_idx = {}  # Track index of first response with each action
             valid_count = 0
 
-            for resp in rollout_responses:
+            for prompt_idx, resp in enumerate(rollout_responses):
                 _, _, executed, is_valid, _ = action_extraction_fn(resp)
                 actions.append(executed)
                 valid_count += int(is_valid)
                 # Keep first response that produced each action
                 if executed not in action_to_response:
                     action_to_response[executed] = resp
+                    action_to_idx[executed] = prompt_idx
 
             # Majority vote
             action_counts = Counter(actions)
@@ -1766,6 +1776,8 @@ class MultiEnvEvaluator:
 
             # Compute agreement statistics
             unique_actions = len(set(actions))
+            # winner_idx is relative index within this rollout's K responses
+            winner_idx = action_to_idx[winner]
             agreement_info.append({
                 "unanimous": unique_actions == 1,
                 "winner_votes": winner_votes,
@@ -1773,6 +1785,7 @@ class MultiEnvEvaluator:
                 "unique_actions": unique_actions,
                 "valid_count": valid_count,
                 "winner_action": winner,
+                "winner_idx": winner_idx,  # Index within the K prompts (0 to K-1)
             })
 
         return final_responses, agreement_info
