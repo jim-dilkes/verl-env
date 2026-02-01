@@ -6,8 +6,9 @@
 module load cuda/12.8.0 2>/dev/null || true
 module load gcc/13.3.0 2>/dev/null || true
 
-# Disable FlashInfer to avoid JIT compilation issues
+# Disable FlashInfer entirely to avoid JIT compilation issues
 export VLLM_USE_FLASHINFER_SAMPLER=0
+export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 
 MODEL_ID=${MODEL_ID:-"Qwen/Qwen3-4B-Instruct-2507"}
 N_ROLLOUTS=${1:-10}
