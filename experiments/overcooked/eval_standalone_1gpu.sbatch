@@ -13,6 +13,9 @@
 cd /home/jsbd1n24/verl-env.worktrees/origin-feat-parallel-diverse-eval
 mkdir -p logs
 
+# Add worktree to Python path for verl imports
+export PYTHONPATH="$PWD:$PYTHONPATH"
+
 echo "===== Standalone Eval (1 GPU) ====="
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $(hostname)"
