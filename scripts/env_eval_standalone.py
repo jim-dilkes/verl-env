@@ -50,6 +50,7 @@ def parse_args():
     parser.add_argument("--temperature", type=float, default=0.6, help="Sampling temperature")
     parser.add_argument("--max_tokens", type=int, default=128, help="Max response tokens")
     parser.add_argument("--diverse_prompts", type=int, default=0, help="Number of diverse prompts (0=disabled)")
+    parser.add_argument("--tensor_parallel", type=int, default=1, help="Tensor parallel size (number of GPUs)")
     return parser.parse_args()
 
 
@@ -182,6 +183,7 @@ def main():
     print(f"Layout: {args.layout}")
     print(f"N Rollouts: {args.n_rollouts}")
     print(f"GPU Memory: {args.gpu_memory}")
+    print(f"Tensor Parallel: {args.tensor_parallel} GPU(s)")
     print("=" * 60)
     
     # Load tokenizer
@@ -201,6 +203,7 @@ def main():
         trust_remote_code=True,
         max_model_len=1024,
         enforce_eager=True,  # For stability
+        tensor_parallel_size=args.tensor_parallel,
     )
     
     load_time = time.time() - start_time
