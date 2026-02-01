@@ -45,6 +45,15 @@ for mod in ['torchao', 'torchao.quantization', 'torchao.kernel',
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
+# Fix LD_LIBRARY_PATH before any CUDA imports - remove stubs
+if "LD_LIBRARY_PATH" in os.environ:
+    paths = os.environ["LD_LIBRARY_PATH"].split(":")
+    os.environ["LD_LIBRARY_PATH"] = ":".join(p for p in paths if "/stubs" not in p)
+
+# Use forkserver to inherit clean environment in subprocesses
+import multiprocessing
+multiprocessing.set_start_method("forkserver", force=True)
+
 import numpy as np
 import torch
 from vllm import LLM, SamplingParams
