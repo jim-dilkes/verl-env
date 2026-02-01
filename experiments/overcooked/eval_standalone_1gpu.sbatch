@@ -30,9 +30,6 @@ nvidia-smi || { echo "FATAL: No GPU!"; exit 1; }
 eval "$(conda shell.bash hook)"
 conda activate verl
 
-# Add worktree to Python path for verl imports (after conda to avoid reset)
-export PYTHONPATH="/home/jsbd1n24/verl-env.worktrees/origin-feat-parallel-diverse-eval:$PYTHONPATH"
-
 # Environment setup - match training scripts
 unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES

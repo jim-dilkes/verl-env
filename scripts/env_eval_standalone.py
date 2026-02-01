@@ -31,6 +31,13 @@ import time
 from typing import List, Dict, Any, Optional
 from collections import Counter
 
+# Add repo root to path so verl can be imported when running as `python scripts/...`
+# (running as module `python -m` would add cwd automatically, but direct script doesn't)
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_repo_root = os.path.dirname(_script_dir)  # scripts/ -> repo root
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 # CRITICAL: Mock torchao BEFORE any torch/transformers imports
 # to prevent CUDA init during import on nodes with stub drivers
 class _FakeModule:
