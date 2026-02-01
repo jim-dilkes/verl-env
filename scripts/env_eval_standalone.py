@@ -37,6 +37,7 @@ _script_dir = os.path.dirname(os.path.abspath(__file__))
 _repo_root = os.path.dirname(_script_dir)  # scripts/ -> repo root
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
+print(f"DEBUG: repo_root={_repo_root}, sys.path[0]={sys.path[0]}")
 
 # CRITICAL: Mock torchao BEFORE any torch/transformers imports
 # to prevent CUDA init during import on nodes with stub drivers

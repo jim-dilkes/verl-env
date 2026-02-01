@@ -23,6 +23,9 @@ if [ -z "$MODEL_PATH" ]; then
     MODEL_PATH=$(ls -d $HF_HOME/hub/$FOLDER_NAME/snapshots/* | head -1)
 fi
 
+# Match training scripts: ensure repo root is in PYTHONPATH
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)"
+
 python scripts/env_eval_standalone.py \
     --model "$MODEL_PATH" \
     --env overcooked \
