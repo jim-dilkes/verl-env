@@ -37,11 +37,10 @@ else
 fi
 
 # --- Setup ---
-module load conda/python3
 module load cuda/12.8.0
 module load gcc/13.3.0
 
-eval "$(conda shell.bash hook)"
+source ~/.bashrc
 conda activate verl
 
 # ============================================
