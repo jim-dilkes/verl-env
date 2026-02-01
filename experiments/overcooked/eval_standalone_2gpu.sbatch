@@ -23,18 +23,31 @@ echo "Node: $(hostname)"
 date
 echo "==================================================="
 
-# Environment setup
+# Environment setup - ORDER MATTERS!
 module load cuda/12.8.0
 module load gcc/13.3.0
+
+# Set CUDA env BEFORE conda/python
+export CUDA_HOME=/iridisfs/ixsoftware/cuda/12.8.0
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+
+# Verify GPUs are available BEFORE Python
+echo "Checking GPUs..."
+nvidia-smi || { echo "ERROR: No GPU available!"; exit 1; }
+
+# Now activate conda
 source ~/.bashrc
 conda activate verl
 
-# Disable FlashInfer JIT issues
+# Disable problematic JIT compilation
 export VLLM_USE_FLASHINFER_SAMPLER=0
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN
+export TORCH_CUDA_ARCH_LIST="8.9"  # L4 GPU
+export TORCHAO_DISABLE=1  # Disable torchao if possible
 
-# Check GPUs
-nvidia-smi --query-gpu=index,name,memory.total,memory.free --format=csv
+# Check GPU from Python
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'Devices: {torch.cuda.device_count()}')"
 
 # Run standalone eval with 2 GPU tensor parallel
 bash scripts/eval_overcooked_4b_2gpu.sh ${N_ROLLOUTS:-50}
