@@ -33,9 +33,10 @@ conda activate verl
 # Environment setup - match training scripts
 unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES
+export CUDA_VISIBLE_DEVICES=0
 export VLLM_USE_FLASHINFER_SAMPLER=0
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN
-export VLLM_WORKER_MULTIPROC_METHOD=spawn
+export VLLM_USE_V1=0
 
 bash scripts/eval_overcooked_4b.sh ${N_ROLLOUTS:-10}
 
