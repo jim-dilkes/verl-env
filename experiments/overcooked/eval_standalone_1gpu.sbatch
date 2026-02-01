@@ -13,9 +13,6 @@
 cd /home/jsbd1n24/verl-env.worktrees/origin-feat-parallel-diverse-eval
 mkdir -p logs
 
-# Add worktree to Python path for verl imports
-export PYTHONPATH="$PWD:$PYTHONPATH"
-
 echo "===== Standalone Eval (1 GPU) ====="
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $(hostname)"
@@ -32,6 +29,9 @@ nvidia-smi || { echo "FATAL: No GPU!"; exit 1; }
 # Conda activation - match training scripts
 eval "$(conda shell.bash hook)"
 conda activate verl
+
+# Add worktree to Python path for verl imports (after conda to avoid reset)
+export PYTHONPATH="/home/jsbd1n24/verl-env.worktrees/origin-feat-parallel-diverse-eval:$PYTHONPATH"
 
 # Environment setup - match training scripts
 unset ROCR_VISIBLE_DEVICES
