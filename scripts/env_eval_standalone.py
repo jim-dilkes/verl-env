@@ -86,7 +86,7 @@ def parse_args():
 def create_overcooked_env(layout_name: str, horizon: int, n_envs: int):
     """Create Overcooked environment."""
     try:
-        from verl.envs.overcooked.overcooked_env import OvercookedEnv
+        from verl.envs.environments.overcooked.overcooked_env import OvercookedEnv
         
         env = OvercookedEnv(
             layout_name=layout_name,
