@@ -21,9 +21,9 @@ Implement Dipper-style parallel diverse prompting for evaluation. Run K parallel
 - [x] Track agreement metrics
 
 ### Phase 2: Testing
-- [ ] Unit tests for expansion/aggregation helpers
-- [ ] Integration test with mock responses
-- [ ] Login node test with actual model
+- [x] Unit tests for expansion/aggregation helpers
+- [x] Integration test with mock responses
+- [ ] Login node test with actual model (requires cluster)
 
 ### Phase 3: Metrics & Logging
 - [ ] Per-prompt performance tracking
@@ -199,6 +199,21 @@ parallel_diverse:
 | `diverse/winner_vote_ratio` | Average vote share of winning action |
 
 ## Working Notes
+
+### 2026-02-01 00:15 - Phase 2 Unit Tests Complete
+
+Created `tests/trainer/ppo/test_parallel_diverse_eval.py` with:
+- `TestExpandForDiversePrompts`: 6 test cases for suffix injection
+- `TestAggregateDiverseResponses`: 7 test cases for majority vote
+- `TestComputeDiverseMetrics`: 4 test cases for metrics computation
+- `TestDiverseEvalIntegration`: 2 integration-style tests
+
+All tests pass locally with mock action extractor (no actual LLM needed).
+
+Note: Full integration test requires cluster with actual model - will need to be run on Iridis.
+
+**Commits:**
+- `fbec6543` - test: Add unit tests for parallel diverse prompting
 
 ### 2026-01-31 23:35 - Phase 1 Implementation Complete
 
