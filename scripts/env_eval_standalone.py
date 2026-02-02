@@ -144,12 +144,23 @@ def run_episode(
     env,
     sampling_params: SamplingParams,
     max_steps: int,
+    debug: bool = False,
 ) -> Dict[str, Any]:
     """Run a single episode using verl environment interface."""
     obs, info = env.reset()
     
-    # Get instruction from environment
+    # Get instruction from environment and add response format
     instruction = env.get_instruction_prompt()
+    response_format = """
+[Response Format]
+Think briefly about your next move, then output your action.
+Use this exact format:
+<plan>Your reasoning here</plan>
+<action>your_action</action>
+
+Example: <plan>I should pick up an onion</plan><action>interact</action>
+"""
+    instruction = instruction + response_format
     
     total_reward = 0
     valid_actions = 0
@@ -158,7 +169,7 @@ def run_episode(
     for step in range(max_steps):
         # Build prompt - obs is dict with text.long_term_context
         state_text = obs.get("text", {}).get("long_term_context", str(obs))
-        prompt = f"{instruction}\n\n[Current State]\n{state_text}\n\n<plan>"
+        prompt = f"{instruction}\n\n[Current State]\n{state_text}"
         
         # Generate response
         messages = [{"role": "user", "content": prompt}]
@@ -175,6 +186,11 @@ def run_episode(
         action, is_valid = parse_action(response)
         if is_valid:
             valid_actions += 1
+        
+        # Debug: show first response of first episode
+        if debug and step == 0:
+            print(f"\n[DEBUG] First response:\n{response[:500]}...")
+            print(f"[DEBUG] Parsed action: {action}, valid: {is_valid}\n")
         
         # Step environment - verl interface uses (action, is_valid)
         obs, reward, terminated, truncated, info = env.step(action, is_valid)
@@ -244,7 +260,7 @@ def main():
     results = []
     
     for i in range(args.n_rollouts):
-        result = run_episode(llm, tokenizer, env, sampling_params, args.horizon)
+        result = run_episode(llm, tokenizer, env, sampling_params, args.horizon, debug=(i==0))
         results.append(result)
         
         if (i + 1) % 10 == 0 or i == args.n_rollouts - 1:
