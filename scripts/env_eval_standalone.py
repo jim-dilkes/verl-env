@@ -84,69 +84,51 @@ def parse_args():
 
 
 def create_overcooked_env(layout_name: str, horizon: int, n_envs: int):
-    """Create Overcooked environment."""
+    """Create Overcooked environment using verl's make_env."""
     try:
-        from verl.envs.environments.overcooked.overcooked_env import OvercookedEnv
+        from verl.envs.environments import make_env
+        from omegaconf import OmegaConf
         
-        env = OvercookedEnv(
-            layout_name=layout_name,
-            horizon=horizon,
-            partner_policy="none",
-            shaped_reward=True,
-            pot_cook_time=5,
-            print_coordinates=True,
-            print_visualization=False,
-        )
+        # Create minimal config structure that make_env expects
+        config = OmegaConf.create({
+            "envs": {
+                "overcooked_kwargs": {
+                    "layout_name": layout_name,
+                    "horizon": horizon,
+                    "partner_policy": "none",
+                    "shaped_reward": True,
+                    "pot_cook_time": 5,
+                    "print_coordinates": True,
+                    "print_visualization": False,
+                },
+                "n_rollouts": n_envs,
+                "format_penalty": 0,
+                "binary_reward": False,
+            },
+            "prompt": {
+                "prompt": {
+                    "multi_action_reasoning": False,
+                }
+            }
+        })
+        
+        env = make_env("overcooked", "default", config, render_mode=None)
         return env
-    except ImportError as e:
+    except Exception as e:
         import traceback
-        print(f"Error: Could not import OvercookedEnv: {e}")
+        print(f"Error: Could not create overcooked environment: {e}")
         print("Full traceback:")
         traceback.print_exc()
-        print(f"\nDEBUG: sys.path = {sys.path[:5]}...")  # First 5 entries
         sys.exit(1)
 
 
-def get_instruction_prompt():
-    """Get the instruction prompt for Overcooked."""
-    return """[Instructions]
-You are a chef cooking soup in a kitchen.
-Your goal is to cook and deliver the soups as fast as possible to earn rewards.
-
-[How to Cook]
-1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
-2. Place 3 ingredients in a pot using 'interact'
-3. Wait for the soup to cook
-4. Pick up a dish from the dish pile using 'interact'
-5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
-6. Deliver the soup to the serving counter using 'interact'
-
-[Available Actions]
-"right": move right,
-"down": move down,
-"left": move left,
-"up": move up,
-"stay": stay in place (wait),
-"interact": interact with object in front of you
-
-[Response Format]
-Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags.
-
-<plan>{Think about what to do}</plan>
-<action>{Your selected action}</action>
-
-[Rules]
-- You can only hold one object at a time
-- Each soup requires exactly 3 ingredients
-"""
-
-
 def parse_action(response: str) -> tuple:
-    """Parse action from response."""
+    """Parse action from response using verl's format."""
     import re
     
     valid_actions = {"right", "down", "left", "up", "stay", "interact"}
     
+    # Try <action>X</action> format
     match = re.search(r'<action>\s*(\w+)\s*</action>', response, re.IGNORECASE)
     if match:
         action = match.group(1).lower()
@@ -161,18 +143,22 @@ def run_episode(
     tokenizer,
     env,
     sampling_params: SamplingParams,
-    instruction: str,
     max_steps: int,
 ) -> Dict[str, Any]:
-    """Run a single episode."""
-    obs = env.reset()
+    """Run a single episode using verl environment interface."""
+    obs, info = env.reset()
+    
+    # Get instruction from environment
+    instruction = env.get_instruction_prompt()
+    
     total_reward = 0
     valid_actions = 0
     steps = 0
     
     for step in range(max_steps):
-        # Build prompt
-        prompt = f"{instruction}\n\n[Current State]\n{obs}\n"
+        # Build prompt - obs is dict with text.long_term_context
+        state_text = obs.get("text", {}).get("long_term_context", str(obs))
+        prompt = f"{instruction}\n\n[Current State]\n{state_text}\n\n<plan>"
         
         # Generate response
         messages = [{"role": "user", "content": prompt}]
@@ -190,12 +176,12 @@ def run_episode(
         if is_valid:
             valid_actions += 1
         
-        # Step environment
-        obs, reward, done, info = env.step(action)
+        # Step environment - verl interface uses (action, is_valid)
+        obs, reward, terminated, truncated, info = env.step(action, is_valid)
         total_reward += reward
         steps += 1
         
-        if done:
+        if terminated or truncated:
             break
     
     return {
@@ -253,15 +239,12 @@ def main():
     print(f"\nCreating {args.env} environment...")
     env = create_overcooked_env(args.layout, args.horizon, 1)
     
-    # Get instruction
-    instruction = get_instruction_prompt()
-    
     # Run rollouts
     print(f"\nRunning {args.n_rollouts} rollouts...")
     results = []
     
     for i in range(args.n_rollouts):
-        result = run_episode(llm, tokenizer, env, sampling_params, instruction, args.horizon)
+        result = run_episode(llm, tokenizer, env, sampling_params, args.horizon)
         results.append(result)
         
         if (i + 1) % 10 == 0 or i == args.n_rollouts - 1:
