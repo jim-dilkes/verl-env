@@ -34,8 +34,8 @@ evaluation:
         Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
 
         <scratch>
-        <!-- Update previous <scratch> (keep relevant, remove stale, add new). Max 3 memos, 5-10 words each. -->
-        <memo>{5-10 words}</memo>
+        <!-- Update previous <scratch> (keep relevant, remove stale, add new). Max 3 items, 5-10 words each. -->
+        <subgoal>{5-10 words}</subgoal>
         <memo>{5-10 words}</memo>
         <memo>{5-10 words}</memo>
         </scratch>
@@ -90,8 +90,8 @@ evaluation:
         Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
 
         <scratch>
-        <!-- Update previous <scratch> (keep relevant, remove stale, add new). Max 3 memos, 5-10 words each. -->
-        <memo>{5-10 words}</memo>
+        <!-- Update previous <scratch> (keep relevant, remove stale, add new). Max 3 items, 5-10 words each. -->
+        <subgoal>{5-10 words}</subgoal>
         <memo>{5-10 words}</memo>
         <memo>{5-10 words}</memo>
         </scratch>
@@ -145,8 +145,8 @@ evaluation:
         Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
 
         <scratch>
-        <!-- Update previous <scratch> (keep relevant, remove stale, add new). Max 3 memos, 5-10 words each. -->
-        <memo>{5-10 words}</memo>
+        <!-- Update previous <scratch> (keep relevant, remove stale, add new). Max 3 items, 5-10 words each. -->
+        <subgoal>{5-10 words}</subgoal>
         <memo>{5-10 words}</memo>
         <memo>{5-10 words}</memo>
         </scratch>
