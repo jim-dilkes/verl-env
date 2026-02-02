@@ -1,0 +1,52 @@
+# @package prompt
+
+# Snake/FastSnake prompt configuration with scratch memory
+# To use: prompt=snake_scratch
+
+prompt:
+  # Multi-action reasoning mode: model generates reasoning for each action
+  # When true, uses <decision> tag; when false, uses <action> tag
+  multi_action_reasoning: false
+
+  # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
+  epsilon: 0.0
+
+  # Captioner instruction for NaiveCaptioner
+  naive_instruction: |
+
+
+  # Environment instruction for FastSnake
+  environment_instruction: |
+    [Instructions]
+    You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 200 words.
+
+    [Available Actions]
+    "up": move your head one space up,
+    "down": move your head one space down,
+    "left": move your head one space left,
+    "right": move your head one space right,
+
+    [Response Format]
+    Before selecting your action, maintain a <scratch> section with up to 3 brief <memo> entries for reasoning continuity:
+    - If no <scratch> exists, initialize with your immediate next subgoal before selecting an action
+    - Otherwise, update to maintain consistent multi-step plans:
+      - Current subgoal (what you're working on right now)
+      - Patterns and mistakes learned from recent action outcomes
+      - Remove completed, invalid, or out-of-order subgoals
+    - Ultra-concise: 5-10 words per memo
+    - This is your behavioral scratchpad, NOT for tracking environment state
+
+    Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
+
+    <scratch>
+    <memo>{Brief subgoal or lesson (5-10 words)}</memo>
+    <memo>{Another memo if needed}</memo>
+    <memo>{Up to 3 memos total}</memo>
+    </scratch>
+    <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
+    <action>{Your selected action from the list above}</action>
+
+    [Rules]
+    - You can move your head one space up, down, left, or right
+    - If you move onto an apple, you get 1 point and you gain a body segment
+    - You die if you move into a wall, another snake, or yourself

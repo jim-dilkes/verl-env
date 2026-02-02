@@ -1,0 +1,226 @@
+# @package eval
+# Standard evaluation configs for Overcooked with scratch memory
+# Use with: evaluation=overcooked_evals_scratch
+
+evaluation:
+  environments:
+    # =============================================================================
+    # STANDARD EVALUATION CONFIGS with scratch memory
+    # =============================================================================
+
+    - name: "Overcooked-CrampedRoom"
+      n_rollouts: 50
+      episode_length: 40
+      generation:
+        temperature: 0.6
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 0
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a chef cooking soup in a kitchen.
+        Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 200 words.
+
+        [How to Cook]
+        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
+        2. Place 3 ingredients in a pot using 'interact'
+        3. Wait for the soup to cook
+        4. Pick up a dish from the dish pile using 'interact'
+        5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
+        6. Deliver the soup to the serving counter using 'interact'
+
+        [Available Actions]
+        "right": move right,
+        "down": move down,
+        "left": move left,
+        "up": move up,
+        "stay": stay in place (wait),
+        "interact": interact with object in front of you (pick up, place, or use)
+
+        [Response Format]
+        Before selecting your action, maintain a <scratch> section with up to 3 brief <memo> entries for reasoning continuity:
+        - If no <scratch> exists, initialize with your immediate next subgoal before selecting an action
+        - Otherwise, update to maintain consistent multi-step plans:
+          - Current subgoal (what you're working on right now)
+          - Patterns and mistakes learned from recent action outcomes
+          - Remove completed, invalid, or out-of-order subgoals
+        - Ultra-concise: 5-10 words per memo
+        - This is your behavioral scratchpad, NOT for tracking environment state
+
+        Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
+
+        <scratch>
+        <memo>{Brief subgoal or lesson (5-10 words)}</memo>
+        <memo>{Another memo if needed}</memo>
+        <memo>{Up to 3 memos total}</memo>
+        </scratch>
+        <plan>{Think about what you need to do next to make and deliver soups. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
+        <action>{Your selected action from the list above}</action>
+
+        [Rules]
+        - You can only hold one object at a time
+        - Each soup requires exactly 3 ingredients
+      captioner:
+        type: naive
+        max_text_history: 0
+        max_cot_history: 1
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 40
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+
+
+    - name: "Overcooked-AsymmetricAdvantages"
+      n_rollouts: 50
+      episode_length: 40
+      generation:
+        temperature: 0.6
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 10000
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a chef cooking soup in a kitchen.
+        Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 200 words.
+
+        [How to Cook]
+        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
+        2. Place 3 ingredients in a pot using 'interact'
+        3. Wait for the soup to cook
+        4. Pick up a dish from the dish pile using 'interact'
+        5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
+        6. Deliver the soup to the serving counter using 'interact'
+
+        [Available Actions]
+        "right": move right,
+        "down": move down,
+        "left": move left,
+        "up": move up,
+        "stay": stay in place (wait),
+        "interact": interact with object in front of you (pick up, place, or use)
+
+        [Response Format]
+        Before selecting your action, maintain a <scratch> section with up to 3 brief <memo> entries for reasoning continuity:
+        - If no <scratch> exists, initialize with your immediate next subgoal before selecting an action
+        - Otherwise, update to maintain consistent multi-step plans:
+          - Current subgoal (what you're working on right now)
+          - Patterns and mistakes learned from recent action outcomes
+          - Remove completed, invalid, or out-of-order subgoals
+        - Ultra-concise: 5-10 words per memo
+        - This is your behavioral scratchpad, NOT for tracking environment state
+
+        Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
+
+        <scratch>
+        <memo>{Brief subgoal or lesson (5-10 words)}</memo>
+        <memo>{Another memo if needed}</memo>
+        <memo>{Up to 3 memos total}</memo>
+        </scratch>
+        <plan>{Think about what you need to do next to make and deliver soups. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
+        <action>{Your selected action from the list above}</action>
+
+        [Rules]
+        - You can only hold one object at a time
+        - Each soup requires exactly 3 ingredients
+      captioner:
+        type: naive
+        max_text_history: 0
+        max_cot_history: 1
+      overcooked_kwargs:
+        layout_name: asymm_advantages
+        horizon: 40
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+
+
+    # --- Entropy Check (inherits from training) ---
+    - name: "Overcooked-CrampedRoom-Entropy-Check"
+      n_rollouts: 50
+      episode_length: 1
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 30000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      inherit_training_multiaction: true
+      captioner:
+        type: naive
+        max_text_history: 0
+        max_cot_history: 1
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 40
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+      action_entropy:
+        enabled: true
+        n_samples: 20
+        temperature: 1.2
+        measure_at_steps: "start"
+        step_interval: 1
+        exclusive_metric: true
+        max_batch_size: 32
+
+
+    # --- StateVisitation (inherits from training) ---
+    - name: "Overcooked-CrampedRoom-StateVisitation"
+      n_rollouts: 300
+      batch_size: 50
+      episode_length: 8
+      generation:
+        temperature: 1.25
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 40000
+      seed_group_size: 20
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      inherit_training_multiaction: true
+      captioner:
+        type: naive
+        max_text_history: 0
+        max_cot_history: 1
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 8
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true

@@ -1,0 +1,62 @@
+# @package prompt
+
+# Overcooked environment prompt configuration with scratch memory
+# To use: prompt=overcooked_scratch
+
+prompt:
+  # Multi-action reasoning mode: model generates reasoning for each action
+  # When true, uses <decision> tag; when false, uses <action> tag
+  multi_action_reasoning: false
+
+  # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
+  epsilon: 0.0
+
+  # Captioner instruction for NaiveCaptioner
+  naive_instruction: |
+
+
+  # Environment instruction for Overcooked
+  environment_instruction: |
+    [Instructions]
+    You are a chef cooking soup in a kitchen.
+    Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 200 words.
+
+    [How to Cook]
+    1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
+    2. Place 3 ingredients in a pot using 'interact'
+    3. Wait for the soup to cook
+    4. Pick up a dish from the dish pile using 'interact'
+    5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
+    6. Deliver the soup to the serving counter using 'interact'
+
+    [Available Actions]
+    "right": move right,
+    "down": move down,
+    "left": move left,
+    "up": move up,
+    "stay": stay in place (wait),
+    "interact": interact with object in front of you (pick up, place, or use)
+
+    [Response Format]
+    Before selecting your action, maintain a <scratch> section with up to 3 brief <memo> entries for reasoning continuity:
+    - If no <scratch> exists, initialize with your immediate next subgoal before selecting an action
+    - Otherwise, update to maintain consistent multi-step plans:
+      - Current subgoal (what you're working on right now)
+      - Patterns and mistakes learned from recent action outcomes
+      - Remove completed, invalid, or out-of-order subgoals
+    - Ultra-concise: 5-10 words per memo
+    - This is your behavioral scratchpad, NOT for tracking environment state
+
+    Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
+
+    <scratch>
+    <memo>{Brief subgoal or lesson (5-10 words)}</memo>
+    <memo>{Another memo if needed}</memo>
+    <memo>{Up to 3 memos total}</memo>
+    </scratch>
+    <plan>{Think about what you need to do next to make and deliver soups. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
+    <action>{Your selected action from the list above}</action>
+
+    [Rules]
+    - You can only hold one object at a time
+    - Each soup requires exactly 3 ingredients
