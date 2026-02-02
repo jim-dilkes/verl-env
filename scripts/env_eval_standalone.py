@@ -98,8 +98,12 @@ def create_overcooked_env(layout_name: str, horizon: int, n_envs: int):
             print_visualization=False,
         )
         return env
-    except ImportError:
-        print("Error: Could not import OvercookedEnv. Make sure verl is installed.")
+    except ImportError as e:
+        import traceback
+        print(f"Error: Could not import OvercookedEnv: {e}")
+        print("Full traceback:")
+        traceback.print_exc()
+        print(f"\nDEBUG: sys.path = {sys.path[:5]}...")  # First 5 entries
         sys.exit(1)
 
 
