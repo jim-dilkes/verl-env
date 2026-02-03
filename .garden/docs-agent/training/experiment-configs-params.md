@@ -46,7 +46,28 @@ algorithm.token_lam: 1.0
 data.train_batch_size: 256
 trainer.critic_warmup: 40
 trainer.test_freq: 5
+trainer.total_epochs: 1000
+trainer.total_training_steps: 1000
 ```
+
+## Checkpoint Resumption
+
+When resuming from a checkpoint:
+- Checkpoint loads `global_steps` from folder name (e.g., `global_step_1000` → `global_steps=1000`)
+- Training increments to `global_steps+1` before first iteration (e.g., resumes at step 1001)
+- Training stops when `global_steps >= total_training_steps`
+
+**To continue training for additional steps:**
+- Set `total_training_steps` to the **final desired step count** (not the number of additional steps)
+- Example: Checkpoint at step 1000, want 1500 more steps → set `total_training_steps=2500`
+
+```yaml
+# Resume from step 1000, train to step 2500 (1500 additional steps)
+trainer.total_training_steps=2500 \
+trainer.total_epochs=2500 \
+```
+
+**Note:** Set both `total_epochs` and `total_training_steps` to the same value for safety. The trainer stops at whichever limit is reached first. Since `total_training_steps` is checked first, it controls the actual stop point
 
 ## Ideas to Try (from PhD notes)
 - Episode sampling (if text gen faster)
