@@ -11,6 +11,7 @@ import argparse
 
 from verl.envs.environments.overcooked.jaxmarl_wrapper import OvercookedGymWrapper
 from verl.envs.environments.overcooked import ACTION_TO_IDX, IDX_TO_ACTION
+from verl.envs.environments.overcooked.custom_layouts import CUSTOM_LAYOUTS
 
 CONTROLS = {
     'w': 'up',
@@ -59,9 +60,16 @@ def parse_args():
 
 def list_layouts():
     from jaxmarl.environments.overcooked_v2.layouts import overcooked_v2_layouts
-    print("Available layouts:")
+
+    print("Built-in JaxMARL layouts:")
     for name in sorted(overcooked_v2_layouts.keys()):
         print(f"  - {name}")
+
+    print("\nCustom layouts:")
+    for name in sorted(CUSTOM_LAYOUTS.keys()):
+        layout = CUSTOM_LAYOUTS[name]
+        recipes = layout.possible_recipes
+        print(f"  - {name} (recipe: {recipes[0] if recipes else 'random'})")
 
 
 def play_game(args):
@@ -72,10 +80,17 @@ def play_game(args):
         print("Error: Cannot disable both --no-grid and --no-coords")
         return
 
-    print(f"Initializing Overcooked ({args.layout})...")
+    # Check if this is a custom layout
+    if args.layout in CUSTOM_LAYOUTS:
+        layout = CUSTOM_LAYOUTS[args.layout]
+        print(f"Initializing Overcooked (custom: {args.layout})...")
+        print(f"Recipe: {layout.possible_recipes[0]}")
+    else:
+        layout = args.layout
+        print(f"Initializing Overcooked ({args.layout})...")
 
     env = OvercookedGymWrapper(
-        layout=args.layout,
+        layout=layout,
         max_steps=args.max_steps,
         partner_policy=args.partner,
         seed=args.seed,

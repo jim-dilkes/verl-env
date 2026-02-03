@@ -112,6 +112,16 @@ class OvercookedGymWrapper(gym.Env):
         self._step_count = 0
         self._last_event = "Episode started"
 
+        # In solo mode, move partner agent off-map so they don't block tiles
+        if self.solo_mode:
+            partner_idx = 1 if self.controlled_agent == "agent_0" else 0
+            # Move partner to position (-1, -1) - off the grid
+            new_pos_x = self._state.agents.pos.x.at[partner_idx].set(-1)
+            new_pos_y = self._state.agents.pos.y.at[partner_idx].set(-1)
+            new_pos = self._state.agents.pos.replace(x=new_pos_x, y=new_pos_y)
+            new_agents = self._state.agents.replace(pos=new_pos)
+            self._state = self._state.replace(agents=new_agents)
+
         # Clear caches - layout static objects need recomputing
         self._cached_static_objects = None
         self._cached_pot_positions = None

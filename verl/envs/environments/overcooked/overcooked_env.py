@@ -1,5 +1,6 @@
 from verl.envs.environments.overcooked.jaxmarl_wrapper import OvercookedGymWrapper
 from verl.envs.environments.overcooked.base import OvercookedLLMAgentsWrapper
+from verl.envs.environments.overcooked.custom_layouts import CUSTOM_LAYOUTS
 
 
 def make_overcooked_env(env_name, task, config, render_mode=None):
@@ -7,8 +8,9 @@ def make_overcooked_env(env_name, task, config, render_mode=None):
 
     Config options (via envs.overcooked_kwargs):
         layout_name: str - Kitchen layout (default: "cramped_room")
-            Options: cramped_room, asymm_advantages, coord_ring,
-                    forced_coord, counter_circuit
+            Built-in JaxMARL: cramped_room, asymm_advantages, coord_ring,
+                              forced_coord, counter_circuit, etc.
+            Custom layouts: cramped_room_mixed (2 onion + 1 tomato recipe)
         horizon: int - Max steps per episode (default: 200)
         partner_policy: str - Partner agent behavior (default: "noop")
             Options: "noop" (stays), "random", "none" (solo mode, partner hidden)
@@ -22,7 +24,13 @@ def make_overcooked_env(env_name, task, config, render_mode=None):
     """
     overcooked_kwargs = dict(config.envs.overcooked_kwargs) if hasattr(config.envs, "overcooked_kwargs") else {}
 
-    layout = overcooked_kwargs.get("layout_name", "cramped_room")
+    layout_name = overcooked_kwargs.get("layout_name", "cramped_room")
+
+    # Check if this is a custom layout, otherwise pass string to wrapper (JaxMARL built-in)
+    if layout_name in CUSTOM_LAYOUTS:
+        layout = CUSTOM_LAYOUTS[layout_name]
+    else:
+        layout = layout_name
     max_steps = overcooked_kwargs.get("horizon", 200)
     partner_policy = overcooked_kwargs.get("partner_policy", "noop")
     shaped_reward = overcooked_kwargs.get("shaped_reward", True)
