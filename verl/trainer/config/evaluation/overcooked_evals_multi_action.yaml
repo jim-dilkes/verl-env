@@ -24,16 +24,20 @@ evaluation:
       epsilon: 0.0
       instruction_prompt: |
         [Instructions]
-        You are a chef cooking soup in a kitchen.
-        Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 400 words.
+        You are a chef cooking meals in a kitchen.
+        Your goal is to cook and deliver the meals as fast as possible to earn rewards. Your maximum response length: 400 words.
+
+        [Recipe]
+        3 onions
 
         [How to Cook]
-        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
-        2. Place 3 ingredients in a pot using 'interact'
-        3. Wait for the soup to cook
-        4. Pick up a dish from the dish pile using 'interact'
-        5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
-        6. Deliver the soup to the serving counter using 'interact'
+        1. Identify the ingredients needed for the meal from the recipe.
+        2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
+        3. Place ingredients in a pot using 'interact'
+        4. Wait for the meal to cook
+        5. Pick up a dish from the dish pile using 'interact'
+        6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
+        7. Deliver the meal to the serving counter using 'interact'
 
         [Available Actions]
         "right": move right,
@@ -45,7 +49,7 @@ evaluation:
 
         [Response Format]
         You must reason about EACH available action, then make a decision.
-        Think about what you need to do next to make and deliver soups. 
+        Think about what you need to do next to make and deliver meals. 
         Consider your position, what you're facing towards, what you're holding, and pot status.
 
         First, analyze each action by generating an <action> tag for each:
@@ -63,7 +67,7 @@ evaluation:
 
         [Rules]
         - You can only hold one object at a time
-        - Each soup requires exactly 3 ingredients
+        - Each meal requires exactly 3 ingredients
         - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
@@ -97,16 +101,20 @@ evaluation:
       epsilon: 0.0
       instruction_prompt: |
         [Instructions]
-        You are a chef cooking soup in a kitchen.
-        Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 400 words.
+        You are a chef cooking meals in a kitchen.
+        Your goal is to cook and deliver the meals as fast as possible to earn rewards. Your maximum response length: 400 words.
+
+        [Recipe]
+        3 onions
 
         [How to Cook]
-        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
-        2. Place 3 ingredients in a pot using 'interact'
-        3. Wait for the soup to cook
-        4. Pick up a dish from the dish pile using 'interact'
-        5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
-        6. Deliver the soup to the serving counter using 'interact'
+        1. Identify the ingredients needed for the meal from the recipe.
+        2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
+        3. Place ingredients in a pot using 'interact'
+        4. Wait for the meal to cook
+        5. Pick up a dish from the dish pile using 'interact'
+        6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
+        7. Deliver the meal to the serving counter using 'interact'
 
         [Available Actions]
         "right": move right,
@@ -118,7 +126,7 @@ evaluation:
 
         [Response Format]
         You must reason about EACH available action, then make a decision.
-        Think about what you need to do next to make and deliver soups. 
+        Think about what you need to do next to make and deliver meals. 
         Consider your position, what you're facing towards, what you're holding, and pot status.
 
         First, analyze each action by generating an <action> tag for each:
@@ -136,7 +144,7 @@ evaluation:
 
         [Rules]
         - You can only hold one object at a time
-        - Each soup requires exactly 3 ingredients
+        - Each meal requires exactly 3 ingredients
         - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
@@ -172,16 +180,20 @@ evaluation:
       inherit_training_multiaction: true
       instruction_prompt: |
         [Instructions]
-        You are a chef cooking soup in a kitchen.
-        Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 400 words.
+        You are a chef cooking meals in a kitchen.
+        Your goal is to cook and deliver the meals as fast as possible to earn rewards. Your maximum response length: 400 words.
+
+        [Recipe]
+        3 onions
 
         [How to Cook]
-        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
-        2. Place 3 ingredients in a pot using 'interact'
-        3. Wait for the soup to cook
-        4. Pick up a dish from the dish pile using 'interact'
-        5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
-        6. Deliver the soup to the serving counter using 'interact'
+        1. Identify the ingredients needed for the meal from the recipe.
+        2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
+        3. Place ingredients in a pot using 'interact'
+        4. Wait for the meal to cook
+        5. Pick up a dish from the dish pile using 'interact'
+        6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
+        7. Deliver the meal to the serving counter using 'interact'
 
         [Available Actions]
         "right": move right,
@@ -193,7 +205,7 @@ evaluation:
 
         [Response Format]
         You must reason about EACH available action, then make a decision.
-        Think about what you need to do next to make and deliver soups. 
+        Think about what you need to do next to make and deliver meals. 
         Consider your position, what you're facing towards, what you're holding, and pot status.
 
         First, analyze each action by generating an <action> tag for each:
@@ -211,7 +223,7 @@ evaluation:
 
         [Rules]
         - You can only hold one object at a time
-        - Each soup requires exactly 3 ingredients
+        - Each meal requires exactly 3 ingredients
         - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
@@ -257,16 +269,20 @@ evaluation:
       inherit_training_multiaction: true
       instruction_prompt: |
         [Instructions]
-        You are a chef cooking soup in a kitchen.
-        Your goal is to cook and deliver the soups as fast as possible to earn rewards. Your maximum response length: 400 words.
+        You are a chef cooking meals in a kitchen.
+        Your goal is to cook and deliver the meals as fast as possible to earn rewards. Your maximum response length: 400 words.
+
+        [Recipe]
+        3 onions
 
         [How to Cook]
-        1. Pick up ingredients (e.g., onions) from ingredient piles using 'interact' while facing them
-        2. Place 3 ingredients in a pot using 'interact'
-        3. Wait for the soup to cook
-        4. Pick up a dish from the dish pile using 'interact'
-        5. Pick up the cooked soup from the pot using 'interact' (with dish in hand)
-        6. Deliver the soup to the serving counter using 'interact'
+        1. Identify the ingredients needed for the meal from the recipe.
+        2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
+        3. Place ingredients in a pot using 'interact'
+        4. Wait for the meal to cook
+        5. Pick up a dish from the dish pile using 'interact'
+        6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
+        7. Deliver the meal to the serving counter using 'interact'
 
         [Available Actions]
         "right": move right,
@@ -278,7 +294,7 @@ evaluation:
 
         [Response Format]
         You must reason about EACH available action, then make a decision.
-        Think about what you need to do next to make and deliver soups. 
+        Think about what you need to do next to make and deliver meals. 
         Consider your position, what you're facing towards, what you're holding, and pot status.
 
         First, analyze each action by generating an <action> tag for each:
@@ -296,7 +312,7 @@ evaluation:
 
         [Rules]
         - You can only hold one object at a time
-        - Each soup requires exactly 3 ingredients
+        - Each meal requires exactly 3 ingredients
         - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
