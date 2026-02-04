@@ -11,7 +11,7 @@
 #SBATCH --gpus-per-node=2
 
 # --- Define experiment variables ---
-project_name=verl_env
+project_name=rl_sdm
 experiment_name=FS_PPO_4B_scratch
 run_number=1
 number_of_gpus=2
