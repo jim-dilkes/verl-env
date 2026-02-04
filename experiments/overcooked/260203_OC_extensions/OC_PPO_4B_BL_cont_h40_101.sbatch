@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_4B_MA_pos_eps00_cont_h40_1
+#SBATCH --job-name=OC_PPO_4B_BL_cont_h40_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -12,13 +12,13 @@
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_PPO_4B_MA_pos_eps00_cont_h40
-run_number=1
+experiment_name=OC_PPO_4B_BL_cont_h40
+run_number=101
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi-act","epsilon:0.2","horizon:40","continuation"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","continuation"]'
 
 # Checkpoint to resume from (adjust if needed)
-LOAD_CHECKPOINT_DIR=/scratch/${USER}/checkpoints/${project_name}/OC_PPO_4B_MA_pos_eps00_run1
+LOAD_CHECKPOINT_DIR=/scratch/${USER}/checkpoints/${project_name}/OC_PPO_4B_BL_run2
 # Will automatically find latest checkpoint in this directory
 
 job_id=${SLURM_JOB_ID:-local}
@@ -36,7 +36,7 @@ export RAY_TMPDIR="$short_temp_dir"
 export TMPDIR="$short_temp_dir"
 
 # Useful when Ray dies early (raylet crash -> workers get EOF). Captures raylet/plasma logs in SLURM output.
-# export RAY_LOG_TO_STDERR=1
+export RAY_LOG_TO_STDERR=1
 
 
 
@@ -160,7 +160,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.env_name=overcooked \
   envs.format_penalty=1 \
   envs.binary_reward=False \
-  envs.captioner.type=multi_action \
+  envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
   envs.captioner.max_cot_history=1 \
   envs.overcooked_kwargs.layout_name=cramped_room \
@@ -203,9 +203,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-32} \
   +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=overcooked_evals_combined_justified \
-  prompt=overcooked_multi_action_justified \
-  prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
+  evaluation=overcooked_evals_combined \
+  prompt=overcooked 2>&1 | tee verl_demo.log
 python_status=${PIPESTATUS[0]}
 set -e
 

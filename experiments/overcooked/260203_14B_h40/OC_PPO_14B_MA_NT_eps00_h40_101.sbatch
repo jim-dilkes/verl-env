@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_14B_MA_NT_eps02_h40_1
+#SBATCH --job-name=OC_PPO_14B_MA_NT_eps00_h40_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -12,10 +12,10 @@
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_PPO_14B_MA_NT_eps02_h40
-run_number=1
+experiment_name=OC_PPO_14B_MA_NT_eps00_h40
+run_number=101
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","multi_action","14B","from_scratch","horizon:40"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi_action","14B","from_scratch","horizon:40"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -188,7 +188,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
   evaluation=overcooked_evals_combined \
   prompt=overcooked_multi_action_NT \
-  prompt.prompt.epsilon=0.2 2>&1 | tee verl_demo.log
+  prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
 
 actual_session_dir="${short_temp_dir}/session_latest"
 readable_log_path="${readable_log_root}/${experiment_run_name}"
