@@ -64,11 +64,6 @@ evaluation:
 
         Then, output your final decision:
         <decision>your_chosen_action</decision>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients
-        - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
         max_text_history: 0
@@ -141,11 +136,6 @@ evaluation:
 
         Then, output your final decision:
         <decision>your_chosen_action</decision>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients
-        - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
         max_text_history: 0
@@ -220,11 +210,6 @@ evaluation:
 
         Then, output your final decision:
         <decision>your_chosen_action</decision>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients
-        - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
         max_text_history: 0
@@ -309,11 +294,6 @@ evaluation:
 
         Then, output your final decision:
         <decision>your_chosen_action</decision>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients
-        - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
         max_text_history: 0

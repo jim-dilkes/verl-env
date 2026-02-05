@@ -105,10 +105,6 @@ evaluation:
 
         <plan>{Think about what you need to do next to make and deliver meals. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
         <action>{Your selected action from the list above}</action>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients: 2 onions + 1 tomato
       captioner:
         type: naive
         max_text_history: 0

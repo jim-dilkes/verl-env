@@ -45,7 +45,7 @@ prompt:
     Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
 
     <scratch>
-    <!-- For subgoals and good/bad behaviors, not information about the environment. Reference the previous <scratch>, copying relevant items verbatim, removing stale information, adding important information. Max 3 items, 5-10 words each. -->
+    <!-- For subgoals and pertinent information, identified helpful/unhelpful behaviors. Reference the previous <scratch>, copying relevant items verbatim, removing stale information, adding important information. Max 3 items, 5-10 words each. -->
     <subgoal>{5-10 words}</subgoal>
     <memo>{5-10 words}</memo>
     <memo>{5-10 words}</memo>

@@ -52,17 +52,13 @@ evaluation:
         Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
 
         <scratch>
-        <!-- For subgoals and good/bad behaviors, not state tracking. Update previous (keep relevant, remove stale, add new). Max 3 items, 5-10 words each. -->
+        <!-- For subgoals and pertinent information, identified helpful/unhelpful behaviors. Reference the previous <scratch>, copying relevant items verbatim, removing stale information, adding important information. Max 3 items, 5-10 words each. -->
         <subgoal>{5-10 words}</subgoal>
         <memo>{5-10 words}</memo>
         <memo>{5-10 words}</memo>
         </scratch>
         <plan>{Think about what you need to do next to make and deliver meals. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
         <action>{Your selected action from the list above}</action>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients
       captioner:
         type: naive
         max_text_history: 0
@@ -77,15 +73,16 @@ evaluation:
         print_coordinates: true
 
 
-    - name: "Overcooked-AsymmetricAdvantages"
+
+    - name: "Overcooked-MixedRecipe-Greedy"
       n_rollouts: 50
       episode_length: 40
       generation:
-        temperature: 0.6
+        temperature: 0.0
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: true
+        do_sample: False
       initial_seed: 10000
       freeze_completed_episodes: True
       duplication_mode: none
@@ -98,7 +95,7 @@ evaluation:
         Your goal is to cook and deliver the meals as fast as possible to earn rewards. Your maximum response length: 200 words.
 
         [Recipe]
-        3 onions
+        2 onions + 1 tomato
 
         [How to Cook]
         1. Identify the ingredients needed for the meal from the recipe.
@@ -118,26 +115,21 @@ evaluation:
         "interact": interact with object in front of you (pick up, place, or use)
 
         [Response Format]
-        Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
+        Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
 
         <scratch>
-        <!-- For subgoals and good/bad behaviors, not state tracking. Update previous (keep relevant, remove stale, add new). Max 3 items, 5-10 words each. -->
+        <!-- For subgoals and pertinent information, identified helpful/unhelpful behaviors. Reference the previous <scratch>, copying relevant items verbatim, removing stale information, adding important information. Max 3 items, 5-10 words each. -->
         <subgoal>{5-10 words}</subgoal>
         <memo>{5-10 words}</memo>
         <memo>{5-10 words}</memo>
         </scratch>
         <plan>{Think about what you need to do next to make and deliver meals. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
         <action>{Your selected action from the list above}</action>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients
       captioner:
         type: naive
         max_text_history: 0
-        max_cot_history: 1
       overcooked_kwargs:
-        layout_name: asymm_advantages
+        layout_name: cramped_room_mixed
         horizon: 40
         partner_policy: none
         shaped_reward: true
