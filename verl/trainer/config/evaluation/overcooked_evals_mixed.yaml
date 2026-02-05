@@ -29,7 +29,7 @@ evaluation:
         [How to Cook]
         1. Identify the ingredients needed for the meal from the recipe.
         2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
-        3. Place ingredients in a pot using 'interact'
+        3. Place 3 ingredients in a pot using 'interact'
         4. Wait for the meal to cook
         5. Pick up a dish from the dish pile using 'interact'
         6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
@@ -86,7 +86,7 @@ evaluation:
         [How to Cook]
         1. Identify the ingredients needed for the meal from the recipe.
         2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
-        3. Place ingredients in a pot using 'interact'
+        3. Place 3 ingredients in a pot using 'interact'
         4. Wait for the meal to cook
         5. Pick up a dish from the dish pile using 'interact'
         6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
@@ -119,7 +119,7 @@ evaluation:
 
 
     # --- Entropy Check (inherits from training) ---
-    - name: "Overcooked-MixedRecipe-Entropy-Check"
+    - name: "Overcooked-CrampedRoom-Entropy-Check"
       n_rollouts: 50
       episode_length: 1
       generation:
@@ -139,7 +139,7 @@ evaluation:
         type: naive
         max_text_history: 0
       overcooked_kwargs:
-        layout_name: cramped_room_mixed
+        layout_name: cramped_room
         horizon: 40
         partner_policy: none
         shaped_reward: true
@@ -157,8 +157,8 @@ evaluation:
 
 
     # --- StateVisitation (inherits from training) ---
-    - name: "Overcooked-MixedRecipe-StateVisitation"
-      n_rollouts: 400
+    - name: "Overcooked-CrampedRoom-StateVisitation"
+      n_rollouts: 300
       batch_size: 50
       episode_length: 8
       generation:
@@ -179,7 +179,7 @@ evaluation:
         type: naive
         max_text_history: 0
       overcooked_kwargs:
-        layout_name: cramped_room_mixed
+        layout_name: cramped_room
         horizon: 8
         partner_policy: none
         shaped_reward: true
