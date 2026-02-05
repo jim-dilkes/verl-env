@@ -1,0 +1,54 @@
+# @package prompt
+
+# Overcooked environment prompt configuration with scratch memory (plan-first order)
+# To use: prompt=overcooked_scratchRev
+
+prompt:
+  # Multi-action reasoning mode: model generates reasoning for each action
+  # When true, uses <decision> tag; when false, uses <action> tag
+  multi_action_reasoning: false
+
+  # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
+  epsilon: 0.0
+
+  # Captioner instruction for NaiveCaptioner
+  naive_instruction: |
+
+
+  # Environment instruction for Overcooked
+  environment_instruction: |
+    [Instructions]
+    You are a chef cooking meals in a kitchen.
+    Your goal is to cook and deliver the meals as fast as possible to earn rewards. Your maximum response length: 200 words.
+
+    [Recipe]
+    3 onions
+
+    [How to Cook]
+    1. Identify the ingredients needed for the meal from the recipe.
+    2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
+    3. Place 3 ingredients in a pot using 'interact'
+    4. Wait for the meal to cook
+    5. Pick up a dish from the dish pile using 'interact'
+    6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
+    7. Deliver the meal to the serving counter using 'interact'
+
+    [Available Actions]
+    "right": move right,
+    "down": move down,
+    "left": move left,
+    "up": move up,
+    "stay": stay in place (wait),
+    "interact": interact with object in front of you (pick up, place, or use)
+
+    [Response Format]
+    Respond using ONLY valid XML with <plan>...</plan>, <scratch>...</scratch>, and <action>...</action> tags. Stop responding after the </action> tag.
+
+    <plan>{Think about what you need to do next to make and deliver meals. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
+    <scratch>
+    <!-- For subgoals and pertinent information, identified helpful/unhelpful behaviors. Reference the previous <scratch>, copying relevant items verbatim, removing stale information, adding important information. Max 3 items, 5-10 words each. -->
+    <subgoal>{5-10 words}</subgoal>
+    <memo>{5-10 words}</memo>
+    <memo>{5-10 words}</memo>
+    </scratch>
+    <action>{Your selected action from the list above}</action>
