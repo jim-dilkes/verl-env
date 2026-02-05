@@ -1,21 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_4B_MA_pos_eps00_h40_101
+#SBATCH --job-name=OC_PPO_4B_MA_eps02_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_h100,swarm_a100
-#SBATCH --time=96:00:00
+#SBATCH --partition=swarm_h100,swarm_a100,a100
+#SBATCH --time=60:00:00
 #SBATCH --gpus-per-node=2
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_PPO_4B_MA_pos_eps00_h40
+experiment_name=OC_PPO_4B_MA_eps02
 run_number=101
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi-act","epsilon:0.2","horizon:40","prompt-fix"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi-act","epsilon:0.2","prompt-fix"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -32,7 +32,7 @@ export RAY_TMPDIR="$short_temp_dir"
 export TMPDIR="$short_temp_dir"
 
 # Useful when Ray dies early (raylet crash -> workers get EOF). Captures raylet/plasma logs in SLURM output.
-# export RAY_LOG_TO_STDERR=1
+export RAY_LOG_TO_STDERR=1
 
 
 
@@ -190,8 +190,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.save_freq=100 \
   trainer.test_freq=100 \
   trainer.render=False \
-  trainer.total_epochs=1500 \
-  trainer.total_training_steps=1500 \
+  trainer.total_epochs=1000 \
+  trainer.total_training_steps=1000 \
   trainer.default_local_dir=/scratch/${user_name}/checkpoints/${project_name}/${experiment_name}_run${run_number} \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
@@ -199,9 +199,9 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-32} \
   +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=overcooked_evals_combined_justified \
-  prompt=overcooked_evals_combined_mixed_justified \
-  prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
+  evaluation=overcooked_evals_combined_mixed \
+  prompt=overcooked_multi_action \
+  prompt.prompt.epsilon=0.2 2>&1 | tee verl_demo.log
 python_status=${PIPESTATUS[0]}
 set -e
 
