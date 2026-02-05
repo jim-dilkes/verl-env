@@ -483,6 +483,9 @@ envs:
     # Cooking duration in environment ticks
     pot_cook_time: 20
 
+    # Randomize agent spawn positions each reset (confined to same room)
+    random_agent_positions: false
+
 # profiler configs
 global_profiler:
 
