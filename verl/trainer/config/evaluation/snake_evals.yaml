@@ -22,6 +22,10 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 200 words.
 
+        [Game Rules]
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -33,11 +37,6 @@ evaluation:
 
         <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
         <action>{Your selected action from the list above}</action>
-
-        [Rules]
-        - You can move your head one space up, down, left, or right
-        - If you move onto an apple, you get 1 point and you gain a body segment
-        - You die if you move into a wall, another snake, or yourself
       captioner:
         # type: inherits from training config (e.g., naive or multi_action)
         max_text_history: 0
@@ -71,6 +70,10 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 200 words.
         
+        [Game Rules]
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -82,11 +85,6 @@ evaluation:
 
         <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
         <action>{Your selected action from the list above}</action>
-
-        [Rules]
-        - You can move your head one space up, down, left, or right
-        - If you move onto an apple, you get 1 point and you gain a body segment
-        - You die if you move into a wall, another snake, or yourself
       captioner:
         # type: inherits from training config (e.g., naive or multi_action)
         max_text_history: 0
@@ -121,6 +119,11 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 200 words.
 
+        [Game Rules]
+        - All apples are poisonous and will hurt you. If you move onto an apple, you *lose* 1 point.
+        - All bananas are healthy and are good for you. If you move onto a banana, you *receive* 1 point and you gain a body segment.
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -132,12 +135,6 @@ evaluation:
 
         <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
         <action>{Your selected action from the list above}</action>
-
-        [Rules]
-        - You can move your head one space up, down, left, or right
-        - All apples are poisonous and will hurt you. If you move onto an apple, you *lose* 1 point.
-        - All bananas are healthy and are good for you. If you move onto a banana, you *receive* 1 point and you gain a body segment.
-        - You die if you move into a wall, another snake, or yourself
       captioner:
         # type: inherits from training config (e.g., naive or multi_action)
         max_text_history: 0
@@ -176,6 +173,10 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 200 words.
 
+        [Game Rules]
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -187,11 +188,6 @@ evaluation:
 
         <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
         <action>{Your selected action from the list above}</action>
-
-        [Rules]
-        - You can move your head one space up, down, left, or right
-        - If you move onto an apple, you get 1 point and you gain a body segment
-        - You die if you move into a wall, another snake, or yourself
       captioner:
         # type: inherits from training config (e.g., naive or multi_action)
         max_text_history: 0
@@ -237,6 +233,10 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 200 words.
 
+        [Game Rules]
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -248,11 +248,6 @@ evaluation:
 
         <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
         <action>{Your selected action from the list above}</action>
-
-        [Rules]
-        - You can move your head one space up, down, left, or right
-        - If you move onto an apple, you get 1 point and you gain a body segment
-        - You die if you move into a wall, another snake, or yourself
       captioner:
         # type: inherits from training config (e.g., naive or multi_action)
         max_text_history: 0

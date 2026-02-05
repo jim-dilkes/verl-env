@@ -27,6 +27,10 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
 
+        [Game Rules]
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -34,23 +38,15 @@ evaluation:
         "right": move your head one space right,
 
         [Response Format]
-        You must reason about EACH available action, then make a decision.
+        Respond using ONLY valid XML using <actions>...</actions> tags for EACH available action, then output your choice in <decision>...</decision>. Stop responding after the </decision> tag.
 
-        First, analyze each action by generating an <action> tag for each:
         <actions>
-        <action name="up">Your reasoning about why moving up might be good or bad...</action>
-        <action name="down">Your reasoning about why moving down might be good or bad...</action>
-        <action name="left">Your reasoning about why moving left might be good or bad...</action>
-        <action name="right">Your reasoning about why moving right might be good or bad...</action>
+        <action name="up">{Your reasoning about moving up}</action>
+        <action name="down">{Your reasoning about moving down}</action>
+        <action name="left">{Your reasoning about moving left}</action>
+        <action name="right">{Your reasoning about moving right}</action>
         </actions>
-
-        Then, output your final decision:
-        <decision>your_chosen_action</decision>
-
-        [Rules]
-        - Eat apples to grow and score points
-        - Avoid walls, your own body, and enemy snakes
-        - You must output reasoning for ALL four actions before making your decision
+        <decision>{Your selected action from the list above}</decision>
       captioner:
         max_text_history: 0
       fastsnake_kwargs:
@@ -85,6 +81,10 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
 
+        [Game Rules]
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -92,23 +92,15 @@ evaluation:
         "right": move your head one space right,
 
         [Response Format]
-        You must reason about EACH available action, then make a decision.
+        Respond using ONLY valid XML using <actions>...</actions> tags for EACH available action, then output your choice in <decision>...</decision>. Stop responding after the </decision> tag.
 
-        First, analyze each action by generating an <action> tag for each:
         <actions>
-        <action name="up">Your reasoning about why moving up might be good or bad...</action>
-        <action name="down">Your reasoning about why moving down might be good or bad...</action>
-        <action name="left">Your reasoning about why moving left might be good or bad...</action>
-        <action name="right">Your reasoning about why moving right might be good or bad...</action>
+        <action name="up">{Your reasoning about moving up}</action>
+        <action name="down">{Your reasoning about moving down}</action>
+        <action name="left">{Your reasoning about moving left}</action>
+        <action name="right">{Your reasoning about moving right}</action>
         </actions>
-
-        Then, output your final decision:
-        <decision>your_chosen_action</decision>
-
-        [Rules]
-        - Eat apples to grow and score points
-        - Avoid walls, your own body, and enemy snakes
-        - You must output reasoning for ALL four actions before making your decision
+        <decision>{Your selected action from the list above}</decision>
       captioner:
         max_text_history: 0
       fastsnake_kwargs:
@@ -144,6 +136,11 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
 
+        [Game Rules]
+        - All apples are poisonous and will hurt you. If you move onto an apple, you *lose* 1 point.
+        - All bananas are healthy and are good for you. If you move onto a banana, you *receive* 1 point and you gain a body segment.
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -151,24 +148,15 @@ evaluation:
         "right": move your head one space right,
 
         [Response Format]
-        You must reason about EACH available action, then make a decision.
+        Respond using ONLY valid XML using <actions>...</actions> tags for EACH available action, then output your choice in <decision>...</decision>. Stop responding after the </decision> tag.
 
-        First, analyze each action by generating an <action> tag for each:
         <actions>
-        <action name="up">Your reasoning about why moving up might be good or bad...</action>
-        <action name="down">Your reasoning about why moving down might be good or bad...</action>
-        <action name="left">Your reasoning about why moving left might be good or bad...</action>
-        <action name="right">Your reasoning about why moving right might be good or bad...</action>
+        <action name="up">{Your reasoning about moving up}</action>
+        <action name="down">{Your reasoning about moving down}</action>
+        <action name="left">{Your reasoning about moving left}</action>
+        <action name="right">{Your reasoning about moving right}</action>
         </actions>
-
-        Then, output your final decision:
-        <decision>your_chosen_action</decision>
-
-        [Rules]
-        - All apples are poisonous and will hurt you. If you move onto an apple, you *lose* 1 point.
-        - All bananas are healthy and are good for you. If you move onto a banana, you *receive* 1 point and you gain a body segment.
-        - Avoid walls, your own body, and enemy snakes
-        - You must output reasoning for ALL four actions before making your decision
+        <decision>{Your selected action from the list above}</decision>
       captioner:
         max_text_history: 0
       fastsnake_kwargs:
@@ -208,6 +196,10 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
 
+        [Game Rules]
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -215,23 +207,15 @@ evaluation:
         "right": move your head one space right,
 
         [Response Format]
-        You must reason about EACH available action, then make a decision.
+        Respond using ONLY valid XML using <actions>...</actions> tags for EACH available action, then output your choice in <decision>...</decision>. Stop responding after the </decision> tag.
 
-        First, analyze each action by generating an <action> tag for each:
         <actions>
-        <action name="up">Your reasoning about why moving up might be good or bad...</action>
-        <action name="down">Your reasoning about why moving down might be good or bad...</action>
-        <action name="left">Your reasoning about why moving left might be good or bad...</action>
-        <action name="right">Your reasoning about why moving right might be good or bad...</action>
+        <action name="up">{Your reasoning about moving up}</action>
+        <action name="down">{Your reasoning about moving down}</action>
+        <action name="left">{Your reasoning about moving left}</action>
+        <action name="right">{Your reasoning about moving right}</action>
         </actions>
-
-        Then, output your final decision:
-        <decision>your_chosen_action</decision>
-
-        [Rules]
-        - Eat apples to grow and score points
-        - Avoid walls, your own body, and enemy snakes
-        - You must output reasoning for ALL four actions before making your decision
+        <decision>{Your selected action from the list above}</decision>
       captioner:
         max_text_history: 0
       fastsnake_kwargs:
@@ -278,6 +262,10 @@ evaluation:
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
 
+        [Game Rules]
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+
         [Available Actions]
         "up": move your head one space up,
         "down": move your head one space down,
@@ -285,23 +273,15 @@ evaluation:
         "right": move your head one space right,
 
         [Response Format]
-        You must reason about EACH available action, then make a decision.
+        Respond using ONLY valid XML using <actions>...</actions> tags for EACH available action, then output your choice in <decision>...</decision>. Stop responding after the </decision> tag.
 
-        First, analyze each action by generating an <action> tag for each:
         <actions>
-        <action name="up">Your reasoning about why moving up might be good or bad...</action>
-        <action name="down">Your reasoning about why moving down might be good or bad...</action>
-        <action name="left">Your reasoning about why moving left might be good or bad...</action>
-        <action name="right">Your reasoning about why moving right might be good or bad...</action>
+        <action name="up">{Your reasoning about moving up}</action>
+        <action name="down">{Your reasoning about moving down}</action>
+        <action name="left">{Your reasoning about moving left}</action>
+        <action name="right">{Your reasoning about moving right}</action>
         </actions>
-
-        Then, output your final decision:
-        <decision>your_chosen_action</decision>
-
-        [Rules]
-        - Eat apples to grow and score points
-        - Avoid walls, your own body, and enemy snakes
-        - You must output reasoning for ALL four actions before making your decision
+        <decision>{Your selected action from the list above}</decision>
       captioner:
         max_text_history: 0
       fastsnake_kwargs:

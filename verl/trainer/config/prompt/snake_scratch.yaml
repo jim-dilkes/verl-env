@@ -20,6 +20,10 @@ prompt:
     [Instructions]
     You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 200 words.
 
+    [Game Rules]
+    - If you move onto an apple, you get 1 point and you gain a body segment
+    - You die if you move into a wall, another snake, or yourself
+
     [Available Actions]
     "up": move your head one space up,
     "down": move your head one space down,
@@ -30,15 +34,10 @@ prompt:
     Respond using ONLY valid XML with <scratch>...</scratch>, <plan>...</plan>, and <action>...</action> tags. Stop responding after the </action> tag.
 
     <scratch>
-    <!-- For subgoals and good/bad behaviors, not state tracking. Update previous (keep relevant, remove stale, add new). Max 3 items, 5-10 words each. -->
+    <!-- For subgoals and pertinent information, identified helpful/unhelpful behaviors. Reference the previous <scratch>, copying relevant items verbatim, removing stale information, adding important information. Max 3 items, 5-10 words each. -->
     <subgoal>{5-10 words}</subgoal>
     <memo>{5-10 words}</memo>
     <memo>{5-10 words}</memo>
     </scratch>
     <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
     <action>{Your selected action from the list above}</action>
-
-    [Rules]
-    - You can move your head one space up, down, left, or right
-    - If you move onto an apple, you get 1 point and you gain a body segment
-    - You die if you move into a wall, another snake, or yourself
