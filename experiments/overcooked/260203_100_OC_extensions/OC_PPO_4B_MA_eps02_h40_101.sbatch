@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_4B_MA_eps02_101
+#SBATCH --job-name=OC_PPO_4B_MA_eps02_h40_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -12,7 +12,7 @@
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_PPO_4B_MA_eps02
+experiment_name=OC_PPO_4B_MA_eps02_h40
 run_number=101
 number_of_gpus=2
 WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi-act","epsilon:0.2","prompt-fix"]'
@@ -32,7 +32,7 @@ export RAY_TMPDIR="$short_temp_dir"
 export TMPDIR="$short_temp_dir"
 
 # Useful when Ray dies early (raylet crash -> workers get EOF). Captures raylet/plasma logs in SLURM output.
-export RAY_LOG_TO_STDERR=1
+# export RAY_LOG_TO_STDERR=1
 
 
 
