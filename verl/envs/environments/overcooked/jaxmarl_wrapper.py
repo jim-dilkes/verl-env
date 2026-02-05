@@ -48,6 +48,7 @@ class OvercookedGymWrapper(gym.Env):
         print_visualization: bool = True,
         print_coordinates: bool = True,
         pot_cook_time: int = None,
+        random_agent_positions: bool = False,
     ):
         super().__init__()
 
@@ -72,7 +73,10 @@ class OvercookedGymWrapper(gym.Env):
         else:
             self.pot_cook_time = JAXMARL_DEFAULT_COOK_TIME
 
-        self._env = OvercookedV2(layout=layout, max_steps=max_steps)
+        self._env = OvercookedV2(
+            layout=layout, max_steps=max_steps,
+            random_agent_positions=random_agent_positions,
+        )
         self._key = jax.random.PRNGKey(seed)
         self._state = None
         self._last_obs = None

@@ -166,6 +166,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.overcooked_kwargs.pot_cook_time=3 \
   envs.overcooked_kwargs.print_visualization=false \
   envs.overcooked_kwargs.print_coordinates=true \
+  envs.overcooked_kwargs.random_agent_positions=true \
   envs.vec_env_multiprocessing=fork \
   actor_rollout_ref.rollout.calculate_log_probs=true \
   algorithm.rollout_correction.rollout_is=sequence \

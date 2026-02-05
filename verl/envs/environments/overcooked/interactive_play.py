@@ -55,6 +55,8 @@ def parse_args():
                         help='Disable ASCII grid visualization')
     parser.add_argument('--no-coords', action='store_true',
                         help='Disable coordinate text')
+    parser.add_argument('--random-positions', action='store_true',
+                        help='Randomize agent start positions each episode')
     return parser.parse_args()
 
 
@@ -98,6 +100,7 @@ def play_game(args):
         print_visualization=print_viz,
         print_coordinates=print_coords,
         pot_cook_time=args.cook_time,
+        random_agent_positions=args.random_positions,
     )
 
     print(f"\nGame settings:")
@@ -106,6 +109,8 @@ def play_game(args):
     print(f"  Partner: {args.partner}" + (" (solo mode)" if args.partner == "none" else ""))
     print(f"  Cook time: {env.pot_cook_time} ticks")
     print(f"  Seed: {args.seed}")
+    if args.random_positions:
+        print(f"  Random agent positions: ON")
 
     print("\nControls:")
     print("  W=Up, S=Down, A=Left, D=Right")

@@ -38,6 +38,7 @@ def make_overcooked_env(env_name, task, config, render_mode=None):
     print_visualization = overcooked_kwargs.get("print_visualization", True)
     print_coordinates = overcooked_kwargs.get("print_coordinates", True)
     pot_cook_time = overcooked_kwargs.get("pot_cook_time", None)
+    random_agent_positions = overcooked_kwargs.get("random_agent_positions", False)
 
     base_env = OvercookedGymWrapper(
         layout=layout,
@@ -48,6 +49,7 @@ def make_overcooked_env(env_name, task, config, render_mode=None):
         print_visualization=print_visualization,
         print_coordinates=print_coordinates,
         pot_cook_time=pot_cook_time,
+        random_agent_positions=random_agent_positions,
     )
 
     env_kwargs = dict(config.envs) if hasattr(config, "envs") else {}
