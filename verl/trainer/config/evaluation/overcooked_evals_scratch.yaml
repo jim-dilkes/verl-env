@@ -34,7 +34,7 @@ evaluation:
         [How to Cook]
         1. Identify the ingredients needed for the meal from the recipe.
         2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
-        3. Place ingredients in a pot using 'interact'
+        3. Place 3 ingredients in a pot using 'interact'
         4. Wait for the meal to cook
         5. Pick up a dish from the dish pile using 'interact'
         6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
@@ -100,7 +100,7 @@ evaluation:
         [How to Cook]
         1. Identify the ingredients needed for the meal from the recipe.
         2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
-        3. Place ingredients in a pot using 'interact'
+        3. Place 3 ingredients in a pot using 'interact'
         4. Wait for the meal to cook
         5. Pick up a dish from the dish pile using 'interact'
         6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)

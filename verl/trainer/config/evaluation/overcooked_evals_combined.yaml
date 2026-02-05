@@ -34,7 +34,7 @@ evaluation:
         [How to Cook]
         1. Identify the ingredients needed for the meal from the recipe.
         2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
-        3. Place ingredients in a pot using 'interact'
+        3. Place 3 ingredients in a pot using 'interact'
         4. Wait for the meal to cook
         5. Pick up a dish from the dish pile using 'interact'
         6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
@@ -92,7 +92,7 @@ evaluation:
         [How to Cook]
         1. Identify the ingredients needed for the meal from the recipe.
         2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
-        3. Place ingredients in a pot using 'interact'
+        3. Place 3 ingredients in a pot using 'interact'
         4. Wait for the meal to cook
         5. Pick up a dish from the dish pile using 'interact'
         6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
@@ -226,7 +226,7 @@ evaluation:
         [How to Cook]
         1. Identify the ingredients needed for the meal from the recipe.
         2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
-        3. Place ingredients in a pot using 'interact'
+        3. Place 3 ingredients in a pot using 'interact'
         4. Wait for the meal to cook
         5. Pick up a dish from the dish pile using 'interact'
         6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
@@ -241,22 +241,17 @@ evaluation:
         "interact": interact with object in front of you (pick up, place, or use)
 
         [Response Format]
-        You must reason about EACH available action, then make a decision.
-        Think about what you need to do next to make and deliver meals. 
-        Consider your position, what you're facing towards, what you're holding, and pot status.
+        Respond using ONLY valid XML using <actions>...</actions> tags for EACH available action, then output your choice in <decision>...</decision>. Stop responding after the </decision> tag.
 
-        First, analyze each action by generating an <action> tag for each:
         <actions>
-        <action name="right">Your reasoning about moving right...</action>
-        <action name="down">Your reasoning about moving down...</action>
-        <action name="left">Your reasoning about moving left...</action>
-        <action name="up">Your reasoning about moving up...</action>
-        <action name="stay">Your reasoning about staying...</action>
-        <action name="interact">Your reasoning about interacting...</action>
+        <action name="right">{Your reasoning about moving right}</action>
+        <action name="down">{Your reasoning about moving down}</action>
+        <action name="left">{Your reasoning about moving left}</action>
+        <action name="up">{Your reasoning about moving up}</action>
+        <action name="stay">{Your reasoning about staying}</action>
+        <action name="interact">{Your reasoning about interacting}</action>
         </actions>
-
-        Then, output your final decision:
-        <decision>your_chosen_action</decision>
+        <decision>{Your selected action from the list above}</decision>
       captioner:
         type: naive
         max_text_history: 0
@@ -298,7 +293,7 @@ evaluation:
         [How to Cook]
         1. Identify the ingredients needed for the meal from the recipe.
         2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
-        3. Place ingredients in a pot using 'interact'
+        3. Place 3 ingredients in a pot using 'interact'
         4. Wait for the meal to cook
         5. Pick up a dish from the dish pile using 'interact'
         6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
@@ -313,22 +308,17 @@ evaluation:
         "interact": interact with object in front of you (pick up, place, or use)
 
         [Response Format]
-        You must reason about EACH available action, then make a decision.
-        Think about what you need to do next to make and deliver meals. 
-        Consider your position, what you're facing towards, what you're holding, and pot status.
+        Respond using ONLY valid XML using <actions>...</actions> tags for EACH available action, then output your choice in <decision>...</decision>. Stop responding after the </decision> tag.
 
-        First, analyze each action by generating an <action> tag for each:
         <actions>
-        <action name="right">Your reasoning about moving right...</action>
-        <action name="down">Your reasoning about moving down...</action>
-        <action name="left">Your reasoning about moving left...</action>
-        <action name="up">Your reasoning about moving up...</action>
-        <action name="stay">Your reasoning about staying...</action>
-        <action name="interact">Your reasoning about interacting...</action>
+        <action name="right">{Your reasoning about moving right}</action>
+        <action name="down">{Your reasoning about moving down}</action>
+        <action name="left">{Your reasoning about moving left}</action>
+        <action name="up">{Your reasoning about moving up}</action>
+        <action name="stay">{Your reasoning about staying}</action>
+        <action name="interact">{Your reasoning about interacting}</action>
         </actions>
-
-        Then, output your final decision:
-        <decision>your_chosen_action</decision>
+        <decision>{Your selected action from the list above}</decision>
       captioner:
         type: naive
         max_text_history: 0

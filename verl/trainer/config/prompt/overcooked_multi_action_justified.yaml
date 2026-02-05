@@ -41,19 +41,14 @@ prompt:
     "interact": interact with object in front of you (pick up, place, or use)
 
     [Response Format]
-    You must reason about EACH available action, then make a decision.
-    Think about what you need to do next to make and deliver meals.
-    Consider your position, what you're facing towards, what you're holding, and pot status.
+    Respond using ONLY valid XML using <actions>...</actions> tags for EACH available action, then output your choice in <decision>...</decision>. Stop responding after the </decision> tag.
 
-    For each action, provide a justification for why that action could help achieve the objective:
     <actions>
-    <action name="right">Justify why moving right could be beneficial...</action>
-    <action name="down">Justify why moving down could be beneficial...</action>
-    <action name="left">Justify why moving left could be beneficial...</action>
-    <action name="up">Justify why moving up could be beneficial...</action>
-    <action name="stay">Justify why staying could be beneficial...</action>
-    <action name="interact">Justify why interacting could be beneficial...</action>
+    <action name="right">{Justify why moving right could be beneficial}</action>
+    <action name="down">{Justify why moving down could be beneficial}</action>
+    <action name="left">{Justify why moving left could be beneficial}</action>
+    <action name="up">{Justify why moving up could be beneficial}</action>
+    <action name="stay">{Justify why staying could be beneficial}</action>
+    <action name="interact">{Justify why interacting could be beneficial}</action>
     </actions>
-
-    Then, output your final decision:
-    <decision>your_chosen_action</decision>
+    <decision>{Your selected action from the list above}</decision>
