@@ -199,7 +199,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
   evaluation=overcooked_evals_combined_justified \
-  prompt=overcooked_multi_action_justified \
+  prompt=overcooked_evals_combined_mixed_justified \
   prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
 python_status=${PIPESTATUS[0]}
 set -e
