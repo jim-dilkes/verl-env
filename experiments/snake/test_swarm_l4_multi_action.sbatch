@@ -37,7 +37,8 @@ cd "${SLURM_SUBMIT_DIR:-/home/jsbd1n24/verl-env}"
 
 # --- Setup ---
 module load conda/python3
-module load cuda/12.8.0
+# module load cuda/12.8.0
+module load cuda/12.6.3
 module load gcc/13.3.0
 
 eval "$(conda shell.bash hook)"
