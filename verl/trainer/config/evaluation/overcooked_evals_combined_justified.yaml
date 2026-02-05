@@ -111,10 +111,6 @@ evaluation:
 
         <plan>{Think about what you need to do next to make and deliver meals. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
         <action>{Your selected action from the list above}</action>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients
       captioner:
         type: naive
         max_text_history: 0
@@ -261,11 +257,6 @@ evaluation:
 
         Then, output your final decision:
         <decision>your_chosen_action</decision>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients
-        - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
         max_text_history: 0
@@ -338,11 +329,6 @@ evaluation:
 
         Then, output your final decision:
         <decision>your_chosen_action</decision>
-
-        [Rules]
-        - You can only hold one object at a time
-        - Each meal requires exactly 3 ingredients
-        - You must output reasoning for ALL six actions before making your decision
       captioner:
         type: naive
         max_text_history: 0
