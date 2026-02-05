@@ -14,6 +14,10 @@ prompt:
     [Instructions]
     You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 100 words.
 
+    [Game Rules]
+    - If you move onto an apple, you get 1 point and you gain a body segment
+    - You die if you move into a wall, another snake, or yourself
+
     [Available Actions]
     "up": move your head one space up,
     "down": move your head one space down,
@@ -25,9 +29,4 @@ prompt:
 
     <plan>{Think about the situation, your goal and your immediate plan to achieve the goal. Describe the exact action you will take next to follow your plan.}</plan>
     <action>{Your selected action from the list above}</action>
-
-    [Rules]
-    - You can move your head one space up, down, left, or right
-    - If you move onto an apple, you get 1 point and you gain a body segment
-    - You die if you move into a wall, another snake, or yourself
 
