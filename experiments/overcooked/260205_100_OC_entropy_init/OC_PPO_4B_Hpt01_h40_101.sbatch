@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_4B_BL_h40_101
+#SBATCH --job-name=OC_PPO_4B_Hpt01_h40_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -12,7 +12,7 @@
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_PPO_4B_BL_h40
+experiment_name=OC_PPO_4B_Hpt01_h40
 run_number=101
 number_of_gpus=2
 WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","prompt-fix"]'
