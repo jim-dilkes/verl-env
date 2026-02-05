@@ -91,8 +91,8 @@ You are controlling a snake in a multi-player Snake game
     def restructure_obs(self, obs):
         return {
             'text': {
-                'long_term_context': '',
-                'short_term_context': self.env.game_state_text()
+                'long_term_context': self.env.game_state_text(),
+                'short_term_context': ''
             },
             'state': obs
         }
