@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_4B_MA_eps0_h40_101
+#SBATCH --job-name=OC_PPO_4B_BL_h40_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -12,10 +12,10 @@
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_PPO_4B_MA_eps0_h40
+experiment_name=OC_PPO_4B_BL_h40
 run_number=101
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi-act","epsilon:0.0","prompt-fix"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","prompt-fix"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -123,7 +123,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.mode=sync \
-  actor_rollout_ref.actor.entropy_coeff=0.001 \
+  actor_rollout_ref.actor.entropy_coeff=0.01 \
   actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$max_token_len_per_gpu \
   trainer.balance_batch=False \
@@ -156,7 +156,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.env_name=overcooked \
   envs.format_penalty=1 \
   envs.binary_reward=False \
-  envs.captioner.type=multi_action \
+  envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
   envs.captioner.max_cot_history=1 \
   envs.overcooked_kwargs.layout_name=cramped_room \
@@ -200,8 +200,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
   evaluation=overcooked_evals_combined_mixed \
-  prompt=overcooked_multi_action \
-  prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
+  prompt=overcooked 2>&1 | tee verl_demo.log
 python_status=${PIPESTATUS[0]}
 set -e
 
