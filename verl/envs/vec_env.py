@@ -567,6 +567,7 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
                       f"action_space has no __len__ or len > 20")
 
             env_obs, reward, terminated, truncated, info = env.step(executed_action, is_valid)
+            info["game_state_text"] = env_obs.get("text", {}).get("long_term_context", "")
             info["action_was_valid"] = is_valid
             info["epsilon_explored"] = explored  # For trainer-side re-tokenization
             if executed_action is not None:
@@ -589,6 +590,7 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
         nonlocal reset_count
         captioner.reset()
         env_obs, info = env.reset(seed=seed)
+        info["game_state_text"] = env_obs.get("text", {}).get("long_term_context", "")
         image = env_obs.get("image", None)
         instructions = env_obs["mission"]  if env_name == "babyai" else None
         inst_prompt = env.get_instruction_prompt(instructions=instructions)

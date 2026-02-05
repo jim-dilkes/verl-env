@@ -882,6 +882,9 @@ class MultiEnvEvaluator:
                 reset_end = time.perf_counter()
                 total_vecenv_reset_time += (reset_end - reset_start)
 
+                # Raw game state texts for deterministic state-action dedup
+                current_game_state_texts = self._extract_from_info(info_vec, "game_state_text")
+
                 # Per-batch state
                 pending_entropy_steps = set(entropy_measure_steps) if entropy_enabled else set()
                 ever_terminated = np.zeros(batch_n, dtype=bool)  # Persistent: True once terminated, never resets
@@ -1030,18 +1033,29 @@ class MultiEnvEvaluator:
                     total_valid_actions += total_valid_actions_this_step
 
                     # Accumulate state-action texts with GLOBAL indexing (with timing)
+                    # Uses raw game state text (deterministic) instead of chat-template obs
+                    # (which includes stochastic reasoning history from max_cot_history)
                     state_action_accum_start = time.perf_counter()
-                    for local_idx, (observation_text, executed_action, was_valid_action, rollout_already_ended) in enumerate(
-                        zip(val_input_obs_text, executed_actions, was_valid_list, use_end_of_traj)
+                    for local_idx, (executed_action, was_valid_action, rollout_already_ended) in enumerate(
+                        zip(executed_actions, was_valid_list, use_end_of_traj)
                     ):
                         global_idx = batch_start + local_idx
                         group_idx = global_idx // seed_group_size
+                        state_text = current_game_state_texts[local_idx]
+                        if not state_text:
+                            raise ValueError(
+                                f"[MultiEnvEvaluator] {eval_name}: game_state_text empty for rollout {global_idx}. "
+                                f"Ensure env provides text obs via env_obs['text']['long_term_context']."
+                            )
                         if was_valid_action and not rollout_already_ended:
-                            group_state_action_texts_valid[group_idx].append(f"{observation_text} {executed_action}")
+                            group_state_action_texts_valid[group_idx].append(f"{state_text} {executed_action}")
                         if not rollout_already_ended:
-                            group_state_action_texts_all[group_idx].append(f"{observation_text} {executed_action}")
+                            group_state_action_texts_all[group_idx].append(f"{state_text} {executed_action}")
                     state_action_accum_end = time.perf_counter()
                     total_state_action_accum_time += (state_action_accum_end - state_action_accum_start)
+
+                    # Update game state texts for next step (step returns NEW state)
+                    current_game_state_texts = self._extract_from_info(info_vec, "game_state_text")
 
                     # Update persistent termination tracking (never resets after auto-reset)
                     done_mask = np.logical_or(terminated_vec, truncated_vec)
