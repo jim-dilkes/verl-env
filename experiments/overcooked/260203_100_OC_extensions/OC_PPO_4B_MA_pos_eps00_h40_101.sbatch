@@ -15,7 +15,7 @@ project_name=rl_sdm
 experiment_name=OC_PPO_4B_MA_pos_eps00_h40
 run_number=101
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi-act","epsilon:0.2","horizon:40"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","multi-act","epsilon:0.2","horizon:40","prompt-fix"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
