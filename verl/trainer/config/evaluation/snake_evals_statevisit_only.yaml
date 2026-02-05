@@ -1,0 +1,61 @@
+# @package eval
+# Minimal StateVisitation-only eval for quick verification
+# Usage: evaluation=snake_evals_statevisit_only
+
+evaluation:
+  environments:
+    - name: "StateVisitation-Test"
+      n_rollouts: 20
+      batch_size: 10
+      episode_length: 4
+      generation:
+        temperature: 1.25
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 40000
+      seed_group_size: 10
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: fastsnake
+      task: none
+      format_penalty: 0.0
+      multi_action_reasoning: true
+      inherit_training_multiaction: true
+      instruction_prompt: |
+        [Instructions]
+        You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 300 words.
+
+        [Game Rules]
+        - If you move onto an apple, you get 1 point and you gain a body segment
+        - You die if you move into a wall, another snake, or yourself
+
+        [Available Actions]
+        "up": move your head one space up,
+        "down": move your head one space down,
+        "left": move your head one space left,
+        "right": move your head one space right,
+
+        [Response Format]
+        Respond using ONLY valid XML using <actions>...</actions> tags for EACH available action, then output your choice in <decision>...</decision>. Stop responding after the </decision> tag.
+
+        <actions>
+        <action name="up">{Your reasoning about moving up}</action>
+        <action name="down">{Your reasoning about moving down}</action>
+        <action name="left">{Your reasoning about moving left}</action>
+        <action name="right">{Your reasoning about moving right}</action>
+        </actions>
+        <decision>{Your selected action from the list above}</decision>
+      captioner:
+        max_text_history: 0
+      fastsnake_kwargs:
+        width: 10
+        height: 10
+        max_rounds: 8
+        num_external_snakes: 1
+        num_random_snakes: 0
+        death_reward: -1
+        step_reward: 0
+        no_respawn: true
+        print_visualization: false
