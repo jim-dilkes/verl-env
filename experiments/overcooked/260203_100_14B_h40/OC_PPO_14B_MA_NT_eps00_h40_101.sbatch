@@ -187,7 +187,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.max_critic_ckpt_to_keep=1 \
   trainer.tags=$WANDB_TAGS \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=overcooked_evals_combined \
+  evaluation=overcooked_evals_combined_mixed \
   prompt=overcooked_multi_action_NT \
   prompt.prompt.epsilon=0.0 2>&1 | tee verl_demo.log
 
