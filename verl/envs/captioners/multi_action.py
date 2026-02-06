@@ -8,23 +8,28 @@ class MultiActionCaptioner(BaseCaptioner):
     relies on the environment's instruction_prompt to define the format.
     This allows the environment to control whether to use standard or
     multi-action reasoning format.
+
+    Supports optional naive_instruction (e.g., /no_think) appended to user message.
     """
 
-    def __init__(self, prompt_builder, env_name=None):
+    def __init__(self, prompt_builder, env_name=None, naive_instruction=None):
         """Initialize the MultiActionCaptioner.
 
         Args:
             prompt_builder: The prompt builder instance.
             env_name: Optional environment name.
+            naive_instruction: Optional instruction to append to user message (e.g., /no_think).
         """
         super().__init__(prompt_builder)
         self.env_name = env_name
+        self.naive_instruction = naive_instruction
 
     def get_obs(self, obs):
-        """Generate prompt from observation without adding extra response template.
+        """Generate prompt from observation.
 
         The environment's instruction_prompt already contains the response format,
-        so we just pass through the observation context.
+        so we just pass through the observation context. Optionally appends
+        naive_instruction (e.g., /no_think) to the last user message.
 
         Args:
             obs (dict): The current observation in the environment.
@@ -35,7 +40,13 @@ class MultiActionCaptioner(BaseCaptioner):
         self.prompt_builder.update_observation(obs)
         messages = self.prompt_builder.get_prompt()
 
-        # Convert messages to dict format (no additional instructions added)
+        # Append naive_instruction to last user message if provided
+        if self.naive_instruction:
+            naive_instruction = self.naive_instruction.strip()
+            if naive_instruction and messages and messages[-1].role == "user":
+                messages[-1].content += "\n\n" + naive_instruction
+
+        # Convert messages to dict format
         prompt = []
         for message in messages:
             role = message.role
