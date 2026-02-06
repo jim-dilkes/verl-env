@@ -199,7 +199,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-8} \
   +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=overcooked_evals_combined \
+  evaluation=overcooked_evals_combined_mixed \
   prompt=overcooked 2>&1 | tee verl_demo.log
 python_status=${PIPESTATUS[0]}
 set -e
