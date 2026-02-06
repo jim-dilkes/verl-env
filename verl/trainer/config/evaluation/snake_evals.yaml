@@ -168,8 +168,9 @@ evaluation:
       env_name: fastsnake
       task: none
       format_penalty: 0.0
+      multi_action_reasoning: false
       inherit_training_multiaction: true
-      instruction_prompt: | 
+      instruction_prompt: |
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 200 words.
 
@@ -228,8 +229,9 @@ evaluation:
       env_name: fastsnake
       task: none
       format_penalty: 0.0
+      multi_action_reasoning: false
       inherit_training_multiaction: true
-      instruction_prompt: | 
+      instruction_prompt: |
         [Instructions]
         You are a helpful assistant controlling a snake in a grid-based game. Your maximum response length: 200 words.
 

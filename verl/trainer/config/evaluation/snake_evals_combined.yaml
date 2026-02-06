@@ -123,6 +123,7 @@ evaluation:
       env_name: fastsnake
       task: none
       format_penalty: 0.0
+      multi_action_reasoning: false
       inherit_training_multiaction: true
       instruction_prompt: |
         [Instructions]
@@ -181,6 +182,7 @@ evaluation:
       env_name: fastsnake
       task: none
       format_penalty: 0.0
+      multi_action_reasoning: false
       inherit_training_multiaction: true
       instruction_prompt: |
         [Instructions]
