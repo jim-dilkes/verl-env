@@ -5,9 +5,9 @@
 evaluation:
   environments:
     - name: "StateVisitation-Test"
-      n_rollouts: 20
-      batch_size: 10
-      episode_length: 4
+      n_rollouts: 10
+      batch_size: 5
+      episode_length: 3
       generation:
         temperature: 1.25
         top_p: 1.0
@@ -15,7 +15,7 @@ evaluation:
         min_p: 0.0
         do_sample: true
       initial_seed: 40000
-      seed_group_size: 10
+      seed_group_size: 5
       freeze_completed_episodes: true
       duplication_mode: none
       env_name: fastsnake
