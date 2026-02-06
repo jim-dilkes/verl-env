@@ -65,6 +65,7 @@ evaluation:
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
+        random_agent_positions: true
 
 
     - name: "Overcooked-MixedRecipe"
@@ -123,6 +124,7 @@ evaluation:
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
+        random_agent_positions: true
 
 
     # --- Entropy Check (inherits from training) ---
@@ -153,6 +155,7 @@ evaluation:
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
+        random_agent_positions: true
       action_entropy:
         enabled: true
         n_samples: 20
@@ -193,6 +196,7 @@ evaluation:
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
+        random_agent_positions: true
 
 
     # =============================================================================
@@ -264,6 +268,7 @@ evaluation:
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
+        random_agent_positions: true
 
 
     - name: "MA-Overcooked-MixedRecipe"
@@ -331,3 +336,4 @@ evaluation:
         pot_cook_time: 5
         print_visualization: false
         print_coordinates: true
+        random_agent_positions: true
