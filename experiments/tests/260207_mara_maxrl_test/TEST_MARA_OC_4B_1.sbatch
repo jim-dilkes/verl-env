@@ -50,7 +50,7 @@ conda activate verl
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export HF_HUB_OFFLINE=1
-export WANDB_MODE=offline
+export WANDB_MODE=online
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 
 RANDOM_DELAY=$(( ( RANDOM % 60 ) + 1 ))
@@ -172,7 +172,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
   trainer.log_val_generations=1 \
-  trainer.project_name=$project_name \
+  trainer.project_name=test_mara \
   trainer.experiment_name=${experiment_run_name} \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
