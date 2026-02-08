@@ -75,15 +75,15 @@ evaluation:
 
 
 
-    - name: "Overcooked-MixedRecipe-Greedy"
+    - name: "Overcooked-MixedRecipe"
       n_rollouts: 50
       episode_length: 40
       generation:
-        temperature: 0.0
+        temperature: 0.6
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: False
+        do_sample: true
       initial_seed: 10000
       freeze_completed_episodes: True
       duplication_mode: none
@@ -129,6 +129,7 @@ evaluation:
       captioner:
         type: naive
         max_text_history: 0
+        max_cot_history: 1
       overcooked_kwargs:
         layout_name: cramped_room_mixed
         horizon: 40

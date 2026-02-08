@@ -2,15 +2,15 @@
 
 evaluation:
   environments:
-    - name: "Overcooked-CrampedRoom-Greedy"
+    - name: "Overcooked-CrampedRoom"
       n_rollouts: 50
       episode_length: 40
       generation:
-        temperature: 0.0
+        temperature: 0.6
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: False
+        do_sample: true
       initial_seed: 0
       freeze_completed_episodes: True
       duplication_mode: none
@@ -60,15 +60,15 @@ evaluation:
         print_coordinates: true
         random_agent_positions: true
 
-    - name: "Overcooked-AsymmetricAdvantages-Greedy"
+    - name: "Overcooked-AsymmetricAdvantages"
       n_rollouts: 50
       episode_length: 40
       generation:
-        temperature: 0.0
+        temperature: 0.6
         top_p: 1.0
         top_k: -1
         min_p: 0.0
-        do_sample: False
+        do_sample: true
       initial_seed: 10000
       freeze_completed_episodes: True
       duplication_mode: none
