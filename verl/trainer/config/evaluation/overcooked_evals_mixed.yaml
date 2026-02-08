@@ -152,7 +152,7 @@ evaluation:
       action_entropy:
         enabled: true
         n_samples: 20
-        temperature: 1.2
+        temperature: 1.25
         measure_at_steps: "start"
         step_interval: 1
         exclusive_metric: true
