@@ -41,7 +41,7 @@ prompt.prompt.dime:
   enabled: false          # master toggle
   source: "specific"      # "specific" (env instructions + template) or "generic" (standalone principles)
   mask_for_training: true # false = control (focus visible in training too)
-  no_supplement_prob: null # auto: 1/(N+1) where N = len(instructions). Override with explicit float.
+  no_supplement_prob: 0.125 # REQUIRED when enabled. No auto-compute — must be explicit.
   template: 'Before acting, carefully consider...'  # used for source=specific; ignored for source=generic
 ```
 
@@ -86,7 +86,7 @@ Focus sampled once per batch (same instruction for entire episode per rollout). 
 - `swap_dime_prompts` forces `bypass_recomputing_logprobs = False` since tokens changed
 - Template uses `{STEP_TEXT}` placeholder (not f-string)
 - Focus instructions must match YAML `environment_instruction` terminology exactly (e.g., "meal" not "soup")
-- `no_supplement_prob: null` auto-computes as `1/(N+1)` in trainer; explicit float overrides
+- `no_supplement_prob` is REQUIRED when `dime.enabled=true` — raises ValueError if null/missing
 - Overcooked has 7 focus instructions (matching 7 steps in YAML [How to Cook])
 
 ## Tests

@@ -75,7 +75,7 @@ def get_dime_instructions(env_name: str, source: str) -> list[str]:
 def sample_focus_for_episode(
     n_rollouts: int,
     instructions: list[str],
-    no_supplement_prob: float = 0.125,
+    no_supplement_prob: float,
 ) -> list[Optional[str]]:
     """Sample one focus instruction per rollout for an entire episode.
 

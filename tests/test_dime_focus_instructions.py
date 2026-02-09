@@ -145,6 +145,16 @@ def test_inject_focus_passthrough_template():
     assert result[0][-1]["content"] == "Hello\n\n" + instruction
 
 
+def test_sample_focus_requires_no_supplement_prob():
+    """no_supplement_prob is required (no default)."""
+    instructions = get_focus_instructions("overcooked")
+    try:
+        sample_focus_for_episode(8, instructions)
+        assert False, "Should have raised TypeError for missing no_supplement_prob"
+    except TypeError:
+        pass
+
+
 if __name__ == "__main__":
     test_has_focus_instructions()
     test_get_focus_instructions()
@@ -161,4 +171,5 @@ if __name__ == "__main__":
     test_has_dime_instructions_generic()
     test_has_dime_instructions_specific()
     test_inject_focus_passthrough_template()
+    test_sample_focus_requires_no_supplement_prob()
     print("All Group 1 tests passed!")

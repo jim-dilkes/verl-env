@@ -166,6 +166,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
   prompt.prompt.dime.enabled=true \
   prompt.prompt.dime.mask_for_training=true \
+  prompt.prompt.dime.no_supplement_prob=0.125 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_run_name} \

@@ -818,7 +818,10 @@ class RayMultistepTrainer(object):
             val_dime_instructions = get_dime_instructions(self.config.envs.env_name, dime_source)
             val_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
             if val_dime_no_supp is None:
-                val_dime_no_supp = 1.0 / (len(val_dime_instructions) + 1)
+                raise ValueError(
+                    "dime.no_supplement_prob must be set explicitly when dime.enabled=true. "
+                    "Set to a float (e.g. 0.1) in your prompt YAML or sbatch overrides."
+                )
             val_focus_per_rollout = sample_focus_for_episode(
                 n_envs, val_dime_instructions, val_dime_no_supp
             )
@@ -1232,7 +1235,10 @@ class RayMultistepTrainer(object):
                             dime_instructions = get_dime_instructions(env_name, dime_source)
                             dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', None)
                             if dime_no_supplement_prob is None:
-                                dime_no_supplement_prob = 1.0 / (len(dime_instructions) + 1)
+                                raise ValueError(
+                                    "dime.no_supplement_prob must be set explicitly when dime.enabled=true. "
+                                    "Recommended: 0.125 (12.5% clean rollouts)."
+                                )
                             focus_per_rollout = sample_focus_for_episode(
                                 self.config.envs.n_rollouts, dime_instructions, dime_no_supplement_prob
                             )

@@ -742,7 +742,10 @@ class MultiEnvEvaluator:
             eval_dime_instructions = get_dime_instructions(eval_env_name, eval_dime_source)
             eval_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
             if eval_dime_no_supp is None:
-                eval_dime_no_supp = 1.0 / (len(eval_dime_instructions) + 1)
+                raise ValueError(
+                    "dime.no_supplement_prob must be set explicitly when dime.enabled=true. "
+                    "Recommended: 0.125 (12.5% clean rollouts)."
+                )
             self._dbg_print(f"[MultiEnvEvaluator] DIME focus enabled for {eval_name}")
         elif env_config.get('inherit_dime', False):
             logger.debug(
