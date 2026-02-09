@@ -11,17 +11,23 @@ import random
 from typing import Optional
 
 OVERCOOKED_FOCUS_INSTRUCTIONS = [
-    "Pick up ingredients (e.g., onions) from ingredient piles using 'interact'",
-    "Place 3 ingredients in a pot using 'interact' while facing it",
-    "Wait for the soup to cook",
-    "Pick up a dish from the dish pile",
-    "Pick up the cooked soup from the pot (with dish in hand)",
-    "Deliver the soup to the serving counter using 'interact'",
+    "Identify the ingredients needed for the meal from the recipe",
+    "Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time",
+    "Place 3 ingredients in a pot using 'interact'",
+    "Wait for the meal to cook",
+    "Pick up a dish from the dish pile using 'interact'",
+    "Pick up the cooked meal from the pot using 'interact' (with dish in hand)",
+    "Deliver the meal to the serving counter using 'interact'",
 ]
 
 FOCUS_REGISTRY: dict[str, list[str]] = {
     "overcooked": OVERCOOKED_FOCUS_INSTRUCTIONS,
 }
+
+
+def has_focus_instructions(env_name: str) -> bool:
+    """Check whether focus instructions are registered for an environment."""
+    return env_name.lower() in FOCUS_REGISTRY
 
 
 def get_focus_instructions(env_name: str) -> list[str]:
@@ -38,13 +44,16 @@ def get_focus_instructions(env_name: str) -> list[str]:
 def sample_focus_for_episode(
     n_rollouts: int,
     instructions: list[str],
-    no_supplement_prob: float = 0.143,
+    no_supplement_prob: float = 0.125,
 ) -> list[Optional[str]]:
     """Sample one focus instruction per rollout for an entire episode.
 
     Each rollout independently gets:
     - None (no focus) with probability no_supplement_prob
     - A uniformly random instruction otherwise
+
+    Default no_supplement_prob=0.125 = 1/(7+1) for 7 Overcooked instructions.
+    Caller should pass 1/(N+1) for other instruction counts.
     """
     result = []
     for _ in range(n_rollouts):

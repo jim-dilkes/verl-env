@@ -52,5 +52,5 @@ prompt:
   dime:
     enabled: false
     mask_for_training: true
-    no_supplement_prob: 0.143
+    no_supplement_prob: null  # auto: 1/(N+1) where N = number of focus instructions
     template: 'Before acting, carefully consider how this principle applies to your current situation: "{STEP_TEXT}". Think about when and why this step matters right now. Then act using your best judgment.'

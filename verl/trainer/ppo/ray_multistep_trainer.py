@@ -70,6 +70,7 @@ from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.envs.environments.focus_instructions import (
     get_focus_instructions,
+    has_focus_instructions,
     sample_focus_for_episode,
     inject_focus_into_obs,
 )
@@ -802,6 +803,23 @@ class RayMultistepTrainer(object):
 
         n_envs = len(val_obs)
 
+        # DIME: mirror training focus injection during validation
+        dime_config = getattr(self.config.prompt.prompt, 'dime', None)
+        val_dime_enabled = (
+            dime_config is not None
+            and getattr(dime_config, 'enabled', False)
+            and has_focus_instructions(self.config.envs.env_name)
+        )
+        if val_dime_enabled:
+            val_dime_template = getattr(dime_config, 'template', '')
+            val_dime_instructions = get_focus_instructions(self.config.envs.env_name)
+            val_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
+            if val_dime_no_supp is None:
+                val_dime_no_supp = 1.0 / (len(val_dime_instructions) + 1)
+            val_focus_per_rollout = sample_focus_for_episode(
+                n_envs, val_dime_instructions, val_dime_no_supp
+            )
+
         # Per-env tracking for episode logging (like eval tables)
         env_inputs = [[] for _ in range(n_envs)]
         env_outputs = [[] for _ in range(n_envs)]
@@ -815,7 +833,11 @@ class RayMultistepTrainer(object):
         while True:
 
             self.tokenizer.padding_side = "left"
-            val_input_obs_text = self.tokenizer.apply_chat_template(val_obs, tokenize=False, add_generation_prompt=True)
+            if val_dime_enabled:
+                val_obs_for_gen = inject_focus_into_obs(val_obs, val_focus_per_rollout, val_dime_template)
+            else:
+                val_obs_for_gen = val_obs
+            val_input_obs_text = self.tokenizer.apply_chat_template(val_obs_for_gen, tokenize=False, add_generation_prompt=True)
             val_input_obs = self.tokenizer(val_input_obs_text, return_tensors='pt', padding='max_length', truncation=True, max_length=max_seq_len)
             input_ids = val_input_obs['input_ids']
             attention_mask = val_input_obs['attention_mask']
@@ -1202,9 +1224,11 @@ class RayMultistepTrainer(object):
                         if dime_enabled:
                             dime_mask_for_training = getattr(dime_config, 'mask_for_training', True)
                             dime_template = getattr(dime_config, 'template', '')
-                            dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', 0.143)
                             env_name = self.config.envs.env_name
                             dime_instructions = get_focus_instructions(env_name)
+                            dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', None)
+                            if dime_no_supplement_prob is None:
+                                dime_no_supplement_prob = 1.0 / (len(dime_instructions) + 1)
                             focus_per_rollout = sample_focus_for_episode(
                                 self.config.envs.n_rollouts, dime_instructions, dime_no_supplement_prob
                             )

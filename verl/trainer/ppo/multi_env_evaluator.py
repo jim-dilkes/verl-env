@@ -34,6 +34,12 @@ from verl import DataProto
 from verl.utils.tracking import ValidationGenerationsLogger
 
 from verl.envs.environments import get_action_extraction_fn
+from verl.envs.environments.focus_instructions import (
+    has_focus_instructions,
+    get_focus_instructions,
+    sample_focus_for_episode,
+    inject_focus_into_obs,
+)
 from verl.envs.vec_env import VecEnv
 
 
@@ -720,6 +726,30 @@ class MultiEnvEvaluator:
         # Get generation config for this environment (once per environment)
         self._current_gen_config = self._get_generation_config(env_config)
 
+        # DIME focus injection (opt-in per eval env via inherit_dime)
+        dime_config = getattr(self.config.prompt.prompt, 'dime', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
+        eval_dime_enabled = (
+            env_config.get('inherit_dime', False)
+            and dime_config is not None
+            and getattr(dime_config, 'enabled', False)
+            and has_focus_instructions(eval_env_name)
+        )
+        if eval_dime_enabled:
+            eval_dime_template = getattr(dime_config, 'template', '')
+            eval_dime_instructions = get_focus_instructions(eval_env_name)
+            eval_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
+            if eval_dime_no_supp is None:
+                eval_dime_no_supp = 1.0 / (len(eval_dime_instructions) + 1)
+            self._dbg_print(f"[MultiEnvEvaluator] DIME focus enabled for {eval_name}")
+        elif env_config.get('inherit_dime', False):
+            logger.debug(
+                "[MultiEnvEvaluator] inherit_dime=true for %s but DIME not active "
+                "(enabled=%s, has_instructions=%s)",
+                eval_name,
+                dime_config is not None and getattr(dime_config, 'enabled', False),
+                has_focus_instructions(eval_env_name),
+            )
+
         # Validate seed_group_size
         if seed_group_size <= 0:
             raise ValueError(f"[MultiEnvEvaluator] {eval_name}: seed_group_size must be > 0")
@@ -885,6 +915,12 @@ class MultiEnvEvaluator:
                 # Raw game state texts for deterministic state-action dedup
                 current_game_state_texts = self._extract_from_info(info_vec, "game_state_text")
 
+                # DIME: sample focus instructions for this batch
+                if eval_dime_enabled:
+                    batch_focus = sample_focus_for_episode(
+                        batch_n, eval_dime_instructions, eval_dime_no_supp
+                    )
+
                 # Per-batch state
                 pending_entropy_steps = set(entropy_measure_steps) if entropy_enabled else set()
                 ever_terminated = np.zeros(batch_n, dtype=bool)  # Persistent: True once terminated, never resets
@@ -902,8 +938,12 @@ class MultiEnvEvaluator:
                 # Episode loop for this batch
                 for step_idx in range(env_config['episode_length']):
                     tokenizer_start = time.perf_counter()
+                    if eval_dime_enabled:
+                        obs_for_gen = inject_focus_into_obs(obs_vec, batch_focus, eval_dime_template)
+                    else:
+                        obs_for_gen = obs_vec
                     val_input_obs_text = self.tokenizer.apply_chat_template(
-                        obs_vec, tokenize=False, add_generation_prompt=True
+                        obs_for_gen, tokenize=False, add_generation_prompt=True
                     )
 
                     # Entropy probing (if enabled and this step is a measurement step)

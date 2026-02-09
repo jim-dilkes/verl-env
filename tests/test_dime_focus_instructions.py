@@ -2,14 +2,21 @@
 
 from verl.envs.environments.focus_instructions import (
     get_focus_instructions,
+    has_focus_instructions,
     sample_focus_for_episode,
     inject_focus_into_obs,
 )
 
 
+def test_has_focus_instructions():
+    assert has_focus_instructions("overcooked") is True
+    assert has_focus_instructions("Overcooked") is True
+    assert has_focus_instructions("nonexistent_env") is False
+
+
 def test_get_focus_instructions():
     instructions = get_focus_instructions("overcooked")
-    assert len(instructions) == 6
+    assert len(instructions) == 7
     assert "ingredient" in instructions[0].lower()
 
     # Case insensitive lookup
@@ -85,6 +92,7 @@ def test_inject_focus_multi_message():
 
 
 if __name__ == "__main__":
+    test_has_focus_instructions()
     test_get_focus_instructions()
     test_sample_focus_for_episode()
     test_no_supplement_prob_statistical()
