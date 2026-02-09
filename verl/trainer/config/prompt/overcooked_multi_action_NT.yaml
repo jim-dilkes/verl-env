@@ -11,6 +11,14 @@ prompt:
   # Epsilon for epsilon-greedy exploration (0 = no random, 1 = always random)
   epsilon: 0.0
 
+  # Adaptive epsilon-greedy (reward-trend-based)
+  adaptive_epsilon:
+    enabled: false
+    epsilon_max: 0.3
+    window_size: 50
+    k: 5.0
+    update_every_n_steps: 1
+
   # Captioner instruction for NaiveCaptioner (multi-action mode)
   naive_instruction: |
     /no_think

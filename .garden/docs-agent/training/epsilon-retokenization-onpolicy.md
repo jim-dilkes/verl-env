@@ -107,9 +107,65 @@ python -m verl.trainer.main_ppo \
   ...
 ```
 
+## Adaptive Epsilon-Greedy
+
+Static epsilon uses a fixed exploration rate. Adaptive epsilon adjusts based on reward trend:
+- **Improving reward** (positive slope) → low epsilon (consolidate)
+- **Plateau/declining** (zero/negative slope) → high epsilon (explore)
+
+### Class: `AdaptiveEpsilon` (`verl/trainer/ppo/adaptive_epsilon.py`)
+
+Pure Python, no torch. Maintains a sliding window of batch mean rewards.
+
+**Formula:** `epsilon = epsilon_max * sigmoid(-k * normalized_slope)`
+
+Where `normalized_slope` is the least-squares slope over the window, with rewards normalized by window-local std for scale invariance.
+
+**Warmup:** epsilon=0 until the reward buffer fills (`window_size` steps).
+
+### Config
+
+```yaml
+prompt:
+  adaptive_epsilon:
+    enabled: false        # Toggle adaptive (overrides static epsilon when true)
+    epsilon_max: 0.3      # Maximum epsilon value
+    window_size: 50       # Reward history window for slope computation
+    k: 5.0               # Sigmoid steepness (higher = sharper transition)
+    update_every_n_steps: 1  # How often to push new epsilon to workers
+```
+
+### Integration Flow
+
+1. Trainer `__init__`: creates `AdaptiveEpsilon` if `adaptive_epsilon.enabled=true`
+2. After each rollout: computes `train/episode_return_mean` from batch rewards
+3. Feeds mean return to `AdaptiveEpsilon.update()` → gets new epsilon
+4. Calls `self.env.update_epsilon(new_eps)` to push to VecEnv workers
+5. Workers receive via `update_epsilon` pipe command, updating the closure variable
+
+### VecEnv `update_epsilon` Command
+
+Added `update_epsilon` command to worker command loop (`vec_env.py`). VecEnv sends new epsilon to all workers via pipes; workers update the `epsilon` variable read by `env_step()` closure. Same reassignment pattern used by `hard_reset`.
+
+### Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `adaptive_epsilon/value` | Current epsilon value |
+| `adaptive_epsilon/slope_normalised` | Normalized reward slope |
+| `adaptive_epsilon/buffer_fill` | Fraction of window filled (0→1) |
+| `train/episode_return_mean` | Mean episode return (logged always, not just adaptive) |
+
+### Testing
+
+**Login node test:** `experiments/snake/test_login_node_adaptive_epsilon.sh`
+- `window_size=3` for quick buffer fill during 3-step test
+- Verify `adaptive_epsilon/value=0` during warmup, changes after buffer fills
+
 ## Related Files
 
-- `verl/envs/vec_env.py` - Epsilon exploration logic
-- `verl/trainer/ppo/ray_multistep_trainer.py` - Re-tokenization logic
+- `verl/envs/vec_env.py` - Epsilon exploration logic + `update_epsilon` command
+- `verl/trainer/ppo/ray_multistep_trainer.py` - Re-tokenization + adaptive epsilon integration
+- `verl/trainer/ppo/adaptive_epsilon.py` - AdaptiveEpsilon class
 - `verl/envs/captioners/multi_action.py` - Multi-action captioner
 - `verl/envs/environments/FastSnake/base.py` - `extract_action()` with multi-action support
