@@ -312,6 +312,14 @@ class VecEnv:
         
         return memory_stats
 
+    def update_epsilon(self, new_epsilon: float):
+        """Update epsilon for all workers (for adaptive epsilon-greedy)."""
+        self.epsilon = new_epsilon
+        for remote in self.remotes:
+            remote.send(('update_epsilon', new_epsilon))
+        for remote in self.remotes:
+            remote.recv()
+
     def hard_reset(self, *, env_name: str, task: str, config, render_mode: str | None = None) -> None:
         """
         Rebuild env + captioner inside existing worker processes.
@@ -699,6 +707,10 @@ def worker(rank, remote, parent_remote, env_name, env_fn_wrapper, captioner_fn_w
                     tb_str = traceback.format_exc()
                     print(f"[ERROR] Worker {rank}: hard_reset failed (old env preserved): {e}\n{tb_str}")
                     remote.send(('error', f"{e}\n{tb_str}"))
+
+            elif cmd == 'update_epsilon':
+                epsilon = data
+                remote.send(('ok', None))
 
             elif cmd == 'close':
                 # Close env

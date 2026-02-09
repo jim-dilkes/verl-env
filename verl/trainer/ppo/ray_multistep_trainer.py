@@ -452,6 +452,19 @@ class RayMultistepTrainer(object):
             logger.debug("[RayMultistepTrainer] No evaluation config found, setting multi_env_evaluator to None")
             self.multi_env_evaluator = None
 
+        # Initialize adaptive epsilon if configured
+        self.adaptive_epsilon = None
+        ae_config = getattr(self.config.prompt.prompt, 'adaptive_epsilon', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
+        if ae_config and getattr(ae_config, 'enabled', False):
+            from verl.trainer.ppo.adaptive_epsilon import AdaptiveEpsilon
+            self.adaptive_epsilon = AdaptiveEpsilon(
+                epsilon_max=ae_config.epsilon_max,
+                window_size=ae_config.window_size,
+                k=ae_config.k,
+            )
+            self.adaptive_epsilon_update_freq = getattr(ae_config, 'update_every_n_steps', 1)
+            logger.info(f"[Trainer] Adaptive epsilon enabled: max={ae_config.epsilon_max}, W={ae_config.window_size}, k={ae_config.k}")
+
     def get_next_env_seed(self):
         """Get the next seed for environment reset, incrementing the counter."""
         if self.env_seed is not None:
@@ -1424,7 +1437,16 @@ class RayMultistepTrainer(object):
                         # merge batch metrics
                         for key in metrics.keys():
                             metrics[key] = np.mean(metrics[key]) # Mean per exectued step
-                        
+
+                        # Compute mean episode return for adaptive epsilon
+                        # batch['reward'] layout: [timestep * n_rollouts + env_idx]
+                        # First episode_len * n_rollouts entries are actual rewards
+                        n_rollouts = self.config.envs.n_rollouts
+                        step_rewards = batch.batch['reward'][:episode_len * n_rollouts]
+                        episode_returns = step_rewards.reshape(episode_len, n_rollouts).sum(dim=0)
+                        mean_episode_return = episode_returns.mean().item()
+                        metrics['train/episode_return_mean'] = mean_episode_return
+
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
@@ -1619,6 +1641,13 @@ class RayMultistepTrainer(object):
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+
+                # Update adaptive epsilon from reward trend
+                if self.adaptive_epsilon is not None:
+                    new_eps = self.adaptive_epsilon.update(metrics.get('train/episode_return_mean', 0.0))
+                    if self.global_steps % self.adaptive_epsilon_update_freq == 0:
+                        self.env.update_epsilon(new_eps)
+                    metrics.update(self.adaptive_epsilon.get_metrics())
 
                 tracking_logger.log(data=metrics, step=self.global_steps)
 
