@@ -507,10 +507,11 @@ class RayMultistepTrainer(object):
                     supplement_max=ad_config.supplement_max,
                     window_size=ad_config.window_size,
                     k=ad_config.k,
+                    inflection=getattr(ad_config, 'inflection', 0.0),
                 )
                 logger.info(
-                    "[Trainer] Adaptive DIME enabled: min=%.2f, max=%.2f, W=%d, k=%.1f",
-                    ad_config.supplement_min, ad_config.supplement_max, ad_config.window_size, ad_config.k,
+                    "[Trainer] Adaptive DIME enabled: min=%.2f, max=%.2f, W=%d, k=%.1f, inflection=%.2f",
+                    ad_config.supplement_min, ad_config.supplement_max, ad_config.window_size, ad_config.k, getattr(ad_config, 'inflection', 0.0),
                 )
 
         # Initialize adaptive epsilon if configured

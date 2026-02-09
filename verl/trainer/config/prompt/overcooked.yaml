@@ -57,7 +57,8 @@ prompt:
     template: 'Before acting, carefully consider how this principle applies to your current situation: "{STEP_TEXT}". Think about when and why this step matters right now. Then act using your best judgment.'
     adaptive:
       enabled: false
-      supplement_min: 0.1    # minimum fraction getting focus (even when improving)
-      supplement_max: 0.9    # maximum fraction getting focus (when stuck)
-      window_size: 10
+      supplement_min: 0.0
+      supplement_max: 0.875
+      window_size: 30
       k: 5.0
+      inflection: 0.5       # sigmoid centre: slope < inflection → high supplement

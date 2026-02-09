@@ -22,11 +22,13 @@ class AdaptiveDIME:
         supplement_max: float,
         window_size: int,
         k: float,
+        inflection: float = 0.0,
     ):
         self.supplement_min = supplement_min
         self.supplement_max = supplement_max
         self.window_size = window_size
         self.k = k
+        self.inflection = inflection
 
         self.reward_buffer: deque[float] = deque(maxlen=window_size)
         self.current_supplement_prob = supplement_min
@@ -51,7 +53,7 @@ class AdaptiveDIME:
         self._last_slope = slope
 
         # Positive slope (improving) → low supplement; zero/negative → high
-        raw = (self.supplement_max - self.supplement_min) * _sigmoid(-self.k * slope)
+        raw = (self.supplement_max - self.supplement_min) * _sigmoid(-self.k * (slope - self.inflection))
         self.current_supplement_prob = self.supplement_min + raw
         return self.current_supplement_prob
 
@@ -63,6 +65,7 @@ class AdaptiveDIME:
         return {
             "dime/adaptive_supplement_prob": self.current_supplement_prob,
             "dime/adaptive_slope": self._last_slope,
+            "dime/adaptive_inflection": self.inflection,
             "dime/adaptive_buffer_fill": len(self.reward_buffer) / self.window_size,
         }
 
