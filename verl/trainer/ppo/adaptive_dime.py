@@ -1,0 +1,85 @@
+"""Adaptive DIME supplement ratio based on reward trend.
+
+Same inverted schedule as AdaptiveEpsilon: sliding window, linear
+regression slope, sigmoid mapping. But controls the DIME supplement
+ratio instead of epsilon.
+
+- Improving rewards → low supplement_prob (consolidate with clean rollouts)
+- Stagnating/declining → high supplement_prob (more focus-instruction diversity)
+
+Reuses math helpers from adaptive_epsilon module.
+"""
+
+from collections import deque
+
+from verl.trainer.ppo.adaptive_epsilon import _std, _sigmoid
+
+
+class AdaptiveDIME:
+    def __init__(
+        self,
+        supplement_min: float,
+        supplement_max: float,
+        window_size: int,
+        k: float,
+    ):
+        self.supplement_min = supplement_min
+        self.supplement_max = supplement_max
+        self.window_size = window_size
+        self.k = k
+
+        self.reward_buffer: deque[float] = deque(maxlen=window_size)
+        self.current_supplement_prob = supplement_max
+        self._last_slope = 0.0
+
+    def update(self, batch_mean_reward: float) -> float:
+        """Feed one batch mean reward. Returns updated supplement_prob."""
+        self.reward_buffer.append(batch_mean_reward)
+
+        if len(self.reward_buffer) < self.window_size:
+            return self.current_supplement_prob
+
+        values = list(self.reward_buffer)
+        std = _std(values)
+        if std > 1e-8:
+            mean = sum(values) / len(values)
+            norm_rewards = [(r - mean) / std for r in values]
+        else:
+            norm_rewards = values
+
+        slope = _linear_regression_slope(norm_rewards)
+        self._last_slope = slope
+
+        # Positive slope (improving) → low supplement; zero/negative → high
+        raw = (self.supplement_max - self.supplement_min) * _sigmoid(-self.k * slope)
+        self.current_supplement_prob = self.supplement_min + raw
+        return self.current_supplement_prob
+
+    def get_no_supplement_prob(self) -> float:
+        """Convenience: 1 - supplement_prob for sample_focus_for_episode."""
+        return 1.0 - self.current_supplement_prob
+
+    def get_metrics(self) -> dict:
+        return {
+            "dime/adaptive_supplement_prob": self.current_supplement_prob,
+            "dime/adaptive_slope": self._last_slope,
+            "dime/adaptive_buffer_fill": len(self.reward_buffer) / self.window_size,
+        }
+
+
+def _linear_regression_slope(values: list[float]) -> float:
+    """Least-squares slope over indexed values. O(n) single pass."""
+    n = len(values)
+    if n < 2:
+        return 0.0
+    x_mean = (n - 1) / 2.0
+    y_mean = sum(values) / n
+    num = 0.0
+    den = 0.0
+    for i, y in enumerate(values):
+        dx = i - x_mean
+        num += dx * (y - y_mean)
+        den += dx * dx
+    if den == 0:
+        return 0.0
+    return num / den

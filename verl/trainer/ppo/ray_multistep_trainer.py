@@ -495,6 +495,24 @@ class RayMultistepTrainer(object):
             logger.debug("[RayMultistepTrainer] No evaluation config found, setting multi_env_evaluator to None")
             self.multi_env_evaluator = None
 
+        # Initialize adaptive DIME if configured
+        self.adaptive_dime = None
+        dime_config = getattr(self.config.prompt.prompt, 'dime', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
+        if dime_config and getattr(dime_config, 'enabled', False):
+            ad_config = getattr(dime_config, 'adaptive', None)
+            if ad_config and getattr(ad_config, 'enabled', False):
+                from verl.trainer.ppo.adaptive_dime import AdaptiveDIME
+                self.adaptive_dime = AdaptiveDIME(
+                    supplement_min=ad_config.supplement_min,
+                    supplement_max=ad_config.supplement_max,
+                    window_size=ad_config.window_size,
+                    k=ad_config.k,
+                )
+                logger.info(
+                    "[Trainer] Adaptive DIME enabled: min=%.2f, max=%.2f, W=%d, k=%.1f",
+                    ad_config.supplement_min, ad_config.supplement_max, ad_config.window_size, ad_config.k,
+                )
+
         # Initialize adaptive epsilon if configured
         self.adaptive_epsilon = None
         ae_config = getattr(self.config.prompt.prompt, 'adaptive_epsilon', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
@@ -1246,12 +1264,15 @@ class RayMultistepTrainer(object):
                             dime_template = getattr(dime_config, 'template', '') if dime_source == 'specific' else '{STEP_TEXT}'
                             env_name = self.config.envs.env_name
                             dime_instructions = get_dime_instructions(env_name, dime_source)
-                            dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', None)
-                            if dime_no_supplement_prob is None:
-                                raise ValueError(
-                                    "dime.no_supplement_prob must be set explicitly when dime.enabled=true. "
-                                    "Recommended: 0.125 (12.5% clean rollouts)."
-                                )
+                            if self.adaptive_dime is not None:
+                                dime_no_supplement_prob = self.adaptive_dime.get_no_supplement_prob()
+                            else:
+                                dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', None)
+                                if dime_no_supplement_prob is None:
+                                    raise ValueError(
+                                        "dime.no_supplement_prob must be set explicitly when dime.enabled=true "
+                                        "(or enable dime.adaptive). Recommended: 0.125 (12.5% clean rollouts)."
+                                    )
                             focus_per_rollout = sample_focus_for_episode(
                                 self.config.envs.n_rollouts, dime_instructions, dime_no_supplement_prob
                             )
@@ -1783,6 +1804,11 @@ class RayMultistepTrainer(object):
                     if self.global_steps % self.adaptive_epsilon_update_freq == 0:
                         self.env.update_epsilon(new_eps)
                     metrics.update(self.adaptive_epsilon.get_metrics())
+
+                # Update adaptive DIME from reward trend (used next episode)
+                if self.adaptive_dime is not None:
+                    self.adaptive_dime.update(metrics.get('train/episode_return_mean', 0.0))
+                    metrics.update(self.adaptive_dime.get_metrics())
 
                 tracking_logger.log(data=metrics, step=self.global_steps)
 

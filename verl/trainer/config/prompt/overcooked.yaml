@@ -55,3 +55,9 @@ prompt:
     mask_for_training: true
     no_supplement_prob: 0.125  # REQUIRED when enabled. Fixed across conditions.
     template: 'Before acting, carefully consider how this principle applies to your current situation: "{STEP_TEXT}". Think about when and why this step matters right now. Then act using your best judgment.'
+    adaptive:
+      enabled: false
+      supplement_min: 0.1    # minimum fraction getting focus (even when improving)
+      supplement_max: 0.9    # maximum fraction getting focus (when stuck)
+      window_size: 10
+      k: 5.0

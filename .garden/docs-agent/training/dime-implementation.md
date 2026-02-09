@@ -47,9 +47,26 @@ prompt.prompt.dime:
 
 ### Instruction Sources
 - **`specific`**: Environment-specific instructions from `FOCUS_REGISTRY` (e.g., Overcooked [How to Cook] steps). Wrapped in deliberative `template`.
-- **`generic`**: `GENERIC_FOCUS_INSTRUCTIONS` — 7 meta-cognitive/strategy-level principles that work across any environment. No template wrapping (passthrough `{STEP_TEXT}`).
+- **`generic`**: `GENERIC_FOCUS_INSTRUCTIONS` — 10 meta-cognitive/strategy-level principles that work across any environment. No template wrapping (passthrough `{STEP_TEXT}`).
 
 Unified retrieval: `get_dime_instructions(env_name, source)` / `has_dime_instructions(env_name, source)`. Generic always available; specific requires env registration.
+
+### Adaptive Supplement Ratio
+```yaml
+prompt.prompt.dime.adaptive:
+  enabled: false
+  supplement_min: 0.1    # minimum fraction getting focus (even when improving)
+  supplement_max: 0.9    # maximum fraction getting focus (when stuck)
+  window_size: 10
+  k: 5.0
+```
+- **Code:** `verl/trainer/ppo/adaptive_dime.py` — `AdaptiveDIME` class
+- Same sliding-window + slope + sigmoid pattern as `AdaptiveEpsilon`
+- Reuses `_std`, `_sigmoid` helpers from `adaptive_epsilon.py`
+- Improving rewards → low supplement_prob (consolidate); stagnating → high (explore)
+- Overrides `no_supplement_prob` when enabled; no env pipe needed (used directly in trainer)
+- Init in `__init__` (~L498); update after metrics (~L1810); override in DIME setup (~L1267)
+- Metrics: `dime/adaptive_supplement_prob`, `dime/adaptive_slope`, `dime/adaptive_buffer_fill`
 
 ## Validation & Evaluation Injection
 
