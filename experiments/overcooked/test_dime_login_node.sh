@@ -150,10 +150,11 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.n_gpus_per_node=$number_of_gpus \
   trainer.nnodes=1 \
   trainer.save_freq=100 \
-  trainer.test_freq=999 \
+  trainer.test_freq=2 \
   trainer.render=False \
   trainer.total_epochs=1000 \
   trainer.total_training_steps=2 \
+  evaluation=overcooked_evals_minimal \
   prompt=overcooked 2>&1 | tee test_dime_login_node.log
 
 echo "DIME test run complete!"
