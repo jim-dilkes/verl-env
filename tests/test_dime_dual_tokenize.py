@@ -10,7 +10,7 @@ import torch
 
 from verl.envs.environments.focus_instructions import inject_focus_into_obs
 
-TEMPLATE = 'Before acting, carefully consider how this principle applies to your current situation: "{STEP_TEXT}". Think about when and why this step matters right now. Then act using your best judgment.'
+TEMPLATE = 'Pay particular attention to this aspect of the task: "{STEP_TEXT}". Consider how it could apply in the current situation before choosing your action.'
 
 
 def get_tokenizer():

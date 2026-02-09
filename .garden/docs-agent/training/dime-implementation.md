@@ -45,7 +45,7 @@ prompt.prompt.dime:
   mask_for_training: true # false = control (focus visible in training too)
   mask_probability: 1.0   # probability of masking per focus-injected rollout (1.0=always, 0.0=never, 0.5=half-half)
   no_supplement_prob: 0.125 # REQUIRED when enabled. No auto-compute — must be explicit.
-  template: 'Before acting, carefully consider...'  # used for source=specific; ignored for source=generic
+  template: 'Pay particular attention to this aspect of the task: "{STEP_TEXT}". Consider how it could apply in the current situation before choosing your action.'
 ```
 
 ### Instruction Sources

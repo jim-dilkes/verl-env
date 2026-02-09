@@ -55,7 +55,7 @@ prompt:
     mask_for_training: true
     mask_probability: 1.0  # 1.0=always mask (current), 0.0=never mask, 0.5=half-half
     no_supplement_prob: 0.125  # REQUIRED when enabled. Fixed across conditions.
-    template: 'Before acting, carefully consider how this principle applies to your current situation: "{STEP_TEXT}". Think about when and why this step matters right now. Then act using your best judgment.'
+    template: 'Pay particular attention to this aspect of the task: "{STEP_TEXT}". Consider how it could apply in the current situation before choosing your action.'
     adaptive:
       enabled: false
       supplement_min: 0.0
