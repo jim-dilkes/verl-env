@@ -144,17 +144,16 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_name} \
-  trainer.val_before_train=True \
+  trainer.val_before_train=False \
   trainer.critic_warmup=1 \
   trainer.critic_warmup_micro_batch_size_per_gpu=$micro_batch_size \
   trainer.n_gpus_per_node=$number_of_gpus \
   trainer.nnodes=1 \
   trainer.save_freq=100 \
-  trainer.test_freq=100 \
+  trainer.test_freq=999 \
   trainer.render=False \
   trainer.total_epochs=1000 \
   trainer.total_training_steps=2 \
-  evaluation=overcooked_evals_combined_mixed \
   prompt=overcooked 2>&1 | tee test_dime_login_node.log
 
 echo "DIME test run complete!"
