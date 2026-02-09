@@ -25,13 +25,16 @@ FOCUS_REGISTRY: dict[str, list[str]] = {
 }
 
 GENERIC_FOCUS_INSTRUCTIONS = [
-    "Before choosing your next action, mentally simulate two or three possible moves and pick the one most likely to advance your overall goal.",
-    "Consider what resources or items you currently have and whether they are being used effectively toward completing the task.",
-    "Think about whether your current approach is making progress. If you seem stuck, try a different strategy.",
-    "Pay attention to the state of the environment around you. Has anything changed that should affect your plan?",
-    "Prioritize actions that make irreversible progress toward the goal over actions that merely maintain the current state.",
-    "If there are multiple sub-tasks, consider which one is most urgent or which would unblock the most progress.",
-    "Reflect on whether you are repeating the same actions without making progress. Break the cycle by trying something new.",
+    "Think several steps ahead before committing to an action.",
+    "Focus on what will matter most in the next 2-3 moves, not the long term.",
+    "Avoid risky actions — prefer safe, reliable choices even if slower.",
+    "Be bold — take the action with the highest potential payoff even if uncertain.",
+    "If your current plan isn't working, abandon it quickly and try something different.",
+    "Pay attention to what's NOT happening — what's being neglected or blocked?",
+    "What's the single most important thing to accomplish right now? Do only that.",
+    "Question your assumptions — re-read the rules carefully. Is the action you're about to take actually valid, appropriate, and useful right now?",
+    "Look back at your recent actions and reasoning. Did they actually achieve what you intended? Are your justifications consistent with the rules and your goals?",
+    "What would a perfect player do in this exact situation?",
 ]
 
 

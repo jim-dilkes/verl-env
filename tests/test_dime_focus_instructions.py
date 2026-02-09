@@ -103,7 +103,7 @@ def test_get_dime_instructions_specific():
 def test_get_dime_instructions_generic():
     instructions = get_dime_instructions("overcooked", "generic")
     assert instructions is GENERIC_FOCUS_INSTRUCTIONS
-    assert len(instructions) == 7
+    assert len(instructions) == 10
 
 
 def test_get_dime_instructions_generic_any_env():
