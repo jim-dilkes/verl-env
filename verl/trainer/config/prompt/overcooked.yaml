@@ -47,3 +47,10 @@ prompt:
 
     <plan>{Think about what you need to do next to make and deliver meals. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
     <action>{Your selected action from the list above}</action>
+
+  # DIME (Diverse Instruction-Masked Exploration) config
+  dime:
+    enabled: false
+    mask_for_training: true
+    no_supplement_prob: 0.143
+    template: 'Before acting, carefully consider how this principle applies to your current situation: "{STEP_TEXT}". Think about when and why this step matters right now. Then act using your best judgment.'

@@ -68,6 +68,11 @@ from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn as rl_collate_
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+from verl.envs.environments.focus_instructions import (
+    get_focus_instructions,
+    sample_focus_for_episode,
+    inject_focus_into_obs,
+)
 
 
 def _flatten_nested_lists(val):
@@ -189,6 +194,41 @@ def retokenize_epsilon_sample(
         'attention_mask': new_attention_mask.to(device),
         'position_ids': new_position_ids.to(device),
     }
+
+
+def swap_dime_prompts(
+    batch: DataProto,
+    base_prompt_tokens_by_step: list[dict],
+    n_rollouts: int,
+    episode_len: int,
+    rlen: int,
+) -> DataProto:
+    """Replace rollout prompts (with focus) with base prompts (without focus).
+
+    Batch layout: [step0_env0, step0_env1, ..., step0_envN, step1_env0, ..., stepE_envN]
+    Each sample i maps to: step = i // n_rollouts, env = i % n_rollouts.
+    Response tokens are preserved exactly; only the prompt portion is swapped.
+    """
+    for step_idx in range(episode_len + 1):
+        base = base_prompt_tokens_by_step[step_idx]
+        for env_idx in range(n_rollouts):
+            sample_idx = step_idx * n_rollouts + env_idx
+
+            response = batch.batch['responses'][sample_idx]
+            base_prompt_ids = base['input_ids'][env_idx]
+            base_prompt_mask = base['attention_mask'][env_idx]
+
+            batch.batch['input_ids'][sample_idx] = torch.cat([base_prompt_ids, response])
+
+            response_mask = batch.batch['attention_mask'][sample_idx, -rlen:]
+            batch.batch['attention_mask'][sample_idx] = torch.cat([base_prompt_mask, response_mask])
+
+            new_mask = batch.batch['attention_mask'][sample_idx]
+            new_pos = new_mask.long().cumsum(-1) - 1
+            new_pos.masked_fill_(new_mask == 0, 1)
+            batch.batch['position_ids'][sample_idx] = new_pos
+
+    return batch
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty='kl'):
@@ -1153,8 +1193,29 @@ class RayMultistepTrainer(object):
                         f"train_batch_size ({self.config.data.train_batch_size}) must be divisible by n_rollouts ({self.config.envs.n_rollouts})."
                     episode_len = bsize // self.config.envs.n_rollouts
                 
+                    # DIME config (outside conditional so variable is defined during critic warmup)
+                    dime_config = getattr(self.config.prompt.prompt, 'dime', None)
+                    dime_enabled = dime_config is not None and getattr(dime_config, 'enabled', False)
+
                     if self.global_steps == 1 or self.global_steps > self.critic_warmup_step:
-                    
+
+                        if dime_enabled:
+                            dime_mask_for_training = getattr(dime_config, 'mask_for_training', True)
+                            dime_template = getattr(dime_config, 'template', '')
+                            dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', 0.143)
+                            env_name = self.config.envs.env_name
+                            dime_instructions = get_focus_instructions(env_name)
+                            focus_per_rollout = sample_focus_for_episode(
+                                self.config.envs.n_rollouts, dime_instructions, dime_no_supplement_prob
+                            )
+                            base_prompt_tokens_by_step = []
+                            dime_supplement_count = sum(1 for f in focus_per_rollout if f is not None)
+                            dime_unique_count = len(set(f for f in focus_per_rollout if f is not None))
+                            logger.debug(
+                                "DIME: %d/%d rollouts with focus, %d unique instructions",
+                                dime_supplement_count, self.config.envs.n_rollouts, dime_unique_count,
+                            )
+
                         # Initialize episode tracking for freezing logic
                         # This prevents cross-batch episode issues by freezing environments when episodes complete
                         # Frozen environments receive "__SKIP__" actions and return cached data
@@ -1168,15 +1229,42 @@ class RayMultistepTrainer(object):
                         
                             with _timer_accumulate('text_gen_proc', timing_raw):
                                 self.tokenizer.padding_side = "left"
-                                input_obs = self.tokenizer.apply_chat_template(obs_vec, tokenize=False, add_generation_prompt=True) #, enable_thinking=True)
-                            
-                                input_obs = self.tokenizer(input_obs, return_tensors='pt', padding='max_length', truncation=True, max_length=max_seq_len)
-                                    
+
+                                if dime_enabled:
+                                    # Dual tokenize: WITH focus for generation, WITHOUT for training
+                                    rollout_obs_vec = inject_focus_into_obs(obs_vec, focus_per_rollout, dime_template)
+                                    input_obs_text = self.tokenizer.apply_chat_template(
+                                        rollout_obs_vec, tokenize=False, add_generation_prompt=True,
+                                    )
+                                    base_obs_text = self.tokenizer.apply_chat_template(
+                                        obs_vec, tokenize=False, add_generation_prompt=True,
+                                    )
+                                    input_obs = self.tokenizer(
+                                        input_obs_text, return_tensors='pt', padding='max_length',
+                                        truncation=True, max_length=max_seq_len,
+                                    )
+                                    base_input_obs = self.tokenizer(
+                                        base_obs_text, return_tensors='pt', padding='max_length',
+                                        truncation=True, max_length=max_seq_len,
+                                    )
+                                    base_prompt_tokens_by_step.append({
+                                        'input_ids': base_input_obs['input_ids'],
+                                        'attention_mask': base_input_obs['attention_mask'],
+                                    })
+                                else:
+                                    input_obs_text = self.tokenizer.apply_chat_template(
+                                        obs_vec, tokenize=False, add_generation_prompt=True,
+                                    )
+                                    input_obs = self.tokenizer(
+                                        input_obs_text, return_tensors='pt', padding='max_length',
+                                        truncation=True, max_length=max_seq_len,
+                                    )
+
                                 input_ids = input_obs['input_ids']
                                 attention_mask = input_obs['attention_mask']
                                 position_ids = attention_mask.long().cumsum(-1) - 1
                                 position_ids.masked_fill_(attention_mask == 0, 1)
-                            
+
                                 obs_data = {
                                     'input_ids': input_ids,
                                     'attention_mask': attention_mask,
@@ -1453,7 +1541,20 @@ class RayMultistepTrainer(object):
                     # batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     # batch = batch.union(gen_batch_output)
                     assert self.config.actor_rollout_ref.rollout.n == 1, "For multi-turn rollout, we only support n=1"
-    
+
+                    # DIME: swap rollout prompts (with focus) for base prompts (without focus)
+                    if dime_enabled and dime_mask_for_training:
+                        batch = swap_dime_prompts(
+                            batch, base_prompt_tokens_by_step,
+                            self.config.envs.n_rollouts, episode_len, rlen,
+                        )
+                        # Force recompute since tokens changed
+                        bypass_recomputing_logprobs = False
+
+                    if dime_enabled:
+                        metrics['dime/supplement_rate'] = dime_supplement_count / self.config.envs.n_rollouts
+                        metrics['dime/unique_instructions'] = dime_unique_count
+
                     batch.batch['response_mask'] = compute_response_mask(batch)
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
