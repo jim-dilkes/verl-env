@@ -58,7 +58,7 @@ prompt:
     adaptive:
       enabled: false
       supplement_min: 0.0
-      supplement_max: 0.875
+      supplement_max: 0.9
       window_size: 30
-      k: 5.0
-      inflection: 0.5       # sigmoid centre: slope < inflection → high supplement
+      k: 15.0
+      inflection: 0.05      # sigmoid centre: slope < inflection → high supplement
