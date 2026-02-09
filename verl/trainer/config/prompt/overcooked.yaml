@@ -51,6 +51,7 @@ prompt:
   # DIME (Diverse Instruction-Masked Exploration) config
   dime:
     enabled: false
+    source: "specific"        # "specific" (env instructions + template) or "generic" (standalone principles)
     mask_for_training: true
     no_supplement_prob: null  # auto: 1/(N+1) where N = number of focus instructions
     template: 'Before acting, carefully consider how this principle applies to your current situation: "{STEP_TEXT}". Think about when and why this step matters right now. Then act using your best judgment.'

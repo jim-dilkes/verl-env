@@ -24,14 +24,24 @@ FOCUS_REGISTRY: dict[str, list[str]] = {
     "overcooked": OVERCOOKED_FOCUS_INSTRUCTIONS,
 }
 
+GENERIC_FOCUS_INSTRUCTIONS = [
+    "Before choosing your next action, mentally simulate two or three possible moves and pick the one most likely to advance your overall goal.",
+    "Consider what resources or items you currently have and whether they are being used effectively toward completing the task.",
+    "Think about whether your current approach is making progress. If you seem stuck, try a different strategy.",
+    "Pay attention to the state of the environment around you. Has anything changed that should affect your plan?",
+    "Prioritize actions that make irreversible progress toward the goal over actions that merely maintain the current state.",
+    "If there are multiple sub-tasks, consider which one is most urgent or which would unblock the most progress.",
+    "Reflect on whether you are repeating the same actions without making progress. Break the cycle by trying something new.",
+]
+
 
 def has_focus_instructions(env_name: str) -> bool:
-    """Check whether focus instructions are registered for an environment."""
+    """Check whether env-specific focus instructions are registered."""
     return env_name.lower() in FOCUS_REGISTRY
 
 
 def get_focus_instructions(env_name: str) -> list[str]:
-    """Return focus instruction steps for a given environment."""
+    """Return env-specific focus instruction steps."""
     key = env_name.lower()
     if key not in FOCUS_REGISTRY:
         raise ValueError(
@@ -39,6 +49,24 @@ def get_focus_instructions(env_name: str) -> list[str]:
             f"Available: {list(FOCUS_REGISTRY.keys())}"
         )
     return FOCUS_REGISTRY[key]
+
+
+def has_dime_instructions(env_name: str, source: str) -> bool:
+    """Check whether DIME instructions are available for the given source."""
+    if source == "generic":
+        return True
+    if source == "specific":
+        return has_focus_instructions(env_name)
+    raise ValueError(f"Unknown DIME source: '{source}'. Must be 'specific' or 'generic'.")
+
+
+def get_dime_instructions(env_name: str, source: str) -> list[str]:
+    """Return DIME instructions for the given source."""
+    if source == "generic":
+        return GENERIC_FOCUS_INSTRUCTIONS
+    if source == "specific":
+        return get_focus_instructions(env_name)
+    raise ValueError(f"Unknown DIME source: '{source}'. Must be 'specific' or 'generic'.")
 
 
 def sample_focus_for_episode(

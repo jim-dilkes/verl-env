@@ -37,6 +37,8 @@ from verl.envs.environments import get_action_extraction_fn
 from verl.envs.environments.focus_instructions import (
     has_focus_instructions,
     get_focus_instructions,
+    has_dime_instructions,
+    get_dime_instructions,
     sample_focus_for_episode,
     inject_focus_into_obs,
 )
@@ -728,15 +730,16 @@ class MultiEnvEvaluator:
 
         # DIME focus injection (opt-in per eval env via inherit_dime)
         dime_config = getattr(self.config.prompt.prompt, 'dime', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
+        eval_dime_source = getattr(dime_config, 'source', 'specific') if dime_config else 'specific'
         eval_dime_enabled = (
             env_config.get('inherit_dime', False)
             and dime_config is not None
             and getattr(dime_config, 'enabled', False)
-            and has_focus_instructions(eval_env_name)
+            and has_dime_instructions(eval_env_name, eval_dime_source)
         )
         if eval_dime_enabled:
-            eval_dime_template = getattr(dime_config, 'template', '')
-            eval_dime_instructions = get_focus_instructions(eval_env_name)
+            eval_dime_template = getattr(dime_config, 'template', '') if eval_dime_source == 'specific' else '{STEP_TEXT}'
+            eval_dime_instructions = get_dime_instructions(eval_env_name, eval_dime_source)
             eval_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
             if eval_dime_no_supp is None:
                 eval_dime_no_supp = 1.0 / (len(eval_dime_instructions) + 1)
@@ -747,7 +750,7 @@ class MultiEnvEvaluator:
                 "(enabled=%s, has_instructions=%s)",
                 eval_name,
                 dime_config is not None and getattr(dime_config, 'enabled', False),
-                has_focus_instructions(eval_env_name),
+                has_dime_instructions(eval_env_name, eval_dime_source) if dime_config else False,
             )
 
         # Validate seed_group_size

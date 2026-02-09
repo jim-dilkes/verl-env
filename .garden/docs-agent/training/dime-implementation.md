@@ -4,7 +4,7 @@
 Appends a random "focus instruction" per rollout during generation, strips it before the training log_prob pass. Model learns focus-guided behaviors without depending on the instruction at inference.
 
 ## Code Locations
-- **Registry:** `verl/envs/environments/focus_instructions.py` — `has_focus_instructions()`, `get_focus_instructions()`, `sample_focus_for_episode()`, `inject_focus_into_obs()`
+- **Registry:** `verl/envs/environments/focus_instructions.py` — `has_focus_instructions()`, `get_focus_instructions()`, `has_dime_instructions()`, `get_dime_instructions()`, `sample_focus_for_episode()`, `inject_focus_into_obs()`
 - **Config:** `verl/trainer/config/prompt/overcooked.yaml` → `prompt.prompt.dime.*`
 - **Trainer integration:** `verl/trainer/ppo/ray_multistep_trainer.py`
   - DIME config read + sampling: ~L1196-1216 (before episode loop)
@@ -39,10 +39,17 @@ Appends a random "focus instruction" per rollout during generation, strips it be
 ```yaml
 prompt.prompt.dime:
   enabled: false          # master toggle
+  source: "specific"      # "specific" (env instructions + template) or "generic" (standalone principles)
   mask_for_training: true # false = control (focus visible in training too)
   no_supplement_prob: null # auto: 1/(N+1) where N = len(instructions). Override with explicit float.
-  template: 'Before acting, carefully consider...'
+  template: 'Before acting, carefully consider...'  # used for source=specific; ignored for source=generic
 ```
+
+### Instruction Sources
+- **`specific`**: Environment-specific instructions from `FOCUS_REGISTRY` (e.g., Overcooked [How to Cook] steps). Wrapped in deliberative `template`.
+- **`generic`**: `GENERIC_FOCUS_INSTRUCTIONS` — 7 meta-cognitive/strategy-level principles that work across any environment. No template wrapping (passthrough `{STEP_TEXT}`).
+
+Unified retrieval: `get_dime_instructions(env_name, source)` / `has_dime_instructions(env_name, source)`. Generic always available; specific requires env registration.
 
 ## Validation & Evaluation Injection
 
@@ -63,7 +70,7 @@ environments:
       enabled: true
 ```
 
-Guard chain: `inherit_dime=true` AND `dime.enabled=true` AND `has_focus_instructions(env_name)`. If any false, bare prompts used. Debug log emitted when `inherit_dime=true` but DIME not active.
+Guard chain: `inherit_dime=true` AND `dime.enabled=true` AND `has_dime_instructions(env_name, source)`. If any false, bare prompts used. Debug log emitted when `inherit_dime=true` but DIME not active.
 
 Focus sampled once per batch (same instruction for entire episode per rollout). Entropy probes see focus-injected `val_input_obs_text` naturally.
 
@@ -71,6 +78,7 @@ Focus sampled once per batch (same instruction for entire episode per rollout). 
 1. Add instruction list to `FOCUS_REGISTRY` in `focus_instructions.py`
 2. Key must match `config.envs.env_name` (lowercased)
 3. Add `dime:` section to the environment's prompt YAML
+4. For `source=generic`, no env registration needed — works with any environment
 
 ## Gotchas
 - `dime_enabled` must be initialized OUTSIDE the `if self.global_steps == 1 or ...` block (critic warmup scoping)

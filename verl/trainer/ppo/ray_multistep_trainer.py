@@ -71,6 +71,8 @@ from verl.utils.tracking import ValidationGenerationsLogger
 from verl.envs.environments.focus_instructions import (
     get_focus_instructions,
     has_focus_instructions,
+    get_dime_instructions,
+    has_dime_instructions,
     sample_focus_for_episode,
     inject_focus_into_obs,
 )
@@ -805,14 +807,15 @@ class RayMultistepTrainer(object):
 
         # DIME: mirror training focus injection during validation
         dime_config = getattr(self.config.prompt.prompt, 'dime', None)
+        dime_source = getattr(dime_config, 'source', 'specific') if dime_config else 'specific'
         val_dime_enabled = (
             dime_config is not None
             and getattr(dime_config, 'enabled', False)
-            and has_focus_instructions(self.config.envs.env_name)
+            and has_dime_instructions(self.config.envs.env_name, dime_source)
         )
         if val_dime_enabled:
-            val_dime_template = getattr(dime_config, 'template', '')
-            val_dime_instructions = get_focus_instructions(self.config.envs.env_name)
+            val_dime_template = getattr(dime_config, 'template', '') if dime_source == 'specific' else '{STEP_TEXT}'
+            val_dime_instructions = get_dime_instructions(self.config.envs.env_name, dime_source)
             val_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
             if val_dime_no_supp is None:
                 val_dime_no_supp = 1.0 / (len(val_dime_instructions) + 1)
@@ -1223,9 +1226,10 @@ class RayMultistepTrainer(object):
 
                         if dime_enabled:
                             dime_mask_for_training = getattr(dime_config, 'mask_for_training', True)
-                            dime_template = getattr(dime_config, 'template', '')
+                            dime_source = getattr(dime_config, 'source', 'specific')
+                            dime_template = getattr(dime_config, 'template', '') if dime_source == 'specific' else '{STEP_TEXT}'
                             env_name = self.config.envs.env_name
-                            dime_instructions = get_focus_instructions(env_name)
+                            dime_instructions = get_dime_instructions(env_name, dime_source)
                             dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', None)
                             if dime_no_supplement_prob is None:
                                 dime_no_supplement_prob = 1.0 / (len(dime_instructions) + 1)
