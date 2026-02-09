@@ -81,6 +81,6 @@ def inject_focus_into_obs(
         # Find last user message and append focus text
         for msg in reversed(result[i]):
             if msg["role"] == "user":
-                msg["content"] = msg["content"] + "\n\n" + focus_text
+                msg["content"] = msg["content"].rstrip() + "\n\n" + focus_text
                 break
     return result
