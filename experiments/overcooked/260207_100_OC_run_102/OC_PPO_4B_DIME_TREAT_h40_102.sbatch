@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_4B_DIME_TREAT_h40_101
+#SBATCH --job-name=OC_PPO_4B_DIME_TREAT_h40_102
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -15,9 +15,9 @@
 # --- Define experiment variables ---
 project_name=rl_sdm
 experiment_name=OC_PPO_4B_DIME_TREAT_h40
-run_number=101
+run_number=102
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","dime-treatment","prompt-fix"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","dime-treatment"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -174,7 +174,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
   prompt.prompt.dime.enabled=true \
   prompt.prompt.dime.mask_for_training=true \
-  prompt.prompt.dime.no_supplement_prob=0.125 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_run_name} \
