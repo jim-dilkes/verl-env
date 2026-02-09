@@ -3,16 +3,16 @@
 from verl.trainer.ppo.adaptive_dime import AdaptiveDIME
 
 
-def test_initial_supplement_is_max():
+def test_initial_supplement_is_min():
     ad = AdaptiveDIME(supplement_min=0.1, supplement_max=0.9, window_size=5, k=5.0)
-    assert ad.current_supplement_prob == 0.9
+    assert ad.current_supplement_prob == 0.1
 
 
 def test_buffer_not_full_returns_initial():
     ad = AdaptiveDIME(supplement_min=0.1, supplement_max=0.9, window_size=5, k=5.0)
     for i in range(4):
         result = ad.update(float(i))
-    assert result == 0.9  # buffer not yet full
+    assert result == 0.1  # buffer not yet full, stays at min
 
 
 def test_improving_rewards_lower_supplement():
@@ -52,7 +52,7 @@ def test_supplement_stays_in_bounds():
 
 def test_get_no_supplement_prob():
     ad = AdaptiveDIME(supplement_min=0.1, supplement_max=0.9, window_size=5, k=5.0)
-    assert abs(ad.get_no_supplement_prob() - 0.1) < 1e-9  # 1 - 0.9
+    assert abs(ad.get_no_supplement_prob() - 0.9) < 1e-9  # 1 - 0.1 (starts at min)
 
 
 def test_metrics_keys():
@@ -67,7 +67,7 @@ def test_metrics_keys():
 
 
 if __name__ == "__main__":
-    test_initial_supplement_is_max()
+    test_initial_supplement_is_min()
     test_buffer_not_full_returns_initial()
     test_improving_rewards_lower_supplement()
     test_declining_rewards_higher_supplement()

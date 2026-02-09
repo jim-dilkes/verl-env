@@ -847,12 +847,15 @@ class RayMultistepTrainer(object):
         if val_dime_enabled:
             val_dime_template = getattr(dime_config, 'template', '') if dime_source == 'specific' else '{STEP_TEXT}'
             val_dime_instructions = get_dime_instructions(self.config.envs.env_name, dime_source)
-            val_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
-            if val_dime_no_supp is None:
-                raise ValueError(
-                    "dime.no_supplement_prob must be set explicitly when dime.enabled=true. "
-                    "Set to a float (e.g. 0.1) in your prompt YAML or sbatch overrides."
-                )
+            if self.adaptive_dime is not None:
+                val_dime_no_supp = self.adaptive_dime.get_no_supplement_prob()
+            else:
+                val_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
+                if val_dime_no_supp is None:
+                    raise ValueError(
+                        "dime.no_supplement_prob must be set explicitly when dime.enabled=true "
+                        "(or enable dime.adaptive). Recommended: 0.125 (12.5% clean rollouts)."
+                    )
             val_focus_per_rollout = sample_focus_for_episode(
                 n_envs, val_dime_instructions, val_dime_no_supp
             )

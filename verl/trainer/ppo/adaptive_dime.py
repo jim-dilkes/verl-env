@@ -12,7 +12,7 @@ Reuses math helpers from adaptive_epsilon module.
 
 from collections import deque
 
-from verl.trainer.ppo.adaptive_epsilon import _std, _sigmoid
+from verl.trainer.ppo.adaptive_epsilon import _std, _sigmoid, AdaptiveEpsilon
 
 
 class AdaptiveDIME:
@@ -29,7 +29,7 @@ class AdaptiveDIME:
         self.k = k
 
         self.reward_buffer: deque[float] = deque(maxlen=window_size)
-        self.current_supplement_prob = supplement_max
+        self.current_supplement_prob = supplement_min
         self._last_slope = 0.0
 
     def update(self, batch_mean_reward: float) -> float:
@@ -47,7 +47,7 @@ class AdaptiveDIME:
         else:
             norm_rewards = values
 
-        slope = _linear_regression_slope(norm_rewards)
+        slope = AdaptiveEpsilon._linear_regression_slope(norm_rewards)
         self._last_slope = slope
 
         # Positive slope (improving) → low supplement; zero/negative → high
@@ -67,19 +67,3 @@ class AdaptiveDIME:
         }
 
 
-def _linear_regression_slope(values: list[float]) -> float:
-    """Least-squares slope over indexed values. O(n) single pass."""
-    n = len(values)
-    if n < 2:
-        return 0.0
-    x_mean = (n - 1) / 2.0
-    y_mean = sum(values) / n
-    num = 0.0
-    den = 0.0
-    for i, y in enumerate(values):
-        dx = i - x_mean
-        num += dx * (y - y_mean)
-        den += dx * dx
-    if den == 0:
-        return 0.0
-    return num / den
