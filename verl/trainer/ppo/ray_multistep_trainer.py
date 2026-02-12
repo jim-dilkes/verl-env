@@ -74,6 +74,7 @@ from verl.envs.environments.focus_instructions import (
     get_dime_instructions,
     has_dime_instructions,
     sample_focus_for_episode,
+    sample_mask_decisions,
     inject_focus_into_obs,
 )
 
@@ -205,16 +206,22 @@ def swap_dime_prompts(
     n_rollouts: int,
     episode_len: int,
     rlen: int,
+    mask_per_rollout: list[bool] | None = None,
 ) -> DataProto:
     """Replace rollout prompts (with focus) with base prompts (without focus).
 
     Batch layout: [step0_env0, step0_env1, ..., step0_envN, step1_env0, ..., stepE_envN]
     Each sample i maps to: step = i // n_rollouts, env = i % n_rollouts.
     Response tokens are preserved exactly; only the prompt portion is swapped.
+
+    If mask_per_rollout is provided, only swap for rollouts where mask is True.
+    mask_per_rollout=None swaps all (backwards compatible).
     """
     for step_idx in range(episode_len + 1):
         base = base_prompt_tokens_by_step[step_idx]
         for env_idx in range(n_rollouts):
+            if mask_per_rollout is not None and not mask_per_rollout[env_idx]:
+                continue
             sample_idx = step_idx * n_rollouts + env_idx
 
             response = batch.batch['responses'][sample_idx]
@@ -1280,6 +1287,8 @@ class RayMultistepTrainer(object):
                             focus_per_rollout = sample_focus_for_episode(
                                 self.config.envs.n_rollouts, dime_instructions, dime_no_supplement_prob
                             )
+                            dime_mask_probability = getattr(dime_config, 'mask_probability', 1.0)
+                            mask_per_rollout = sample_mask_decisions(focus_per_rollout, dime_mask_probability)
                             base_prompt_tokens_by_step = []
                             dime_supplement_count = sum(1 for f in focus_per_rollout if f is not None)
                             dime_unique_count = len(set(f for f in focus_per_rollout if f is not None))
@@ -1624,10 +1633,11 @@ class RayMultistepTrainer(object):
                     assert self.config.actor_rollout_ref.rollout.n == 1, "For multi-turn rollout, we only support n=1"
 
                     # DIME: swap rollout prompts (with focus) for base prompts (without focus)
-                    if dime_enabled and dime_mask_for_training:
+                    if dime_enabled and dime_mask_for_training and any(mask_per_rollout):
                         batch = swap_dime_prompts(
                             batch, base_prompt_tokens_by_step,
                             self.config.envs.n_rollouts, episode_len, rlen,
+                            mask_per_rollout=mask_per_rollout,
                         )
                         # Force recompute since tokens changed
                         bypass_recomputing_logprobs = False
@@ -1635,6 +1645,9 @@ class RayMultistepTrainer(object):
                     if dime_enabled:
                         metrics['dime/supplement_rate'] = dime_supplement_count / self.config.envs.n_rollouts
                         metrics['dime/unique_instructions'] = dime_unique_count
+                        if dime_mask_for_training:
+                            masked_count = sum(mask_per_rollout)
+                            metrics['dime/mask_rate'] = masked_count / max(dime_supplement_count, 1)
 
                     batch.batch['response_mask'] = compute_response_mask(batch)
                     # balance the number of valid tokens on each dp rank.

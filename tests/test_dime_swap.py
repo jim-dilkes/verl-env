@@ -198,6 +198,97 @@ def test_gold_standard_independent_construction():
             )
 
 
+def test_swap_all_masked_matches_original():
+    """mask_per_rollout=all True must produce identical output to mask_per_rollout=None."""
+    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+
+    plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
+    batch_a, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
+    batch_b, _ = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)  # same seed → same data
+
+    batch_a = swap_dime_prompts(batch_a, base_tokens, n_rollouts, n_steps, rlen,
+                                mask_per_rollout=None)
+    batch_b = swap_dime_prompts(batch_b, base_tokens, n_rollouts, n_steps, rlen,
+                                mask_per_rollout=[True] * n_rollouts)
+
+    for key in ('input_ids', 'attention_mask', 'position_ids', 'responses'):
+        assert torch.equal(batch_a.batch[key], batch_b.batch[key]), \
+            f"all-True mask differs from None for {key}"
+
+
+def test_swap_none_masked_preserves_rollout():
+    """mask_per_rollout=all False must leave batch unchanged."""
+    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+
+    plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
+    batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
+
+    original_ids = batch.batch['input_ids'].clone()
+    original_mask = batch.batch['attention_mask'].clone()
+    original_pos = batch.batch['position_ids'].clone()
+
+    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen,
+                              mask_per_rollout=[False] * n_rollouts)
+
+    assert torch.equal(batch.batch['input_ids'], original_ids), "input_ids changed with all-False mask"
+    assert torch.equal(batch.batch['attention_mask'], original_mask), "attention_mask changed"
+    assert torch.equal(batch.batch['position_ids'], original_pos), "position_ids changed"
+
+
+def test_swap_selective_mask():
+    """Mixed mask: masked rollouts get base prompt, unmasked keep rollout prompt."""
+    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+
+    plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
+    batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
+
+    original_ids = batch.batch['input_ids'].clone()
+    mask_per_rollout = [True, False, True, False]  # rollouts 0,2 masked; 1,3 unmasked
+
+    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen,
+                              mask_per_rollout=mask_per_rollout)
+
+    for step in range(n_steps + 1):
+        for env in range(n_rollouts):
+            idx = step * n_rollouts + env
+            if mask_per_rollout[env]:
+                # Masked: prompt portion should be base prompt
+                assert torch.equal(
+                    batch.batch['input_ids'][idx, :plen],
+                    base_tokens[step]['input_ids'][env],
+                ), f"step={step} env={env}: masked rollout should have base prompt"
+            else:
+                # Unmasked: entire row should be unchanged
+                assert torch.equal(
+                    batch.batch['input_ids'][idx],
+                    original_ids[idx],
+                ), f"step={step} env={env}: unmasked rollout should be unchanged"
+
+
+def test_sample_mask_decisions_none_focus():
+    """focus=None always produces mask=False regardless of mask_probability."""
+    from verl.envs.environments.focus_instructions import sample_mask_decisions
+
+    focus = [None, "instruction A", None, "instruction B"]
+    masks = sample_mask_decisions(focus, mask_probability=1.0)
+    assert masks[0] is False, "None-focus should never be masked"
+    assert masks[2] is False, "None-focus should never be masked"
+    assert masks[1] is True, "focus with p=1.0 should always be masked"
+    assert masks[3] is True, "focus with p=1.0 should always be masked"
+
+
+def test_sample_mask_decisions_distribution():
+    """With many samples, mask rate should converge to mask_probability."""
+    from verl.envs.environments.focus_instructions import sample_mask_decisions
+
+    n_trials = 5000
+    p = 0.5
+    focus = ["instruction"] * n_trials  # all have focus
+    masks = sample_mask_decisions(focus, mask_probability=p)
+    rate = sum(masks) / n_trials
+    assert abs(rate - p) < 0.05, f"Mask rate {rate:.3f} too far from {p}"
+
+
 if __name__ == "__main__":
     test_response_tokens_unchanged()
     print("  [PASS] response tokens unchanged")
@@ -211,4 +302,14 @@ if __name__ == "__main__":
     print("  [PASS] attention_mask consistent")
     test_gold_standard_independent_construction()
     print("  [PASS] gold standard independent construction")
-    print("All Group 3+4 tests passed!")
+    test_swap_all_masked_matches_original()
+    print("  [PASS] all-True mask matches original (no regression)")
+    test_swap_none_masked_preserves_rollout()
+    print("  [PASS] all-False mask preserves rollout")
+    test_swap_selective_mask()
+    print("  [PASS] selective mask correctness")
+    test_sample_mask_decisions_none_focus()
+    print("  [PASS] None-focus always unmasked")
+    test_sample_mask_decisions_distribution()
+    print("  [PASS] mask rate converges to mask_probability")
+    print("All tests passed!")

@@ -95,6 +95,21 @@ def sample_focus_for_episode(
     return result
 
 
+def sample_mask_decisions(
+    focus_per_rollout: list[Optional[str]],
+    mask_probability: float,
+) -> list[bool]:
+    """Per-rollout mask decision. Only focus-injected rollouts are candidates.
+
+    Returns list[bool] where True = swap to base prompt (strip focus for training).
+    Rollouts without focus (None) always return False (no swap needed).
+    """
+    return [
+        (f is not None) and (random.random() < mask_probability)
+        for f in focus_per_rollout
+    ]
+
+
 def inject_focus_into_obs(
     obs_vec: list[list[dict]],
     focus_per_rollout: list[Optional[str]],
