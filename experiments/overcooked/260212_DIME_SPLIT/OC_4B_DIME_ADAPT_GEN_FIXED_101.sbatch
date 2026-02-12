@@ -2,12 +2,12 @@
 #SBATCH --job-name=OC_4B_DIME_ADAPT_GEN_FIXED_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=300GB
+#SBATCH --mem=320GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_h100,swarm_a100
-#SBATCH --time=96:00:00
+#SBATCH --partition=a100
+#SBATCH --time=60:00:00
 #SBATCH --gpus-per-node=2
 
 # DIME Adaptive-Generic: generic instructions, probabilistic mask (0.5), adaptive supplement, split evals
@@ -195,8 +195,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.save_freq=100 \
   trainer.test_freq=100 \
   trainer.render=False \
-  trainer.total_epochs=1500 \
-  trainer.total_training_steps=1500 \
+  trainer.total_epochs=1300 \
+  trainer.total_training_steps=1300 \
   trainer.default_local_dir=/scratch/${user_name}/checkpoints/${project_name}/${experiment_name}_run${run_number} \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
