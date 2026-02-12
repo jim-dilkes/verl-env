@@ -35,7 +35,12 @@ class AdaptiveDIME:
         self._last_slope = 0.0
 
     def update(self, batch_mean_reward: float) -> float:
-        """Feed one batch mean reward. Returns updated supplement_prob."""
+        """Feed one batch's base-only mean reward (no focus instructions).
+
+        Caller should skip this call when no base episodes exist rather
+        than passing a fallback value, to avoid contaminating the window.
+        Returns updated supplement_prob.
+        """
         self.reward_buffer.append(batch_mean_reward)
 
         if len(self.reward_buffer) < self.window_size:

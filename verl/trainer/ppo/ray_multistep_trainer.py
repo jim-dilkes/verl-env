@@ -1837,9 +1837,13 @@ class RayMultistepTrainer(object):
                         self.env.update_epsilon(new_eps)
                     metrics.update(self.adaptive_epsilon.get_metrics())
 
-                # Update adaptive DIME from reward trend (used next episode)
+                # Update adaptive DIME from base-only reward trend (used next episode)
                 if self.adaptive_dime is not None and self.global_steps > self.critic_warmup_step:
-                    self.adaptive_dime.update(metrics.get('train/episode_return_mean', 0.0))
+                    base_reward = metrics.get('reward/base_mean')
+                    if base_reward is not None:
+                        self.adaptive_dime.update(base_reward)
+                    else:
+                        metrics['dime/adaptive_update_skipped'] = 1.0
                     metrics.update(self.adaptive_dime.get_metrics())
 
                 tracking_logger.log(data=metrics, step=self.global_steps)

@@ -66,10 +66,13 @@ prompt.prompt.dime.adaptive:
 - **Code:** `verl/trainer/ppo/adaptive_dime.py` — `AdaptiveDIME` class
 - Same sliding-window + slope + sigmoid pattern as `AdaptiveEpsilon`
 - Reuses `_std`, `_sigmoid` helpers from `adaptive_epsilon.py`
+- **Input signal:** `reward/base_mean` (base episodes only, no focus instructions)
+- Avoids feedback contamination: supplement ratio does not influence its own input
+- Update skipped when no base episodes in batch (window not polluted with zeros)
 - Improving rewards → low supplement_prob (consolidate); stagnating → high (explore)
 - Overrides `no_supplement_prob` when enabled; no env pipe needed (used directly in trainer)
-- Init in `__init__` (~L498); update after metrics (~L1810); override in DIME setup (~L1267)
-- Metrics: `dime/adaptive_supplement_prob`, `dime/adaptive_slope`, `dime/adaptive_buffer_fill`
+- Init in `__init__` (~L498); update after metrics (~L1842) using `reward/base_mean`; override in DIME setup (~L1267)
+- Metrics: `dime/adaptive_supplement_prob`, `dime/adaptive_slope`, `dime/adaptive_buffer_fill`, `dime/adaptive_update_skipped` (when no base episodes)
 
 ### Probabilistic Training Mask
 - `mask_probability` (default 1.0): per-rollout Bernoulli decision on whether to strip focus for training
