@@ -1603,6 +1603,21 @@ class RayMultistepTrainer(object):
                         mean_episode_return = episode_returns.mean().item()
                         metrics['train/episode_return_mean'] = mean_episode_return
 
+                        # DIME reward split: base (no focus) vs supplemented (had focus)
+                        if dime_enabled:
+                            base_mask = torch.tensor([f is None for f in focus_per_rollout])
+                            supp_mask = ~base_mask
+                            if base_mask.any():
+                                base_returns = episode_returns[base_mask]
+                                metrics['reward/base_mean'] = base_returns.mean().item()
+                                metrics['reward/base_std'] = base_returns.std().item() if base_mask.sum() > 1 else 0.0
+                            if supp_mask.any():
+                                supp_returns = episode_returns[supp_mask]
+                                metrics['reward/dime_mean'] = supp_returns.mean().item()
+                                metrics['reward/dime_std'] = supp_returns.std().item() if supp_mask.sum() > 1 else 0.0
+                            if base_mask.any() and supp_mask.any():
+                                metrics['reward/internalization_gap'] = metrics['reward/dime_mean'] - metrics['reward/base_mean']
+
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
