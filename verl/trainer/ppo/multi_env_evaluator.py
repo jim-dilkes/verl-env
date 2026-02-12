@@ -746,6 +746,7 @@ class MultiEnvEvaluator:
                     "dime.no_supplement_prob must be set explicitly when dime.enabled=true. "
                     "Recommended: 0.125 (12.5% clean rollouts)."
                 )
+            eval_dime_no_supp = float(eval_dime_no_supp)
             # Per-eval-env override: dime_proportion = fraction WITH focus
             eval_dime_proportion = env_config.get('dime_proportion', None)
             if eval_dime_proportion is not None:
