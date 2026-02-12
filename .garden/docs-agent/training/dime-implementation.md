@@ -78,6 +78,14 @@ prompt.prompt.dime.adaptive:
 - `dime/mask_rate` metric: fraction of focus-injected rollouts that were masked (denominator = supplement count)
 - `mask_probability=0.5` enables dual gradient signal: half internalization (base prompt), half context-conditional (focus prompt)
 
+### Reward Split Metrics
+- Split `episode_returns` by `focus_per_rollout` (generation context, not training mask)
+- `reward/base_mean`, `reward/base_std` — rollouts with no focus (None)
+- `reward/dime_mean`, `reward/dime_std` — rollouts with focus instruction
+- `reward/internalization_gap` — `dime_mean - base_mean` (shrinking = model internalizing strategies)
+- Only logged when `dime_enabled` and respective condition has rollouts
+- Computed at ~L1605 after `episode_returns` tensor, before training pass
+
 ## Validation & Evaluation Injection
 
 ### Validation (`_validate()`)
