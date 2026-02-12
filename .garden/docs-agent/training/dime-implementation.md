@@ -4,7 +4,7 @@
 Appends a random "focus instruction" per rollout during generation, strips it before the training log_prob pass. Model learns focus-guided behaviors without depending on the instruction at inference.
 
 ## Code Locations
-- **Registry:** `verl/envs/environments/focus_instructions.py` — `has_focus_instructions()`, `get_focus_instructions()`, `has_dime_instructions()`, `get_dime_instructions()`, `sample_focus_for_episode()`, `inject_focus_into_obs()`
+- **Registry:** `verl/envs/environments/focus_instructions.py` — `has_focus_instructions()`, `get_focus_instructions()`, `has_dime_instructions()`, `get_dime_instructions()`, `sample_focus_for_episode()`, `sample_mask_decisions()`, `inject_focus_into_obs()`
 - **Config:** `verl/trainer/config/prompt/overcooked.yaml` → `prompt.prompt.dime.*`
 - **Trainer integration:** `verl/trainer/ppo/ray_multistep_trainer.py`
   - DIME config read + sampling: ~L1196-1216 (before episode loop)
@@ -26,10 +26,12 @@ Appends a random "focus instruction" per rollout during generation, strips it be
 4. Generation uses focus-injected tokens
 
 ### Before Training
-`swap_dime_prompts(batch, base_prompt_tokens_by_step, n_rollouts, episode_len, rlen)`:
-- For each sample: replace `input_ids[:plen]` with base prompt tokens
+`swap_dime_prompts(batch, base_prompt_tokens_by_step, n_rollouts, episode_len, rlen, mask_per_rollout)`:
+- For each sample where `mask_per_rollout[env_idx]` is True: replace `input_ids[:plen]` with base prompt tokens
+- Unmasked rollouts keep their focus-injected prompt for training (context-conditional learning)
 - Keep `input_ids[-rlen:]` (response) identical
 - Rebuild `attention_mask` and `position_ids`
+- `mask_per_rollout=None` swaps all (backwards compatible)
 
 ### Batch Layout
 `[step0_env0, step0_env1, ..., step0_envN, step1_env0, ..., stepE_envN]`
@@ -41,6 +43,7 @@ prompt.prompt.dime:
   enabled: false          # master toggle
   source: "specific"      # "specific" (env instructions + template) or "generic" (standalone principles)
   mask_for_training: true # false = control (focus visible in training too)
+  mask_probability: 1.0   # probability of masking per focus-injected rollout (1.0=always, 0.0=never, 0.5=half-half)
   no_supplement_prob: 0.125 # REQUIRED when enabled. No auto-compute — must be explicit.
   template: 'Before acting, carefully consider...'  # used for source=specific; ignored for source=generic
 ```
@@ -67,6 +70,13 @@ prompt.prompt.dime.adaptive:
 - Overrides `no_supplement_prob` when enabled; no env pipe needed (used directly in trainer)
 - Init in `__init__` (~L498); update after metrics (~L1810); override in DIME setup (~L1267)
 - Metrics: `dime/adaptive_supplement_prob`, `dime/adaptive_slope`, `dime/adaptive_buffer_fill`
+
+### Probabilistic Training Mask
+- `mask_probability` (default 1.0): per-rollout Bernoulli decision on whether to strip focus for training
+- `sample_mask_decisions(focus_per_rollout, mask_probability)` → `list[bool]` (True=mask, False=keep)
+- Only focus-injected rollouts (focus != None) are candidates; no-focus rollouts always False
+- `dime/mask_rate` metric: fraction of focus-injected rollouts that were masked (denominator = supplement count)
+- `mask_probability=0.5` enables dual gradient signal: half internalization (base prompt), half context-conditional (focus prompt)
 
 ## Validation & Evaluation Injection
 
@@ -100,7 +110,7 @@ Focus sampled once per batch (same instruction for entire episode per rollout). 
 ## Gotchas
 - `dime_enabled` must be initialized OUTSIDE the `if self.global_steps == 1 or ...` block (critic warmup scoping)
 - Focus is sampled once per episode, not per step
-- `swap_dime_prompts` forces `bypass_recomputing_logprobs = False` since tokens changed
+- `swap_dime_prompts` forces `bypass_recomputing_logprobs = False` since tokens changed (skipped entirely if `any(mask_per_rollout)` is False)
 - Template uses `{STEP_TEXT}` placeholder (not f-string)
 - Focus instructions must match YAML `environment_instruction` terminology exactly (e.g., "meal" not "soup")
 - `no_supplement_prob` is REQUIRED when `dime.enabled=true` — raises ValueError if null/missing
