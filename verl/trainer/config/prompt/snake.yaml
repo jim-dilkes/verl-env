@@ -20,6 +20,22 @@ prompt:
     k: 5.0
     update_every_n_steps: 1
 
+  # DIME (Diverse Instruction-Masked Exploration) config
+  dime:
+    enabled: false
+    source: "generic"
+    mask_for_training: true
+    mask_probability: 1.0
+    no_supplement_prob: 0.125
+    template: 'Before acting, carefully consider how this principle applies to your current situation: "{STEP_TEXT}". Think about when and why this step matters right now. Then act using your best judgment.'
+    adaptive:
+      enabled: false
+      supplement_min: 0.0
+      supplement_max: 0.9
+      window_size: 30
+      k: 15.0
+      inflection: 0.05
+
   # Captioner instruction for NaiveCaptioner
   naive_instruction: |
 

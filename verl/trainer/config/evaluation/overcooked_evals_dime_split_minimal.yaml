@@ -1,0 +1,150 @@
+# @package eval
+# Minimal split eval for DIME internalization — login node smoke test
+# 4 diagnostic blocks (base + ctx) with tiny rollout counts
+# Use with: evaluation=overcooked_evals_dime_split_minimal
+
+evaluation:
+  environments:
+    # --- Base Entropy (no DIME focus — internalization) ---
+    - name: "Overcooked-CrampedRoom-Entropy-Check"
+      n_rollouts: 4
+      episode_length: 1
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 30000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      inherit_training_multiaction: true
+      captioner:
+        type: naive
+        max_text_history: 0
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 40
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+        random_agent_positions: true
+      action_entropy:
+        enabled: true
+        n_samples: 4
+        temperature: 1.25
+        measure_at_steps: "start"
+        step_interval: 1
+        exclusive_metric: true
+        max_batch_size: 32
+
+    # --- Base State Visitation (no DIME focus — internalization) ---
+    - name: "Overcooked-CrampedRoom-StateVisitation"
+      n_rollouts: 10
+      batch_size: 5
+      episode_length: 3
+      generation:
+        temperature: 1.25
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 40000
+      seed_group_size: 5
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      inherit_training_multiaction: true
+      captioner:
+        type: naive
+        max_text_history: 0
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 3
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+        random_agent_positions: true
+
+    # --- Context-Augmented Entropy (with DIME focus — ceiling) ---
+    - name: "Overcooked-CrampedRoom-Entropy-Check-Ctx"
+      n_rollouts: 4
+      episode_length: 1
+      generation:
+        temperature: 0.0
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: false
+      initial_seed: 30000
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      inherit_training_multiaction: true
+      inherit_dime: true
+      dime_proportion: 0.8
+      captioner:
+        type: naive
+        max_text_history: 0
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 40
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+        random_agent_positions: true
+      action_entropy:
+        enabled: true
+        n_samples: 4
+        temperature: 1.25
+        measure_at_steps: "start"
+        step_interval: 1
+        exclusive_metric: true
+        max_batch_size: 32
+
+    # --- Context-Augmented State Visitation (with DIME focus — ceiling) ---
+    - name: "Overcooked-CrampedRoom-StateVisitation-Ctx"
+      n_rollouts: 10
+      batch_size: 5
+      episode_length: 3
+      generation:
+        temperature: 1.25
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 40000
+      seed_group_size: 5
+      freeze_completed_episodes: true
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      inherit_training_multiaction: true
+      inherit_dime: true
+      dime_proportion: 0.8
+      captioner:
+        type: naive
+        max_text_history: 0
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 3
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+        random_agent_positions: true

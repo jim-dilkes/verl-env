@@ -97,20 +97,42 @@ Always injects focus when `dime.enabled=True`. Mirrors training generation condi
 ### Evaluation (`multi_env_evaluator.py`)
 Per-env opt-in via `inherit_dime: true` in eval environment config. Default is `false` (bare prompts for deployment-style evals).
 
+**`dime_proportion` override:** Per-eval-env param controlling fraction of rollouts WITH focus. Overrides training's `no_supplement_prob` for this eval only. `eval_dime_no_supp = 1.0 - dime_proportion`. Silently ignored if `inherit_dime` is false or DIME not active.
+
 ```yaml
 environments:
   - name: "OC-CrampedRoom"           # deployment eval — bare prompts
     env_name: overcooked
-  - name: "OC-CrampedRoom-Entropy"   # training-diagnostic — focus injected
+  - name: "OC-Entropy"               # base diagnostic — no focus (internalization)
+    env_name: overcooked
+    inherit_training_multiaction: true
+    action_entropy: { enabled: true, ... }
+  - name: "OC-Entropy-Ctx"           # context-augmented diagnostic (ceiling)
     env_name: overcooked
     inherit_dime: true
-    action_entropy:
-      enabled: true
+    dime_proportion: 0.8             # 80% with focus, 20% clean
+    inherit_training_multiaction: true
+    action_entropy: { enabled: true, ... }
 ```
 
 Guard chain: `inherit_dime=true` AND `dime.enabled=true` AND `has_dime_instructions(env_name, source)`. If any false, bare prompts used. Debug log emitted when `inherit_dime=true` but DIME not active.
 
 Focus sampled once per batch (same instruction for entire episode per rollout). Entropy probes see focus-injected `val_input_obs_text` naturally.
+
+### Split Eval Pattern (Internalization Measurement)
+Paired eval blocks measure **internalization gap**: how much diversity is "rented" (context-dependent) vs "owned" (learned).
+
+- **Base evals** (`-Entropy-Check`, `-StateVisitation`): no `inherit_dime`, no focus injection. Measures what model actually learned.
+- **Context-augmented evals** (`-Entropy-Check-Ctx`, `-StateVisitation-Ctx`): `inherit_dime: true` + `dime_proportion: 0.8`. Measures diversity ceiling with focus active.
+- **Gap** = Ctx metric - Base metric. Shrinking gap over training = successful internalization.
+- `-Ctx` suffix naming convention (short, WandB-friendly)
+
+Config files:
+- `overcooked_evals_dime_split.yaml` — full split evals (deployment + base diagnostic + ctx diagnostic)
+- `snake_evals_dime_split.yaml` — same pattern for FastSnake
+- `*_minimal.yaml` variants — tiny rollout counts for login node smoke tests
+
+Only diagnostic evals (entropy + state visitation) get split. Deployment evals test task performance, not diversity.
 
 ## Adding Focus Instructions for New Environments
 1. Add instruction list to `FOCUS_REGISTRY` in `focus_instructions.py`
