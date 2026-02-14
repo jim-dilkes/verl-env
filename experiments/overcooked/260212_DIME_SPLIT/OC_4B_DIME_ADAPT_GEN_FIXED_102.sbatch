@@ -1,23 +1,24 @@
 #!/bin/bash
-#SBATCH --job-name=OC_4B_DIME_ADAPT_GEN_FIXED_w100_r32_101
+#SBATCH --job-name=OC_4B_DIME_ADAPT_GEN_FIXED_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=300GB
+#SBATCH --mem=320GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
 #SBATCH --partition=swarm_h100,swarm_a100
+#SBATCH --exclude=swarmh1001
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
 
-# DIME Adaptive-Generic: window ablation + n_rollouts=32, window_size=100
+# DIME Adaptive-Generic: generic instructions, probabilistic mask (0.5), adaptive supplement, split evals
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_DIME_ADAPT_GEN_FIXED_w100_r32
-run_number=101
+experiment_name=OC_4B_DIME_ADAPT_GEN_FIXED
+run_number=102
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","dime-adaptive-generic","window-100","n-rollouts-32","prob-mask-0.5","split-eval"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","dime-adaptive-generic","prob-mask-0.5","split-eval"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -144,7 +145,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
   envs.enable=True \
-  envs.n_rollouts=32 \
+  envs.n_rollouts=16 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
   envs.env_name=overcooked \
@@ -180,7 +181,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   prompt.prompt.dime.adaptive.enabled=true \
   prompt.prompt.dime.adaptive.supplement_min=0.0 \
   prompt.prompt.dime.adaptive.supplement_max=0.9 \
-  prompt.prompt.dime.adaptive.window_size=100 \
+  prompt.prompt.dime.adaptive.window_size=30 \
   prompt.prompt.dime.adaptive.k=15.0 \
   prompt.prompt.dime.adaptive.inflection=0.05 \
   trainer.log_val_generations=1 \
@@ -195,8 +196,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.save_freq=100 \
   trainer.test_freq=100 \
   trainer.render=False \
-  trainer.total_epochs=1500 \
-  trainer.total_training_steps=1500 \
+  trainer.total_epochs=1300 \
+  trainer.total_training_steps=1300 \
   trainer.default_local_dir=/scratch/${user_name}/checkpoints/${project_name}/${experiment_name}_run${run_number} \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
