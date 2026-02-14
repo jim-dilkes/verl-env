@@ -1,23 +1,23 @@
 #!/bin/bash
-#SBATCH --job-name=OC_PPO_4B_DIME_BL_h40_101
+#SBATCH --job-name=OC_PPO_4B_DIME_TREAT_h40_100
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_h100,swarm_a100
-#SBATCH --time=96:00:00
+#SBATCH --partition=scavenger_mathsa100
+#SBATCH --time=12:00:00
 #SBATCH --gpus-per-node=2
 
-# DIME Baseline: dime.enabled=false (standard training, no focus instructions)
+# DIME Treatment: dime.enabled=true, mask_for_training=true (focus stripped for training)
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_PPO_4B_DIME_BL_h40
-run_number=101
+experiment_name=OC_PPO_4B_DIME_TREAT_h40
+run_number=100
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","dime-baseline"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","dime-treatment","prompt-fix"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -27,9 +27,6 @@ mkdir -p "$short_temp_dir"
 readable_log_root=/scratch/${user_name}/ray_logs
 mkdir -p "$readable_log_root"
 
-# Tell Ray to place its session_* dir (raylet/plasma/gcs logs) here.
-# Without this, Ray defaults to something like /tmp/ray/session_*/ on the compute node,
-# and the symlink below will usually point at a non-existent path.
 export RAY_TMPDIR="$short_temp_dir"
 export TMPDIR="$short_temp_dir"
 
@@ -54,7 +51,6 @@ export HF_HUB_OFFLINE=1
 export WANDB_MODE=offline
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 
-# Introduce random delay to avoid simultaneous Ray init on H100 nodes
 RANDOM_DELAY=$(( ( RANDOM % 120 ) + 1 ))
 echo "Sleeping for $RANDOM_DELAY seconds to avoid simultaneous Ray cluster startup..."
 sleep $RANDOM_DELAY
@@ -78,7 +74,6 @@ SNAPSHOT_DIR="$HF_HOME/hub/$FOLDER_NAME/snapshots"
 
 echo SNAPSHOT_DIR: $SNAPSHOT_DIR
 
-# Automatically pick the first (latest) snapshot folder
 if [ -d "$SNAPSHOT_DIR" ]; then
     LATEST_SNAPSHOT=$(ls -dt $SNAPSHOT_DIR/* | head -n 1)
     MODEL_PATH="$LATEST_SNAPSHOT"
@@ -177,7 +172,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
-  prompt.prompt.dime.enabled=false \
+  prompt.prompt.dime.enabled=true \
+  prompt.prompt.dime.mask_for_training=true \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_run_name} \
@@ -209,7 +205,6 @@ actual_session_dir="${short_temp_dir}/ray/session_latest"
 readable_log_path="${readable_log_root}/${experiment_run_name}"
 if [ -d "$actual_session_dir" ]; then
     mkdir -p "$readable_log_path"
-    # Copy logs to shared scratch so they survive node-local /tmp cleanup.
     cp -a "$actual_session_dir/logs" "$readable_log_path/" || true
     echo "Ray logs copied to: $readable_log_path/logs"
 fi
