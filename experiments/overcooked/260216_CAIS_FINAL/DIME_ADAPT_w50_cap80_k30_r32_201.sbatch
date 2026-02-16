@@ -10,6 +10,7 @@
 #SBATCH --exclude=swarmh1002
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
+#SBATCH --exclude=swarmh1002
 
 # DIME Adaptive w50 cap80 k30 r32 — CAIS final batch
 

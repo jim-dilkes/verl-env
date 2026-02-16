@@ -9,6 +9,7 @@
 #SBATCH --partition=swarm_h100,swarm_a100
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
+#SBATCH --exclude=swarmh1002
 
 # DIME Fixed p50 (50% context) r32 — CAIS final batch
 

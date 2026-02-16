@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=BL_r32_201
+#SBATCH --job-name=E_H005_SPLIT_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -11,14 +11,14 @@
 #SBATCH --gpus-per-node=2
 #SBATCH --exclude=swarmh1002
 
-# Baseline with split evaluation — CAIS final batch
+# Entropy regularization baseline (H=0.005) with split evals for fair comparison
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_BL_r32
-run_number=201
+experiment_name=OC_4B_H005_SPLIT
+run_number=101
 number_of_gpus=2
-WANDB_TAGS='["BL","CAIS_final"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","entropy-0.005","split-eval"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -118,7 +118,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.val_kwargs.temperature=0.5 \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.mode=sync \
-  actor_rollout_ref.actor.entropy_coeff=0.001 \
+  actor_rollout_ref.actor.entropy_coeff=0.005 \
   actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$max_token_len_per_gpu \
   trainer.balance_batch=False \
@@ -145,7 +145,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
   envs.enable=True \
-  envs.n_rollouts=32 \
+  envs.n_rollouts=16 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
   envs.env_name=overcooked \
@@ -176,7 +176,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   prompt.prompt.dime.enabled=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_4B_BL_r32 \
+  trainer.experiment_name=OC_4B_H005_SPLIT \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \
