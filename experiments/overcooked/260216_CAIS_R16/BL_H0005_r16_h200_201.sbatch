@@ -2,12 +2,12 @@
 #SBATCH --job-name=BL_H0005_r16_h200_201
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=250GB
+#SBATCH --mem=350GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=quad_h200
-#SBATCH --time=96:00:00
+#SBATCH --partition=quad_h200,dual_h200
+#SBATCH --time=60:00:00
 #SBATCH --gpus-per-node=1
 
 # Baseline with split evaluation — CAIS final batch
