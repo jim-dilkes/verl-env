@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=DIME_FIXED_p80_r64_h200_201
+#SBATCH --job-name=DIME_FIXED_p80_r64_h200_202
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=250GB
+#SBATCH --mem=350GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=quad_h200
-#SBATCH --time=96:00:00
+#SBATCH --partition=quad_h200,dual_h200
+#SBATCH --time=60:00:00
 #SBATCH --gpus-per-node=1
 
 # DIME Fixed p80 (20% context) r32 — CAIS final batch
@@ -15,7 +15,7 @@
 # DIME Fixed p80 (20% context) r32 — CAIS final batch
 project_name=rl_sdm
 experiment_name=OC_4B_DIME_FIXED_p80_r64_h200
-run_number=201
+run_number=202
 number_of_gpus=1
 WANDB_TAGS='["DIME","CAIS_final"]'
 
