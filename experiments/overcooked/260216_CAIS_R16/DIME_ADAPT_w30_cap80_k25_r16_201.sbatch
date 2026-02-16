@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DIME_ADAPT_w30_cap80_k30_r16_201
+#SBATCH --job-name=DIME_ADAPT_w30_cap80_k25_r16_201
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=350GB
@@ -11,11 +11,11 @@
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
 
-# DIME Adaptive w30 cap80 k30 r16 — CAIS final batch
+# DIME Adaptive w30 cap80 k25 r16 — CAIS final batch
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_DIME_ADAPT_w30_cap80_k30_r16
+experiment_name=OC_4B_DIME_ADAPT_w30_cap80_k25_r16
 run_number=201
 number_of_gpus=2
 WANDB_TAGS='["DIME","CAIS_final","CAIS_v2"]'
@@ -183,7 +183,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   prompt.prompt.dime.adaptive.supplement_min=0.0 \
   prompt.prompt.dime.adaptive.supplement_max=0.8 \
   prompt.prompt.dime.adaptive.window_size=30 \
-  prompt.prompt.dime.adaptive.k=30.0 \
+  prompt.prompt.dime.adaptive.k=25.0 \
   prompt.prompt.dime.adaptive.inflection=0.0 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
