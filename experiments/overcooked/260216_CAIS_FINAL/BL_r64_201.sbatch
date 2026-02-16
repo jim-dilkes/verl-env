@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=BL_r64_101
+#SBATCH --job-name=BL_r64_201
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -15,7 +15,7 @@
 # --- Define experiment variables ---
 project_name=rl_sdm
 experiment_name=OC_4B_BL_r64
-run_number=101
+run_number=201
 number_of_gpus=2
 WANDB_TAGS='["BL","CAIS_final"]'
 
