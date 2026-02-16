@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=BL_r64_201
+#SBATCH --job-name=BL_r16_201
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -15,7 +15,7 @@
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_BL_r64
+experiment_name=OC_4B_BL_r16
 run_number=201
 number_of_gpus=2
 WANDB_TAGS='["BL","CAIS_final","CAIS_v2"]'
@@ -97,10 +97,10 @@ set +e
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
-  data.train_batch_size=2560 \
+  data.train_batch_size=640 \
   data.train_files=examples/data/placeholder.parquet \
   data.val_files=examples/data/placeholder.parquet \
-  actor_rollout_ref.actor.ppo_mini_batch_size=512 \
+  actor_rollout_ref.actor.ppo_mini_batch_size=128 \
   actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
@@ -136,7 +136,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   critic.model.fsdp_config.model_dtype=bfloat16 \
   critic.model.path=$MODEL_PATH \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
-  critic.ppo_mini_batch_size=512 \
+  critic.ppo_mini_batch_size=128 \
   critic.ppo_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   critic.forward_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   algorithm.step_gamma=0.99 \
@@ -146,7 +146,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
   envs.enable=True \
-  envs.n_rollouts=64 \
+  envs.n_rollouts=16 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
   envs.env_name=overcooked \
@@ -177,7 +177,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   prompt.prompt.dime.enabled=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_4B_BL_r64 \
+  trainer.experiment_name=OC_4B_BL_r16 \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \
