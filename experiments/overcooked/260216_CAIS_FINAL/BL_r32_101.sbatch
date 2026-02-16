@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=A_BL_SPLIT_101
+#SBATCH --job-name=BL_r32_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -10,14 +10,14 @@
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
 
-# Baseline (no DIME) with split evaluation infrastructure for SA coverage comparison
+# Baseline with split evaluation — CAIS final batch
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_BL_SPLIT
+experiment_name=OC_4B_BL_r32
 run_number=101
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","baseline","split-eval"]'
+WANDB_TAGS='["BL","CAIS_final"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -144,7 +144,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
   envs.enable=True \
-  envs.n_rollouts=16 \
+  envs.n_rollouts=32 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
   envs.env_name=overcooked \
@@ -175,7 +175,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   prompt.prompt.dime.enabled=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_4B_BL_SPLIT \
+  trainer.experiment_name=OC_4B_BL_r32 \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \

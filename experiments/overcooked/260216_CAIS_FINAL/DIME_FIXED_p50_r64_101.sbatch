@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=A_BL_SPLIT_101
+#SBATCH --job-name=DIME_FIXED_p50_r64_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
@@ -10,14 +10,14 @@
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
 
-# Baseline (no DIME) with split evaluation infrastructure for SA coverage comparison
+# DIME Fixed p50 (50% context) r32 — CAIS final batch
 
-# --- Define experiment variables ---
+# DIME Fixed p50 (50% context) r32 — CAIS final batch
 project_name=rl_sdm
-experiment_name=OC_4B_BL_SPLIT
-run_number=101
+experiment_name=OC_4B_DIME_FIXED_p50_r64
+run_number=102
 number_of_gpus=2
-WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","baseline","split-eval"]'
+WANDB_TAGS='["DIME","CAIS_final"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -37,7 +37,7 @@ export WANDB_DIR="wandb/${experiment_run_name}"
 mkdir -p "$WANDB_DIR"
 profile_dump_dir=/scratch/${user_name}/profile_dumps/${experiment_run_name}
 
-# --- Setup ---
+# DIME Fixed p50 (50% context) r32 — CAIS final batch
 module load conda/python3
 module load cuda/12.8.0
 module load gcc/13.3.0
@@ -59,7 +59,7 @@ unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES
 
 
-# --- Configure Environment for Ray ---
+# DIME Fixed p50 (50% context) r32 — CAIS final batch
 
 export RAY_OBJECT_STORE_MEMORY=50000000000
 export RAY_DISABLE_IMPORT_WARNING=1
@@ -144,7 +144,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
   envs.enable=True \
-  envs.n_rollouts=16 \
+  envs.n_rollouts=64 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
   envs.env_name=overcooked \
@@ -172,10 +172,14 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
-  prompt.prompt.dime.enabled=false \
+  prompt.prompt.dime.enabled=true \
+  prompt.prompt.dime.source=generic \
+  prompt.prompt.dime.mask_for_training=true \
+  prompt.prompt.dime.mask_probability=0.5 \
+  prompt.prompt.dime.no_supplement_prob=0.5 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_4B_BL_SPLIT \
+  trainer.experiment_name=OC_4B_DIME_FIXED_p50_r64 \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \
