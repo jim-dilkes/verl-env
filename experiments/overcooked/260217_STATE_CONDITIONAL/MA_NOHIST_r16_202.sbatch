@@ -1,23 +1,23 @@
 #!/bin/bash
-#SBATCH --job-name=OC_14B_NT_h40_201
+#SBATCH --job-name=MA_NOHIST_r16_202
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=dual_h200,quad_h200
+#SBATCH --partition=a100
 #SBATCH --time=60:00:00
 #SBATCH --gpus-per-node=2
 
-# 14B no-think h40 — batch size fix applied (was 256, now 640 = 16 rollouts × 40 horizon)
+# Multi-action reasoning with NO history — forces state-conditional learning
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_14B_NT_h40
-run_number=201
+experiment_name=OC_4B_MA_NOHIST_r16
+run_number=202
 number_of_gpus=2
-WANDB_TAGS='["14B","NT","h40","state_conditional","CAIS_v2"]'
+WANDB_TAGS='["MA","no_history","state_conditional","CAIS_v2"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -66,7 +66,7 @@ export RAY_ENABLE_WINDOWS_OR_OSX_CLUSTER=0
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=false
 export VERL_PPO_LOGGING_LEVEL=DEBUG
 
-MODEL_ID=Qwen/Qwen3-14B
+MODEL_ID=Qwen/Qwen3-4B-Instruct-2507
 FOLDER_NAME="models--$(echo "$MODEL_ID" | sed 's/\//--/')"
 SNAPSHOT_DIR="$HF_HOME/hub/$FOLDER_NAME/snapshots"
 
@@ -99,7 +99,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.val_files=examples/data/placeholder.parquet \
   actor_rollout_ref.actor.ppo_mini_batch_size=128 \
   actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$micro_batch_size \
-  actor_rollout_ref.actor.optim.lr=5e-6 \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$max_token_len_per_gpu \
@@ -134,7 +133,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   critic.model.fsdp_config.model_dtype=bfloat16 \
   critic.model.path=$MODEL_PATH \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
-  critic.optim.lr=5e-5 \
+  critic.ppo_mini_batch_size=128 \
   critic.ppo_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   critic.forward_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   algorithm.step_gamma=0.99 \
@@ -150,9 +149,9 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.env_name=overcooked \
   envs.format_penalty=1 \
   envs.binary_reward=False \
-  envs.captioner.type=naive \
+  envs.captioner.type=multi_action \
   envs.captioner.max_text_history=0 \
-  envs.captioner.max_cot_history=1 \
+  envs.captioner.max_cot_history=0 \
   envs.overcooked_kwargs.layout_name=cramped_room \
   envs.overcooked_kwargs.horizon=40 \
   envs.overcooked_kwargs.partner_policy=none \
@@ -174,7 +173,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_14B_NT_h40 \
+  trainer.experiment_name=OC_4B_MA_NOHIST_r16 \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \
@@ -193,8 +192,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-32} \
   +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=overcooked_evals_dime_split ⁠ \
-  prompt=overcooked 2>&1 | tee verl_demo.log
+  evaluation=overcooked_evals_combined_mixed \
+  prompt=overcooked_multi_action 2>&1 | tee verl_demo.log
 python_status=${PIPESTATUS[0]}
 set -e
 
