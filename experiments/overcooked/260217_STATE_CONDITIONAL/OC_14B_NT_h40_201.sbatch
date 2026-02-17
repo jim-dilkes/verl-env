@@ -2,7 +2,7 @@
 #SBATCH --job-name=OC_14B_NT_h40_201
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=350GB
+#SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
@@ -10,7 +10,7 @@
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
 
-# 14B no-think baseline with h40 — batch size + infrastructure fixes applied
+# 14B no-think h40 — batch size fix applied (was 256, now 640 = 16 rollouts × 40 horizon)
 
 # --- Define experiment variables ---
 project_name=rl_sdm
@@ -80,9 +80,9 @@ else
     echo "Error: Could not find local cache for $MODEL_ID"
     exit 1
 fi
-micro_batch_size=8
+micro_batch_size=16
 
-max_prompt_length=1024
+max_prompt_length=2048
 max_response_length=512
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
 critic_max_token_len_per_gpu=$((max_token_len_per_gpu + 256))
@@ -94,10 +94,10 @@ set +e
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
-  data.train_batch_size=1280 \
+  data.train_batch_size=640 \
   data.train_files=examples/data/placeholder.parquet \
   data.val_files=examples/data/placeholder.parquet \
-  actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+  actor_rollout_ref.actor.ppo_mini_batch_size=128 \
   actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.actor.optim.lr=5e-6 \
   actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
@@ -135,7 +135,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   critic.model.path=$MODEL_PATH \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
   critic.optim.lr=5e-5 \
-  critic.ppo_mini_batch_size=64 \
   critic.ppo_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   critic.forward_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   algorithm.step_gamma=0.99 \
@@ -145,7 +144,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
   envs.enable=True \
-  envs.n_rollouts=32 \
+  envs.n_rollouts=16 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
   envs.env_name=overcooked \
@@ -179,7 +178,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \
-  trainer.critic_warmup_micro_batch_size_per_gpu=$micro_batch_size \
+  trainer.critic_warmup_micro_batch_size_per_gpu=16 \
   trainer.n_gpus_per_node=$number_of_gpus \
   trainer.nnodes=1 \
   trainer.save_freq=50 \
