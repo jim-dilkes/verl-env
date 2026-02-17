@@ -174,7 +174,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
-  prompt.prompt.dime.enabled=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=OC_4B_MA_r16 \
