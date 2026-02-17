@@ -1,24 +1,23 @@
 #!/bin/bash
-#SBATCH --job-name=MA_NOHIST_RP_r16_201
+#SBATCH --job-name=BL_NOHIST_r16_h200_201
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=300GB
+#SBATCH --mem=350GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=swarm_h100,swarm_a100
-#SBATCH --time=96:00:00
-#SBATCH --gpus-per-node=2
-#SBATCH --exclude=swarmh1002
+#SBATCH --partition=quad_h200,dual_h200
+#SBATCH --time=60:00:00
+#SBATCH --gpus-per-node=1
 
-# Multi-action reasoning, no history, random partner — max state-conditional pressure
+# Baseline, no history — forces state-conditional learning
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_MA_NOHIST_RP_r16
+experiment_name=OC_4B_BL_NOHIST_r16_h200
 run_number=201
-number_of_gpus=2
-WANDB_TAGS='["MA","no_history","random_partner","state_conditional","CAIS_v2"]'
+number_of_gpus=1
+WANDB_TAGS='["BL","no_history","state_conditional","CAIS_v2"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -30,6 +29,8 @@ mkdir -p "$readable_log_root"
 
 export RAY_TMPDIR="$short_temp_dir"
 export TMPDIR="$short_temp_dir"
+
+
 
 experiment_run_name=${experiment_name}_run${run_number}_slu${job_id}
 export WANDB_DIR="wandb/${experiment_run_name}"
@@ -104,11 +105,11 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$max_token_len_per_gpu \
   actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=$max_token_len_per_gpu \
-  actor_rollout_ref.rollout.tensor_model_parallel_size=$number_of_gpus \
+  actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
   actor_rollout_ref.rollout.max_num_seqs=$rollout_max_num_seqs \
   actor_rollout_ref.rollout.max_num_batched_tokens=$rollout_max_num_batched_tokens \
   actor_rollout_ref.rollout.engine_kwargs.vllm.max_seq_len_to_capture=$((max_token_len_per_gpu + critic_max_token_len_per_gpu)) \
-  actor_rollout_ref.rollout.gpu_memory_utilization=0.38 \
+  actor_rollout_ref.rollout.gpu_memory_utilization=0.45 \
   actor_rollout_ref.rollout.max_model_len=$max_token_len_per_gpu \
   actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.rollout.temperature=1.25 \
@@ -150,12 +151,12 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.env_name=overcooked \
   envs.format_penalty=1 \
   envs.binary_reward=False \
-  envs.captioner.type=multi_action \
+  envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
   envs.captioner.max_cot_history=0 \
   envs.overcooked_kwargs.layout_name=cramped_room \
   envs.overcooked_kwargs.horizon=40 \
-  envs.overcooked_kwargs.partner_policy=random \
+  envs.overcooked_kwargs.partner_policy=none \
   envs.overcooked_kwargs.shaped_reward=True \
   envs.overcooked_kwargs.pot_cook_time=3 \
   envs.overcooked_kwargs.print_visualization=false \
@@ -172,9 +173,10 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
+  prompt.prompt.dime.enabled=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_4B_MA_NOHIST_RP_r16 \
+  trainer.experiment_name=OC_4B_BL_NOHIST_r16_h200 \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \
@@ -193,8 +195,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-32} \
   +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=overcooked_evals_combined_mixed \
-  prompt=overcooked_multi_action 2>&1 | tee verl_demo.log
+  evaluation=overcooked_evals_dime_split \
+  prompt=overcooked 2>&1 | tee verl_demo.log
 python_status=${PIPESTATUS[0]}
 set -e
 
