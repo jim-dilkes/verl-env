@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
 #SBATCH --partition=dual_h200,quad_h200
-#SBATCH --time=96:00:00
+#SBATCH --time=60:00:00
 #SBATCH --gpus-per-node=2
 
 # 14B no-think h40, no history, random partner — max state-conditional pressure
