@@ -9,7 +9,7 @@
 #SBATCH --partition=swarm_h100
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
-#SBATCH --exclude=swarmh1002
+
 
 # Baseline, no history, random partner — max state-conditional pressure
 
