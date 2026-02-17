@@ -1,22 +1,23 @@
 #!/bin/bash
-#SBATCH --job-name=BL_NOHIST_RP_r16_h200_201
+#SBATCH --job-name=BL_NOHIST_RP_r16_201
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=350GB
+#SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --partition=quad_h200,dual_h200
-#SBATCH --time=60:00:00
-#SBATCH --gpus-per-node=1
+#SBATCH --partition=swarm_h100
+#SBATCH --time=96:00:00
+#SBATCH --gpus-per-node=2
+#SBATCH --exclude=swarmh1002
 
 # Baseline, no history, random partner — max state-conditional pressure
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_BL_NOHIST_RP_r16_h200
+experiment_name=OC_4B_BL_NOHIST_RP_r16
 run_number=201
-number_of_gpus=1
+number_of_gpus=2
 WANDB_TAGS='["BL","no_history","random_partner","state_conditional","CAIS_v2"]'
 
 job_id=${SLURM_JOB_ID:-local}
@@ -105,11 +106,11 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$micro_batch_size \
   actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$max_token_len_per_gpu \
   actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=$max_token_len_per_gpu \
-  actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+  actor_rollout_ref.rollout.tensor_model_parallel_size=$number_of_gpus \
   actor_rollout_ref.rollout.max_num_seqs=$rollout_max_num_seqs \
   actor_rollout_ref.rollout.max_num_batched_tokens=$rollout_max_num_batched_tokens \
   actor_rollout_ref.rollout.engine_kwargs.vllm.max_seq_len_to_capture=$((max_token_len_per_gpu + critic_max_token_len_per_gpu)) \
-  actor_rollout_ref.rollout.gpu_memory_utilization=0.45 \
+  actor_rollout_ref.rollout.gpu_memory_utilization=0.38 \
   actor_rollout_ref.rollout.max_model_len=$max_token_len_per_gpu \
   actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.rollout.temperature=1.25 \
@@ -176,7 +177,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   prompt.prompt.dime.enabled=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_4B_BL_NOHIST_RP_r16_h200 \
+  trainer.experiment_name=OC_4B_BL_NOHIST_RP_r16 \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \
