@@ -371,8 +371,12 @@ class MultiEnvEvaluator:
                 logger.error(f"[MultiEnvEvaluator] Failed to evaluate environment {eval_name}: {e}")
                 import traceback
                 logger.error(f"[MultiEnvEvaluator] Traceback: {traceback.format_exc()}")
-                raise
+                # Don't raise — continue evaluating remaining environments.
+                # Failed env metrics are simply missing from the results.
+                # The trainer-level try/except provides the final safety net.
 
+            # Always run gc after each environment eval, even on failure,
+            # to free memory before the next environment evaluation
             gc.collect()
             
             # Log memory usage after each environment
