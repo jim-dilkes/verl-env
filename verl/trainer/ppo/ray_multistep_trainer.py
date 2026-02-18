@@ -1802,26 +1802,34 @@ class RayMultistepTrainer(object):
                     eval_test_freq = getattr(self.config.evaluation, 'test_freq', None) if hasattr(self.config, 'evaluation') else None
                     test_freq = eval_test_freq if eval_test_freq is not None else self.config.trainer.test_freq
                 
-                    if self.val_reward_fn is not None and test_freq > 0 and \
-                        (is_last_step or self.global_steps % test_freq == 0) and (self.global_steps > self.critic_warmup_step):
-                        with _timer('testing', timing_raw):
-                            if self.multi_env_evaluator is not None:
-                                # With VecEnv pooling, keep training env alive during eval
-                                # (eval uses separate prewarmed pools, no memory benefit from closing)
-                                evaluation_metrics: dict = self.multi_env_evaluator.evaluate(self.global_steps)
-                                tracking_logger.log(data=evaluation_metrics, step=self.global_steps)
-                                if is_last_step:
-                                    last_val_metrics.update(evaluation_metrics)
-
-                            validation_metrics: dict = self._validate()
-                            if is_last_step:
-                                last_val_metrics.update(validation_metrics)
-                        metrics.update(validation_metrics)
-
-                    # Save checkpoint periodically or always save final checkpoint
+                    # Save checkpoint BEFORE evaluation — model weights are already fixed after
+                    # actor/critic updates, and eval can OOM or crash. Checkpoints don't depend on
+                    # eval metrics. On resume, val_before_train re-evaluates anyway.
                     if (self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0) or is_last_step:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
+
+                    if self.val_reward_fn is not None and test_freq > 0 and \
+                        (is_last_step or self.global_steps % test_freq == 0) and (self.global_steps > self.critic_warmup_step):
+                        try:
+                            with _timer('testing', timing_raw):
+                                if self.multi_env_evaluator is not None:
+                                    # With VecEnv pooling, keep training env alive during eval
+                                    # (eval uses separate prewarmed pools, no memory benefit from closing)
+                                    evaluation_metrics: dict = self.multi_env_evaluator.evaluate(self.global_steps)
+                                    tracking_logger.log(data=evaluation_metrics, step=self.global_steps)
+                                    if is_last_step:
+                                        last_val_metrics.update(evaluation_metrics)
+
+                                validation_metrics: dict = self._validate()
+                                if is_last_step:
+                                    last_val_metrics.update(validation_metrics)
+                            metrics.update(validation_metrics)
+                        except Exception as e:
+                            print(f"[RayPPOTrainer] WARNING: Evaluation failed at step {self.global_steps}: {e}")
+                            print(f"[RayPPOTrainer] Checkpoint was already saved. Continuing training.")
+                            import traceback
+                            traceback.print_exc()
 
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
