@@ -2,10 +2,10 @@
 #SBATCH --job-name=DIME_ADAPT_w15_cap80_k25_r16_201
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=350GB
+#SBATCH --mem=370GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=48
 #SBATCH --partition=swarm_h100,swarm_a100
 #SBATCH --exclude=swarmh1002
 #SBATCH --time=96:00:00

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=SCRATCH_r16_201
+#SBATCH --job-name=D_TREAT_GEN_p50_r32_101
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=370GB
@@ -9,16 +9,15 @@
 #SBATCH --partition=swarm_h100,swarm_a100
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
-#SBATCH --exclude=swarmh1002
 
-# Scratch memory baseline — CAIS final batch
+# DIME Treatment-Generic: 50% supplement (second seed), split evals
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_SCRATCH_r16
-run_number=201
+experiment_name=OC_4B_DIME_TREAT_GEN_p50_r32
+run_number=102
 number_of_gpus=2
-WANDB_TAGS='["SCRATCH","CAIS_final","CAIS_v2"]'
+WANDB_TAGS='["overcooked","project:verl-env","vllm:0.9.1","singl-act","horizon:40","dime-treatment-generic","prob-mask-0.5","supp-0.5","n-rollouts-32","split-eval"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -97,7 +96,7 @@ set +e
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
-  data.train_batch_size=640 \
+  data.train_batch_size=256 \
   data.train_files=examples/data/placeholder.parquet \
   data.val_files=examples/data/placeholder.parquet \
   actor_rollout_ref.actor.ppo_mini_batch_size=128 \
@@ -136,7 +135,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   critic.model.fsdp_config.model_dtype=bfloat16 \
   critic.model.path=$MODEL_PATH \
   critic.ppo_micro_batch_size_per_gpu=$micro_batch_size \
-  critic.ppo_mini_batch_size=128 \
   critic.ppo_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   critic.forward_max_token_len_per_gpu=$critic_max_token_len_per_gpu \
   algorithm.step_gamma=0.99 \
@@ -146,7 +144,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.use_kl_in_reward=False \
   algorithm.kl_ctrl.kl_coef=0.0 \
   envs.enable=True \
-  envs.n_rollouts=16 \
+  envs.n_rollouts=32 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
   envs.env_name=overcooked \
@@ -174,20 +172,25 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
+  prompt.prompt.dime.enabled=true \
+  prompt.prompt.dime.source=generic \
+  prompt.prompt.dime.mask_for_training=true \
+  prompt.prompt.dime.mask_probability=0.5 \
+  prompt.prompt.dime.no_supplement_prob=0.5 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_4B_SCRATCH_r16 \
+  trainer.experiment_name=OC_4B_DIME_TREAT_GEN_p50_r32 \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \
   trainer.critic_warmup_micro_batch_size_per_gpu=16 \
   trainer.n_gpus_per_node=$number_of_gpus \
   trainer.nnodes=1 \
-  trainer.save_freq=50 \
-  trainer.test_freq=50 \
+  trainer.save_freq=100 \
+  trainer.test_freq=100 \
   trainer.render=False \
-  trainer.total_epochs=750 \
-  trainer.total_training_steps=750 \
+  trainer.total_epochs=1300 \
+  trainer.total_training_steps=1300 \
   trainer.default_local_dir=/scratch/${user_name}/checkpoints/${project_name}/${experiment_name}_run${run_number} \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
@@ -195,8 +198,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-32} \
   +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=overcooked_evals_scratch \
-  prompt=overcooked_scratch 2>&1 | tee verl_demo.log
+  evaluation=overcooked_evals_dime_split \
+  prompt=overcooked 2>&1 | tee verl_demo.log
 python_status=${PIPESTATUS[0]}
 set -e
 
