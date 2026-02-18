@@ -1,22 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name=BL_r16_201
+#SBATCH --job-name=BL_r16_203
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=460GB
+#SBATCH --mem=370GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=48
-#SBATCH --partition=swarm_h100
+#SBATCH --cpus-per-task=12
+#SBATCH --partition=swarm_h100,swarm_a100
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
-#SBATCH --exclude=swarmh1002
 
 # Baseline with split evaluation — CAIS final batch
 
 # --- Define experiment variables ---
 project_name=rl_sdm
 experiment_name=OC_4B_BL_r16
-run_number=201
+run_number=203
 number_of_gpus=2
 WANDB_TAGS='["BL","CAIS_final","CAIS_v2"]'
 
@@ -177,7 +176,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   prompt.prompt.dime.enabled=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_4B_BL_r16 \
+  trainer.experiment_name=${experiment_run_name} \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \

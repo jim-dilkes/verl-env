@@ -5,7 +5,7 @@
 #SBATCH --mem=350GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=12
 #SBATCH --partition=quad_h200,dual_h200
 #SBATCH --time=60:00:00
 #SBATCH --gpus-per-node=1

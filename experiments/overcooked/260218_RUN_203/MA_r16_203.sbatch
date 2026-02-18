@@ -1,24 +1,23 @@
 #!/bin/bash
-#SBATCH --job-name=BL_r16_201
+#SBATCH --job-name=MA_r16_203
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=460GB
+#SBATCH --mem=370GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=48
-#SBATCH --partition=swarm_h100
+#SBATCH --cpus-per-task=12
+#SBATCH --partition=swarm_h100,swarm_a100
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
-#SBATCH --exclude=swarmh1002
 
-# Baseline with split evaluation — CAIS final batch
+# Multi-action reasoning — CAIS final batch
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_BL_r16
-run_number=201
+experiment_name=OC_4B_MA_r16
+run_number=203
 number_of_gpus=2
-WANDB_TAGS='["BL","CAIS_final","CAIS_v2"]'
+WANDB_TAGS='["MA","CAIS_final","CAIS_v2"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -152,7 +151,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.env_name=overcooked \
   envs.format_penalty=1 \
   envs.binary_reward=False \
-  envs.captioner.type=naive \
+  envs.captioner.type=multi_action \
   envs.captioner.max_text_history=0 \
   envs.captioner.max_cot_history=1 \
   envs.overcooked_kwargs.layout_name=cramped_room \
@@ -174,10 +173,9 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
-  prompt.prompt.dime.enabled=false \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
-  trainer.experiment_name=OC_4B_BL_r16 \
+  trainer.experiment_name=${experiment_run_name} \
   trainer.group=${experiment_name} \
   trainer.val_before_train=True \
   trainer.critic_warmup=5 \
@@ -196,8 +194,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-32} \
   +ray_kwargs.ray_init.object_store_memory=$RAY_OBJECT_STORE_MEMORY \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
-  evaluation=overcooked_evals_dime_split \
-  prompt=overcooked 2>&1 | tee verl_demo.log
+  evaluation=overcooked_evals_combined_mixed \
+  prompt=overcooked_multi_action 2>&1 | tee verl_demo.log
 python_status=${PIPESTATUS[0]}
 set -e
 
