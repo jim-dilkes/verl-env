@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DIME_ADAPT_w30_cap60_k25_r16_203
+#SBATCH --job-name=DIME_FIXED_p80_NOMASK_r16_203
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=370GB
@@ -10,11 +10,11 @@
 #SBATCH --time=96:00:00
 #SBATCH --gpus-per-node=2
 
-# DIME Adaptive w30 cap60 k25 r16 — CAIS final batch
+# DIME Fixed p80 NOMASK (20% context, no masking) r16 — CAIS final batch
 
-# --- Define experiment variables ---
+# DIME Fixed p80 NOMASK (20% context, no masking) r16 — CAIS final batch
 project_name=rl_sdm
-experiment_name=OC_4B_DIME_ADAPT_w30_cap60_k25_r16
+experiment_name=OC_4B_DIME_FIXED_p80_NOMASK_r16
 run_number=203
 number_of_gpus=2
 WANDB_TAGS='["DIME","CAIS_final","CAIS_v2"]'
@@ -37,7 +37,7 @@ export WANDB_DIR="wandb/${experiment_run_name}"
 mkdir -p "$WANDB_DIR"
 profile_dump_dir=/scratch/${user_name}/profile_dumps/${experiment_run_name}
 
-# --- Setup ---
+# DIME Fixed p80 NOMASK (20% context, no masking) r16 — CAIS final batch
 module load conda/python3
 module load cuda/12.8.0
 module load gcc/13.3.0
@@ -59,7 +59,7 @@ unset ROCR_VISIBLE_DEVICES
 unset HIP_VISIBLE_DEVICES
 
 
-# --- Configure Environment for Ray ---
+# DIME Fixed p80 NOMASK (20% context, no masking) r16 — CAIS final batch
 
 export RAY_OBJECT_STORE_MEMORY=30000000000
 export RAY_DISABLE_IMPORT_WARNING=1
@@ -109,7 +109,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.max_num_seqs=$rollout_max_num_seqs \
   actor_rollout_ref.rollout.max_num_batched_tokens=$rollout_max_num_batched_tokens \
   actor_rollout_ref.rollout.engine_kwargs.vllm.max_seq_len_to_capture=$((max_token_len_per_gpu + critic_max_token_len_per_gpu)) \
-  actor_rollout_ref.rollout.gpu_memory_utilization=0.40 \
+  actor_rollout_ref.rollout.gpu_memory_utilization=0.38 \
   actor_rollout_ref.rollout.max_model_len=$max_token_len_per_gpu \
   actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.rollout.temperature=1.25 \
@@ -175,15 +175,9 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
   prompt.prompt.dime.enabled=true \
   prompt.prompt.dime.source=generic \
-  prompt.prompt.dime.mask_for_training=true \
+  prompt.prompt.dime.mask_for_training=false \
   prompt.prompt.dime.mask_probability=0.5 \
-  prompt.prompt.dime.no_supplement_prob=0.125 \
-  prompt.prompt.dime.adaptive.enabled=true \
-  prompt.prompt.dime.adaptive.supplement_min=0.0 \
-  prompt.prompt.dime.adaptive.supplement_max=0.6 \
-  prompt.prompt.dime.adaptive.window_size=30 \
-  prompt.prompt.dime.adaptive.k=25.0 \
-  prompt.prompt.dime.adaptive.inflection=0.0 \
+  prompt.prompt.dime.no_supplement_prob=0.8 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_run_name} \
