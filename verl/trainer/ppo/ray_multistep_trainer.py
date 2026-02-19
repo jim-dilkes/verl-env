@@ -1648,7 +1648,17 @@ class RayMultistepTrainer(object):
                     assert self.config.actor_rollout_ref.rollout.n == 1, "For multi-turn rollout, we only support n=1"
 
                     # DIME: swap rollout prompts (with focus) for base prompts (without focus)
+                    dime_focus_log_probs = None
                     if dime_enabled and dime_mask_for_training and any(mask_per_rollout):
+                        # DIME Diagnostics: compute logprobs on focus-prompted batch BEFORE swap
+                        # This measures the prompt conditioning effect: KL(π(·|x_focus) || π(·|x_base))
+                        dime_diagnostics = getattr(dime_config, 'diagnostics', False)
+                        if dime_diagnostics:
+                            with _timer('dime_diag_focus_logprob', timing_raw):
+                                batch.batch['response_mask'] = compute_response_mask(batch)
+                                focus_log_prob_result = self.actor_rollout_wg.compute_log_prob(batch)
+                                dime_focus_log_probs = focus_log_prob_result.batch['old_log_probs'].clone()
+
                         batch = swap_dime_prompts(
                             batch, base_prompt_tokens_by_step,
                             self.config.envs.n_rollouts, episode_len, rlen,
@@ -1704,6 +1714,52 @@ class RayMultistepTrainer(object):
                             metrics.update({"actor/entropy": entropy_agg.detach().item()})
                             old_log_prob.batch.pop("entropys")
                             batch = batch.union(old_log_prob)
+
+                    # DIME Diagnostics: compare focus vs base logprobs
+                    # Measures per-token KL(π(·|x_focus) || π(·|x_base)) for masked rollouts
+                    # This tells us how much the focus instruction shifts the response distribution
+                    if dime_enabled and dime_mask_for_training and dime_focus_log_probs is not None:
+                        response_mask = batch.batch['response_mask']
+                        base_log_probs = batch.batch['old_log_probs']  # π(y|x_base)
+                        # Build mask for DIME-masked rollouts only (ones that had focus swapped to base)
+                        n_rollouts = self.config.envs.n_rollouts
+                        masked_rollout_mask = torch.zeros(base_log_probs.shape[0], dtype=torch.bool)
+                        for step_idx in range(episode_len + 1):
+                            for env_idx in range(n_rollouts):
+                                if mask_per_rollout[env_idx]:
+                                    sample_idx = step_idx * n_rollouts + env_idx
+                                    if sample_idx < base_log_probs.shape[0]:
+                                        masked_rollout_mask[sample_idx] = True
+
+                        if masked_rollout_mask.any():
+                            # Per-token log ratio: log π(y_t|x_focus) - log π(y_t|x_base)
+                            # Positive = focus made this token more likely; Negative = focus made it less likely
+                            focus_lp = dime_focus_log_probs[masked_rollout_mask]
+                            base_lp = base_log_probs[masked_rollout_mask]
+                            rmask = response_mask[masked_rollout_mask]
+
+                            log_ratio = (focus_lp - base_lp) * rmask  # zero out padding
+                            valid_tokens = rmask.sum()
+
+                            if valid_tokens > 0:
+                                # Mean absolute per-token log-ratio (how different are the distributions)
+                                abs_log_ratio = log_ratio.abs()
+                                metrics['dime/prompt_kl_mean'] = (abs_log_ratio.sum() / valid_tokens).item()
+                                metrics['dime/prompt_kl_max'] = abs_log_ratio.max().item()
+                                # Signed mean (positive = focus generally increases token likelihood)
+                                metrics['dime/prompt_logprob_shift'] = (log_ratio.sum() / valid_tokens).item()
+                                # Per-sequence sum of |log ratio| (proxy for how much IS ratios would diverge)
+                                seq_abs_sum = abs_log_ratio.sum(dim=-1)
+                                seq_valid = rmask.sum(dim=-1).clamp(min=1)
+                                metrics['dime/prompt_kl_per_seq_mean'] = seq_abs_sum.mean().item()
+                                metrics['dime/prompt_kl_per_seq_max'] = seq_abs_sum.max().item()
+                                # Effective IS ratio magnitude: exp(|sum of log ratios per sequence|)
+                                signed_seq_sum = log_ratio.sum(dim=-1)
+                                is_ratio_proxy = signed_seq_sum.abs().exp()
+                                metrics['dime/is_ratio_proxy_mean'] = is_ratio_proxy.mean().item()
+                                metrics['dime/is_ratio_proxy_max'] = is_ratio_proxy.max().item()
+
+                        del dime_focus_log_probs  # free memory
 
                     if self.use_reference_policy:
                         # compute reference log_prob

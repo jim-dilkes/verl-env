@@ -46,6 +46,7 @@ prompt.prompt.dime:
   mask_probability: 1.0   # probability of masking per focus-injected rollout (1.0=always, 0.0=never, 0.5=half-half)
   no_supplement_prob: 0.125 # REQUIRED when enabled. No auto-compute — must be explicit.
   template: 'Pay particular attention to this aspect of the task: "{STEP_TEXT}". Consider how it could apply in the current situation before choosing your action.'
+  diagnostics: false      # Enable prompt conditioning diagnostics (adds 1 extra forward pass per step)
 ```
 
 ### Instruction Sources
@@ -148,6 +149,27 @@ Only diagnostic evals (entropy + state visitation) get split. Deployment evals t
 - Focus instructions must match YAML `environment_instruction` terminology exactly (e.g., "meal" not "soup")
 - `no_supplement_prob` is REQUIRED when `dime.enabled=true` — raises ValueError if null/missing
 - Overcooked has 7 focus instructions (matching 7 steps in YAML [How to Cook])
+
+## Prompt Conditioning Diagnostics
+
+When `dime.diagnostics: true`, an extra forward pass computes logprobs on the **focus-injected** prompts before swap. After swap + recompute on base prompts, the per-token difference is logged:
+
+**Metrics (all W&B):**
+- `dime/prompt_kl_mean` — Mean |log π(y_t|x_focus) - log π(y_t|x_base)| across response tokens. Higher = focus instructions shift distribution more.
+- `dime/prompt_kl_max` — Max per-token absolute log-ratio. Identifies extreme shifts.
+- `dime/prompt_logprob_shift` — Signed mean log-ratio. Positive = focus generally increases token likelihood.
+- `dime/prompt_kl_per_seq_mean` — Mean per-sequence sum of |log ratios|. Proxy for full-sequence KL.
+- `dime/prompt_kl_per_seq_max` — Max per-sequence sum. Worst-case divergence.
+- `dime/is_ratio_proxy_mean` — exp(|sum of signed log ratios per sequence|). Approximates what the importance sampling ratio magnitude would be.
+- `dime/is_ratio_proxy_max` — Max IS ratio proxy. If >>10, importance sampling would be impractical.
+
+**Interpretation:**
+- `prompt_kl_mean` < 0.01: Focus instructions barely shift distribution. IS correction negligible.
+- `prompt_kl_mean` 0.01-0.1: Moderate shift. IS correction meaningful but tractable.
+- `prompt_kl_mean` > 0.1: Strong shift. IS ratios will be high, need aggressive clipping.
+- `is_ratio_proxy_max` > 100: Off-policy IS would be impractical for these sequences.
+
+**Cost:** One extra `compute_log_prob` forward pass per training step. Only for DIME-masked rollouts. Gate behind config flag for production runs.
 
 ## Tests
 - `tests/test_dime_focus_instructions.py` — registry, sampling, injection [P1]
