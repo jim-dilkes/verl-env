@@ -2,12 +2,12 @@
 #SBATCH --job-name=DIME_DIAG_r16_204
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
-#SBATCH --mem=370GB
+#SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=48
-#SBATCH --partition=swarm_a100
-#SBATCH --time=96:00:00
+#SBATCH --cpus-per-task=32
+#SBATCH --partition=a100
+#SBATCH --time=60:00:00
 #SBATCH --gpus-per-node=2
 
 # Baseline r16 on a100 partition
