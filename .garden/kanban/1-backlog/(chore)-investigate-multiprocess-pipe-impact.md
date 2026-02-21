@@ -1,1 +1,0 @@
-Should we try and reduce the amount of data transmitted to/from multi-processed envs? Multiprocess pipe transfers expensive?

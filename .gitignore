@@ -1,4 +1,5 @@
 .archive/
+.garden/kanban
 
 **/*.pt
 **/checkpoints
