@@ -675,6 +675,7 @@ class DataParallelPPOActor(BasePPOActor):
                         # Teacher forward (instructed prompts — skip if no instructed in micro-batch)
                         has_inst = model_inputs['has_instruction']
                         if has_inst.any():
+                            # Shallow copy safe: _forward_micro_batch reads but doesn't mutate the dict
                             teacher_inputs = {**model_inputs}
                             teacher_inputs['input_ids'] = model_inputs['teacher_input_ids']
                             teacher_inputs['attention_mask'] = model_inputs['teacher_attention_mask']
@@ -727,15 +728,15 @@ class DataParallelPPOActor(BasePPOActor):
                         inst_response_mask = response_mask * has_inst_f
 
                         if dime_kl_beta_teacher > 0 and has_inst.any():
-                            # kl_penalty_forward(A, B, 'k3') ≈ D_KL(πB || πA)
-                            # Here: D_KL(sg(π^S) || π^T) — gradient through teacher, pulls teacher→student
+                            # kl_penalty_forward(logprob=A, ref_logprob=B, 'k3') ≈ D_KL(πA || πB)
+                            # Here: D_KL(π^T || sg(π^S)) — gradient through teacher, pulls teacher→student
                             kl_t = kl_penalty_forward(teacher_log_prob, student_log_prob.detach(), 'k3')
                             kl_t_agg = agg_loss(kl_t, inst_response_mask, loss_agg_mode)
                             pg_loss = pg_loss + dime_kl_beta_teacher * kl_t_agg
                             micro_batch_metrics["dime/kl_teacher"] = kl_t_agg.detach().item()
 
                         if dime_kl_beta_student > 0 and has_inst.any():
-                            # D_KL(sg(π^T) || π^S) — gradient through student, pulls student→teacher
+                            # D_KL(π^S || sg(π^T)) — gradient through student, pulls student→teacher
                             kl_s = kl_penalty_forward(student_log_prob, teacher_log_prob.detach(), 'k3')
                             kl_s_agg = agg_loss(kl_s, inst_response_mask, loss_agg_mode)
                             pg_loss = pg_loss + dime_kl_beta_student * kl_s_agg
@@ -755,8 +756,8 @@ class DataParallelPPOActor(BasePPOActor):
                         # Student log_prob for downstream entropy/ref-KL (ref_log_prob was computed
                         # on base prompts at rollout time, so student comparison is correct)
                         log_prob = student_log_prob
-                        pg_metrics = student_pg_metrics
-                        micro_batch_metrics.update(pg_metrics)
+                        # Populate actor/* metrics from student (already in dime/student_* above)
+                        micro_batch_metrics.update(student_pg_metrics)
 
                     policy_loss = pg_loss
                     if calculate_entropy and entropy is not None:
