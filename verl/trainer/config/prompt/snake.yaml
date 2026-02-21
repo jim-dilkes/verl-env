@@ -24,9 +24,10 @@ prompt:
   dime:
     enabled: false
     source: "generic"
-    mask_for_training: true
-    mask_probability: 1.0
     no_supplement_prob: 0.125
+    alpha: 0.5
+    kl_beta_teacher: 0.0
+    kl_beta_student: 0.0
     template: 'Before acting, carefully consider how this principle applies to your current situation: "{STEP_TEXT}". Think about when and why this step matters right now. Then act using your best judgment.'
     adaptive:
       enabled: false

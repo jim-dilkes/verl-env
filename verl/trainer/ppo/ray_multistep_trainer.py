@@ -74,7 +74,6 @@ from verl.envs.environments.focus_instructions import (
     get_dime_instructions,
     has_dime_instructions,
     sample_focus_for_episode,
-    sample_mask_decisions,
     inject_focus_into_obs,
 )
 
@@ -200,27 +199,26 @@ def retokenize_epsilon_sample(
     }
 
 
-def swap_dime_prompts(
+def swap_all_instructed_to_base(
     batch: DataProto,
     base_prompt_tokens_by_step: list[dict],
     n_rollouts: int,
     episode_len: int,
     rlen: int,
-    mask_per_rollout: list[bool] | None = None,
+    has_instruction: list[bool],
 ) -> DataProto:
-    """Replace rollout prompts (with focus) with base prompts (without focus).
+    """Replace instructed rollout prompts (with focus) with base prompts (without focus).
+
+    Swaps ALL rollouts where has_instruction[env_idx] is True.
 
     Batch layout: [step0_env0, step0_env1, ..., step0_envN, step1_env0, ..., stepE_envN]
     Each sample i maps to: step = i // n_rollouts, env = i % n_rollouts.
     Response tokens are preserved exactly; only the prompt portion is swapped.
-
-    If mask_per_rollout is provided, only swap for rollouts where mask is True.
-    mask_per_rollout=None swaps all (backwards compatible).
     """
     for step_idx in range(episode_len + 1):
         base = base_prompt_tokens_by_step[step_idx]
         for env_idx in range(n_rollouts):
-            if mask_per_rollout is not None and not mask_per_rollout[env_idx]:
+            if not has_instruction[env_idx]:
                 continue
             sample_idx = step_idx * n_rollouts + env_idx
 
@@ -1266,11 +1264,14 @@ class RayMultistepTrainer(object):
                     # DIME config (outside conditional so variable is defined during critic warmup)
                     dime_config = getattr(self.config.prompt.prompt, 'dime', None)
                     dime_enabled = dime_config is not None and getattr(dime_config, 'enabled', False)
+                    n_rollouts = self.config.envs.n_rollouts
+                    has_instruction = [False] * n_rollouts
+                    dime_supplement_count = 0
+                    dime_unique_count = 0
 
                     if self.global_steps == 1 or self.global_steps > self.critic_warmup_step:
 
                         if dime_enabled:
-                            dime_mask_for_training = getattr(dime_config, 'mask_for_training', True)
                             dime_source = getattr(dime_config, 'source', 'specific')
                             dime_template = getattr(dime_config, 'template', '') if dime_source == 'specific' else '{STEP_TEXT}'
                             env_name = self.config.envs.env_name
@@ -1287,8 +1288,7 @@ class RayMultistepTrainer(object):
                             focus_per_rollout = sample_focus_for_episode(
                                 self.config.envs.n_rollouts, dime_instructions, dime_no_supplement_prob
                             )
-                            dime_mask_probability = getattr(dime_config, 'mask_probability', 1.0)
-                            mask_per_rollout = sample_mask_decisions(focus_per_rollout, dime_mask_probability)
+                            has_instruction = [f is not None for f in focus_per_rollout]
                             base_prompt_tokens_by_step = []
                             dime_supplement_count = sum(1 for f in focus_per_rollout if f is not None)
                             dime_unique_count = len(set(f for f in focus_per_rollout if f is not None))
@@ -1647,32 +1647,56 @@ class RayMultistepTrainer(object):
                     # batch = batch.union(gen_batch_output)
                     assert self.config.actor_rollout_ref.rollout.n == 1, "For multi-turn rollout, we only support n=1"
 
-                    # DIME: swap rollout prompts (with focus) for base prompts (without focus)
-                    dime_focus_log_probs = None
-                    if dime_enabled and dime_mask_for_training and any(mask_per_rollout):
-                        # DIME Diagnostics: compute logprobs on focus-prompted batch BEFORE swap
-                        # This measures the prompt conditioning effect: KL(π(·|x_focus) || π(·|x_base))
-                        dime_diagnostics = getattr(dime_config, 'diagnostics', False)
-                        if dime_diagnostics:
-                            with _timer('dime_diag_focus_logprob', timing_raw):
-                                batch.batch['response_mask'] = compute_response_mask(batch)
-                                focus_log_prob_result = self.actor_rollout_wg.compute_log_prob(batch)
-                                dime_focus_log_probs = focus_log_prob_result.batch['old_log_probs'].clone()
+                    # DIME: parallel teacher/student optimisation
+                    if dime_enabled and any(has_instruction):
+                        # Save teacher batch (instructed prompts) before swap
+                        teacher_input_ids = batch.batch['input_ids'].clone()
+                        teacher_attention_mask = batch.batch['attention_mask'].clone()
+                        teacher_position_ids = batch.batch['position_ids'].clone()
 
-                        batch = swap_dime_prompts(
+                        # Compute teacher old_log_probs on instructed prompts
+                        batch.batch['response_mask'] = compute_response_mask(batch)
+                        with _timer('dime_teacher_logprob', timing_raw):
+                            teacher_log_prob_result = self.actor_rollout_wg.compute_log_prob(batch)
+                        teacher_old_log_probs = teacher_log_prob_result.batch['old_log_probs'].clone()
+
+                        # Swap all instructed prompts to base (student conditioning)
+                        batch = swap_all_instructed_to_base(
                             batch, base_prompt_tokens_by_step,
                             self.config.envs.n_rollouts, episode_len, rlen,
-                            mask_per_rollout=mask_per_rollout,
+                            has_instruction=has_instruction,
                         )
-                        # Force recompute since tokens changed
                         bypass_recomputing_logprobs = False
+
+                        # Attach teacher data to batch for actor dual forward pass
+                        batch.batch['teacher_input_ids'] = teacher_input_ids
+                        batch.batch['teacher_attention_mask'] = teacher_attention_mask
+                        batch.batch['teacher_position_ids'] = teacher_position_ids
+                        batch.batch['teacher_old_log_probs'] = teacher_old_log_probs
+
+                        # Build per-sample has_instruction mask
+                        n_rollouts = self.config.envs.n_rollouts
+                        has_inst_tensor = torch.zeros(batch.batch['input_ids'].shape[0], dtype=torch.bool)
+                        for step_idx in range(episode_len + 1):
+                            for env_idx in range(n_rollouts):
+                                if has_instruction[env_idx]:
+                                    sample_idx = step_idx * n_rollouts + env_idx
+                                    if sample_idx < has_inst_tensor.shape[0]:
+                                        has_inst_tensor[sample_idx] = True
+                        batch.batch['has_instruction'] = has_inst_tensor
+
+                        # Pass DIME config via meta_info
+                        dime_alpha = getattr(dime_config, 'alpha', 0.5)
+                        dime_kl_beta_teacher = getattr(dime_config, 'kl_beta_teacher', 0.0)
+                        dime_kl_beta_student = getattr(dime_config, 'kl_beta_student', 0.0)
+                        batch.meta_info['dime_alpha'] = dime_alpha
+                        batch.meta_info['dime_kl_beta_teacher'] = dime_kl_beta_teacher
+                        batch.meta_info['dime_kl_beta_student'] = dime_kl_beta_student
 
                     if dime_enabled:
                         metrics['dime/supplement_rate'] = dime_supplement_count / self.config.envs.n_rollouts
                         metrics['dime/unique_instructions'] = dime_unique_count
-                        if dime_mask_for_training:
-                            masked_count = sum(mask_per_rollout)
-                            metrics['dime/mask_rate'] = masked_count / max(dime_supplement_count, 1)
+                        metrics['dime/has_instruction_rate'] = sum(has_instruction) / len(has_instruction)
 
                     batch.batch['response_mask'] = compute_response_mask(batch)
                     # balance the number of valid tokens on each dp rank.
@@ -1714,52 +1738,6 @@ class RayMultistepTrainer(object):
                             metrics.update({"actor/entropy": entropy_agg.detach().item()})
                             old_log_prob.batch.pop("entropys")
                             batch = batch.union(old_log_prob)
-
-                    # DIME Diagnostics: compare focus vs base logprobs
-                    # Measures per-token KL(π(·|x_focus) || π(·|x_base)) for masked rollouts
-                    # This tells us how much the focus instruction shifts the response distribution
-                    if dime_enabled and dime_mask_for_training and dime_focus_log_probs is not None:
-                        response_mask = batch.batch['response_mask']
-                        base_log_probs = batch.batch['old_log_probs']  # π(y|x_base)
-                        # Build mask for DIME-masked rollouts only (ones that had focus swapped to base)
-                        n_rollouts = self.config.envs.n_rollouts
-                        masked_rollout_mask = torch.zeros(base_log_probs.shape[0], dtype=torch.bool)
-                        for step_idx in range(episode_len + 1):
-                            for env_idx in range(n_rollouts):
-                                if mask_per_rollout[env_idx]:
-                                    sample_idx = step_idx * n_rollouts + env_idx
-                                    if sample_idx < base_log_probs.shape[0]:
-                                        masked_rollout_mask[sample_idx] = True
-
-                        if masked_rollout_mask.any():
-                            # Per-token log ratio: log π(y_t|x_focus) - log π(y_t|x_base)
-                            # Positive = focus made this token more likely; Negative = focus made it less likely
-                            focus_lp = dime_focus_log_probs[masked_rollout_mask]
-                            base_lp = base_log_probs[masked_rollout_mask]
-                            rmask = response_mask[masked_rollout_mask]
-
-                            log_ratio = (focus_lp - base_lp) * rmask  # zero out padding
-                            valid_tokens = rmask.sum()
-
-                            if valid_tokens > 0:
-                                # Mean absolute per-token log-ratio (how different are the distributions)
-                                abs_log_ratio = log_ratio.abs()
-                                metrics['dime/prompt_kl_mean'] = (abs_log_ratio.sum() / valid_tokens).item()
-                                metrics['dime/prompt_kl_max'] = abs_log_ratio.max().item()
-                                # Signed mean (positive = focus generally increases token likelihood)
-                                metrics['dime/prompt_logprob_shift'] = (log_ratio.sum() / valid_tokens).item()
-                                # Per-sequence sum of |log ratio| (proxy for how much IS ratios would diverge)
-                                seq_abs_sum = abs_log_ratio.sum(dim=-1)
-                                seq_valid = rmask.sum(dim=-1).clamp(min=1)
-                                metrics['dime/prompt_kl_per_seq_mean'] = seq_abs_sum.mean().item()
-                                metrics['dime/prompt_kl_per_seq_max'] = seq_abs_sum.max().item()
-                                # Effective IS ratio magnitude: exp(|sum of log ratios per sequence|)
-                                signed_seq_sum = log_ratio.sum(dim=-1)
-                                is_ratio_proxy = signed_seq_sum.abs().exp()
-                                metrics['dime/is_ratio_proxy_mean'] = is_ratio_proxy.mean().item()
-                                metrics['dime/is_ratio_proxy_max'] = is_ratio_proxy.max().item()
-
-                        del dime_focus_log_probs  # free memory
 
                     if self.use_reference_policy:
                         # compute reference log_prob

@@ -1,7 +1,7 @@
 #!/bin/bash
 # DIME login node smoke test — validates DIME feature before full cluster runs
 # Usage: bash experiments/overcooked/test_dime_login_node.sh
-# Runs: 1 critic warmup step, 3 training steps with DIME enabled + masking
+# Runs: 1 critic warmup step, 2 training steps with DIME parallel optimisation (no KL)
 
 set -e
 
@@ -140,8 +140,10 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
   prompt.prompt.dime.enabled=true \
-  prompt.prompt.dime.mask_for_training=true \
   prompt.prompt.dime.no_supplement_prob=0.125 \
+  prompt.prompt.dime.alpha=0.5 \
+  prompt.prompt.dime.kl_beta_teacher=0.0 \
+  prompt.prompt.dime.kl_beta_student=0.0 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_name} \

@@ -52,9 +52,10 @@ prompt:
   dime:
     enabled: false
     source: "specific"        # "specific" (env instructions + template) or "generic" (standalone principles)
-    mask_for_training: true
-    mask_probability: 1.0  # 1.0=always mask (current), 0.0=never mask, 0.5=half-half
     no_supplement_prob: 0.125  # REQUIRED when enabled. Fixed across conditions.
+    alpha: 0.5                # teacher/student PG loss weighting: α*L_teacher + (1-α)*L_student
+    kl_beta_teacher: 0.0      # coefficient for D_KL(π^T || sg(π^S)) — constrains teacher toward student
+    kl_beta_student: 0.0      # coefficient for D_KL(sg(π^T) || π^S) — pulls student toward teacher
     template: 'Pay particular attention to this aspect of the task: "{STEP_TEXT}". Consider how it could apply in the current situation before choosing your action.'
     adaptive:
       enabled: false

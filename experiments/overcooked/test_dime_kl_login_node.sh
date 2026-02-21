@@ -1,12 +1,13 @@
 #!/bin/bash
-# DIME probabilistic mask login node smoke test
-# Validates mask_probability=0.5 — expect dime/mask_rate ≈ 0.5 in logs
-# Usage: bash experiments/overcooked/test_dime_prob_mask_login_node.sh
+# DIME KL distillation login node smoke test
+# Validates parallel optimisation with KL terms enabled
+# NOTE: micro_batch_size halved to 1 to account for 2x activation memory from dual forward pass
+# Usage: bash experiments/overcooked/test_dime_kl_login_node.sh
 
 set -e
 
 project_name=verl_env
-experiment_name=test_dime_prob_mask_login_node
+experiment_name=test_dime_kl_login_node
 run_number=1
 number_of_gpus=1
 
@@ -40,7 +41,8 @@ eval "$(conda shell.bash hook)"
 conda activate verl
 
 # Tuned for 24GB L4 GPUs (login nodes)
-micro_batch_size=2
+# Halved from 2→1 to account for 2x activation memory from dual forward pass
+micro_batch_size=1
 max_prompt_length=384
 max_response_length=96
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
@@ -140,9 +142,10 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
   prompt.prompt.dime.enabled=true \
-  prompt.prompt.dime.mask_for_training=true \
-  prompt.prompt.dime.mask_probability=0.5 \
   prompt.prompt.dime.no_supplement_prob=0.125 \
+  prompt.prompt.dime.alpha=0.5 \
+    prompt.prompt.dime.kl_beta_teacher=0.1 \
+    prompt.prompt.dime.kl_beta_student=0.1 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_name} \
@@ -157,7 +160,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.total_epochs=1000 \
   trainer.total_training_steps=2 \
   evaluation=overcooked_evals_minimal \
-  prompt=overcooked 2>&1 | tee test_dime_prob_mask_login_node.log
+  prompt=overcooked 2>&1 | tee test_dime_kl_login_node.log
 
-echo "DIME probabilistic mask test run complete!"
-echo "Check logs for dime/mask_rate — expect ≈ 0.5"
+echo "DIME KL distillation test run complete!"
+echo "Check logs for dime/kl_teacher and dime/kl_student metrics"

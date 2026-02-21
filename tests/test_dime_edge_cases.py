@@ -2,7 +2,7 @@
 
 import torch
 from verl import DataProto
-from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+from verl.trainer.ppo.ray_multistep_trainer import swap_all_instructed_to_base
 
 
 def make_batch(plen, rlen, n_rollouts, n_steps, pad_token_id=0):
@@ -41,16 +41,17 @@ def make_batch(plen, rlen, n_rollouts, n_steps, pad_token_id=0):
     return batch, base_prompt_tokens_by_step
 
 
-def test_all_none_focus_is_identity():
-    """All rollouts with no focus — swap should be identity."""
+def test_all_non_instructed_is_identity():
+    """All rollouts with no instruction — swap should be identity."""
     plen, rlen, n_rollouts, n_steps = 32, 16, 4, 2
     batch, base_tokens = make_batch(plen, rlen, n_rollouts, n_steps)
+    has_instruction = [False] * n_rollouts
 
     ids_before = batch.batch["input_ids"].clone()
     mask_before = batch.batch["attention_mask"].clone()
     pos_before = batch.batch["position_ids"].clone()
 
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
     assert torch.equal(batch.batch["input_ids"], ids_before)
     assert torch.equal(batch.batch["attention_mask"], mask_before)
@@ -61,7 +62,8 @@ def test_single_rollout():
     """n_rollouts=1 should work without indexing errors."""
     plen, rlen, n_rollouts, n_steps = 32, 16, 1, 3
     batch, base_tokens = make_batch(plen, rlen, n_rollouts, n_steps)
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    has_instruction = [True]
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
     assert batch.batch["input_ids"].shape == (n_steps + 1, plen + rlen)
 
 
@@ -69,7 +71,8 @@ def test_zero_episode_length():
     """episode_len=0 (just initial step) should work."""
     plen, rlen, n_rollouts, n_steps = 32, 16, 4, 0
     batch, base_tokens = make_batch(plen, rlen, n_rollouts, n_steps)
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    has_instruction = [True] * n_rollouts
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
     assert batch.batch["input_ids"].shape == (n_rollouts, plen + rlen)
 
 
@@ -77,11 +80,12 @@ def test_empty_response():
     """All-pad response should be preserved correctly."""
     plen, rlen, n_rollouts, n_steps = 32, 16, 2, 1
     batch, base_tokens = make_batch(plen, rlen, n_rollouts, n_steps)
+    has_instruction = [True] * n_rollouts
 
     # Ensure responses are all pad (already the case from make_batch)
     assert (batch.batch["responses"] == 0).all()
 
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
     # Responses should still be all pad
     assert (batch.batch["responses"] == 0).all()
@@ -92,8 +96,8 @@ def test_empty_response():
 
 
 if __name__ == "__main__":
-    test_all_none_focus_is_identity()
-    print("  [PASS] all-none focus is identity")
+    test_all_non_instructed_is_identity()
+    print("  [PASS] all non-instructed is identity")
     test_single_rollout()
     print("  [PASS] single rollout")
     test_zero_episode_length()
