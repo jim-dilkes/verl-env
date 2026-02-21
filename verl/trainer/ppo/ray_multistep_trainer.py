@@ -1839,7 +1839,7 @@ class RayMultistepTrainer(object):
                     # Save checkpoint BEFORE evaluation — model weights are already fixed after
                     # actor/critic updates, and eval can OOM or crash. Checkpoints don't depend on
                     # eval metrics. On resume, val_before_train re-evaluates anyway.
-                    if self.config.trainer.save_freq >= 0 and ((self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0) or is_last_step):
+                    if (self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0) or is_last_step:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
