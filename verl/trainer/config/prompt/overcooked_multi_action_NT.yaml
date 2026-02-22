@@ -61,3 +61,20 @@ prompt:
     <action name="interact">{Your reasoning about interacting}</action>
     </actions>
     <decision>{Your selected action from the list above}</decision>
+
+  # DIME (Diverse Instruction-Masked Exploration) config
+  dime:
+    enabled: false
+    source: "specific"        # "specific" (env instructions + template) or "generic" (standalone principles)
+    no_supplement_prob: 0.125  # REQUIRED when enabled. Fixed across conditions.
+    alpha: 0.5                # teacher/student PG loss weighting: α*L_teacher + (1-α)*L_student
+    kl_beta_teacher: 0.0      # coefficient for D_KL(π^T || sg(π^S)) — constrains teacher toward student
+    kl_beta_student: 0.0      # coefficient for D_KL(sg(π^T) || π^S) — pulls student toward teacher
+    template: 'Pay particular attention to this aspect of the task: "{STEP_TEXT}". Consider how it could apply in the current situation before choosing your action.'
+    adaptive:
+      enabled: false
+      supplement_min: 0.0
+      supplement_max: 0.9
+      window_size: 30
+      k: 15.0
+      inflection: 0.05      # sigmoid centre: slope < inflection → high supplement
