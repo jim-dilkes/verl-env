@@ -205,6 +205,24 @@ generalization of the hard `kl_filter`.
   `mean_logprob` path (extend `masked_sample_mean`). Sketch: `dime.kl_weight: none|awr`,
   `dime.kl_weight_temp: <τ>`; consider capping max weight.
 
+### α<1 student reward is not IS-corrected (spec deviation)
+The paper's student reward term is `J_S^R = E_{π_T}[(π_S/sg[π_T])·R]` — an importance
+ratio from the teacher (sampling) policy to the student. The implementation's
+`student_pg_loss` instead uses standard PPO with the **base** old_log_probs anchor
+(ratio π_S/π_S_base), i.e. a proximal trust-region update, NOT the IS ratio to the
+teacher. This is **moot at α=1** (student reward weight = 0, the validated config) but
+means **0<α<1 runs (e.g. the DIME_a05_* sweeps) are not paper-faithful** for the
+student reward term — they're a defensible "strip-and-retrain with proximal anchor"
+variant, not `J_S^R`. To make α<1 faithful, anchor student_pg_loss on
+`teacher_old_log_probs` (sg[π_T]) so the ratio is π_S/π_T. Decide per experiment whether
+the variant or the paper form is wanted.
+
+### k3 teacher KL is also a heuristic (β_T>0 exploratory)
+k3-on-teacher's autograd gives only the pathwise `1 − π_S/π_T` gradient; a faithful
+reverse-KL `D_KL(π_T‖sg[π_S])` gradient on self-sampled actions also needs the
+score-function (REINFORCE) term. Directionally sensible but not unbiased. The paper's
+Asymmetric-RL/SD uses β_T=0, so this only matters for exploratory β_T>0 configs.
+
 ### Proper mean_logprob teacher (reverse-KL) estimator
 Currently `kl_estimator=mean_logprob` is student-only (rejected with `kl_beta_teacher>0`);
 teacher-side KL must use `k3`. A correct sample-based reverse-KL `D_KL(π_T‖sg[π_S])`

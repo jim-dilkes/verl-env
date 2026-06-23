@@ -74,7 +74,11 @@ def validate_kl_estimator_config(kl_estimator: str, beta_teacher: float) -> None
     whose sampling distribution depends on the teacher params; the analogous
     mean(logπ_T) − sg(mean logπ_S) is NOT a valid reverse-KL gradient — descending
     it merely lowers logπ_T on the sampled actions (degenerate), so we forbid it.
-    Use kl_estimator=k3 (a proper per-token KL estimator) for teacher-side KL.
+    Use kl_estimator=k3 for teacher-side KL: its pathwise gradient (1 − π_S/π_T) is
+    at least directionally sensible (pushes π_T toward π_S). NOTE k3-on-teacher is
+    itself only a heuristic — a faithful reverse-KL gradient needs the score-function
+    term too — so kl_beta_teacher>0 is exploratory; the paper's Asymmetric-RL/SD uses
+    kl_beta_teacher=0. See "Future work (V2)" in docs-agent/training/dime-implementation.md.
     """
     if kl_estimator not in ("k3", "mean_logprob"):
         raise ValueError(
