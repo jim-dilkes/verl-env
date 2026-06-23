@@ -4,6 +4,7 @@
 # Runs: 1 critic warmup step, 2 training steps with DIME parallel optimisation (no KL)
 
 set -e
+set -o pipefail  # fail if python crashes despite the `| tee` at the end
 
 project_name=verl_env
 experiment_name=test_dime_login_node

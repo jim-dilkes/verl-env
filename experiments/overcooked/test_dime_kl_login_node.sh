@@ -5,6 +5,7 @@
 # Usage: bash experiments/overcooked/test_dime_kl_login_node.sh
 
 set -e
+set -o pipefail  # fail if python crashes despite the `| tee` at the end
 
 project_name=verl_env
 experiment_name=test_dime_kl_login_node

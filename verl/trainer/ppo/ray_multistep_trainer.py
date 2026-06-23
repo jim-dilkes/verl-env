@@ -592,6 +592,16 @@ class RayMultistepTrainer(object):
                     getattr(dime_cfg, 'n_duplicates', 1),
                     getattr(dime_cfg, 'n_no_instruction', 0),
                 )
+            # balance_batch reorders/sizes DP partitions from the (base/student)
+            # attention_mask, but the DIME teacher forward uses the longer instructed
+            # prompt — same base-vs-teacher token mismatch as use_dynamic_bsz. Reject it
+            # (the actor already rejects use_dynamic_bsz under DIME).
+            if config.trainer.balance_batch:
+                raise ValueError(
+                    "DIME (dime.enabled=true) requires trainer.balance_batch=false: balancing "
+                    "sizes DP work from the base prompt, but the teacher forward uses the longer "
+                    "instructed prompt, risking mis-balanced DP / OOM. Set trainer.balance_batch=false."
+                )
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
@@ -1828,8 +1838,22 @@ class RayMultistepTrainer(object):
                             metrics.update(kl_metrics)
 
                         if rollout_corr_config is not None and 'rollout_log_probs' in batch.batch and not bypass_recomputing_logprobs:
-                            batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
-                            metrics.update(is_metrics)
+                            if dime_enabled:
+                                # The DIME actor drops rollout_is_weights for both PG terms (they
+                                # are base-context π_train_base/π_rollout, the wrong policy for the
+                                # teacher-anchored ratios). Computing them here from post-swap base
+                                # logprobs vs teacher-context rollout logprobs would only log
+                                # misleading correction metrics, so skip it entirely under DIME.
+                                # TODO(V2): teacher-context rollout IS (exp(teacher_old - rollout)).
+                                if self.global_steps == 1:
+                                    logger.warning(
+                                        "DIME enabled: skipping rollout correction (rollout_is "
+                                        "weights are not applied to the DIME PG; the base-context "
+                                        "ratio would be mislabeled). Set rollout_is=null to silence."
+                                    )
+                            else:
+                                batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
+                                metrics.update(is_metrics)
 
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,
