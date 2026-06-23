@@ -64,7 +64,9 @@ prompt.prompt.dime:
   alpha: 0.5              # teacher/student PG weighting: α·L_teacher + (1-α)·L_student (Asymmetric-RL/SD: 1.0)
   kl_beta_teacher: 0.0    # coefficient for D_KL(π^T || sg(π^S)) — teacher→student
   kl_beta_student: 0.0    # coefficient for D_KL(sg(π^T) || π^S) — student→teacher
-  kl_estimator: k3        # k3 (Schulman per-token) | mean_logprob (paper-faithful per-sample logprob diff)
+  kl_estimator: k3        # k3 (Schulman per-token) | mean_logprob (paper-faithful, STUDENT KL only)
+                          # mean_logprob + kl_beta_teacher>0 is rejected: the mean-logprob teacher
+                          # (reverse-KL) gradient is wrong-direction; use k3 for teacher-side KL.
   kl_filter: none         # KL_S target filter: none | return_positive | top_pct
   kl_filter_top_pct: 0.5  # top_pct: fraction of instructed episodes (by return) kept
   eval_unconditioned: false # inline _validate() skips focus injection (measure deployed student)
@@ -194,6 +196,12 @@ generalization of the hard `kl_filter`.
   per-sample (like `dime_kl_filter_mask`), apply as a weighted mean in the actor's
   `mean_logprob` path (extend `masked_sample_mean`). Sketch: `dime.kl_weight: none|awr`,
   `dime.kl_weight_temp: <τ>`; consider capping max weight.
+
+### Proper mean_logprob teacher (reverse-KL) estimator
+Currently `kl_estimator=mean_logprob` is student-only (rejected with `kl_beta_teacher>0`);
+teacher-side KL must use `k3`. A correct sample-based reverse-KL `D_KL(π_T‖sg[π_S])`
+gradient needs the score-function (REINFORCE) term, since the sampling distribution `π_T`
+depends on the teacher params. Add this if a paper-faithful teacher KL is wanted.
 
 ### Per-focus eval breakdown + per-trajectory milestone tracking
 Pin each focus to its own eval condition (reuse `assign_focus_deterministic`); track which

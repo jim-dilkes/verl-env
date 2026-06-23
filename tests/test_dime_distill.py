@@ -12,6 +12,7 @@ from verl.trainer.ppo.distill_kl import (
     compute_distill_kl_mean_logprob,
     masked_sample_mean,
     compute_kl_filter_keep,
+    validate_kl_estimator_config,
 )
 from verl.envs.environments.focus_instructions import (
     assign_focus_deterministic,
@@ -75,6 +76,26 @@ def test_kl_grad_directions():
     kl_t.sum().backward()
     assert teacher.grad is not None and teacher.grad.abs().sum() > 0  # teacher-branch grad
     assert student.grad is None                                       # student detached in KL_T
+
+
+# --- estimator/teacher-KL config validation ------------------------------------
+
+def test_validate_kl_estimator_rejects_unknown():
+    with pytest.raises(ValueError):
+        validate_kl_estimator_config("bogus", beta_teacher=0.0)
+
+
+def test_validate_kl_estimator_rejects_mean_logprob_with_teacher_kl():
+    # mean_logprob teacher term has the wrong minimization direction (reverse KL needs
+    # a score-function term) — must be rejected, not silently run.
+    with pytest.raises(ValueError):
+        validate_kl_estimator_config("mean_logprob", beta_teacher=0.1)
+
+
+def test_validate_kl_estimator_allows_valid_combos():
+    validate_kl_estimator_config("mean_logprob", beta_teacher=0.0)  # student-only KL
+    validate_kl_estimator_config("k3", beta_teacher=0.1)            # k3 handles teacher dir
+    validate_kl_estimator_config("k3", beta_teacher=0.0)
 
 
 # --- masked_sample_mean (filter application) -----------------------------------

@@ -32,7 +32,11 @@ from torch.distributed.tensor import DTensor
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty, kl_penalty_forward
-from verl.trainer.ppo.distill_kl import compute_distill_kl_mean_logprob, masked_sample_mean
+from verl.trainer.ppo.distill_kl import (
+    compute_distill_kl_mean_logprob,
+    masked_sample_mean,
+    validate_kl_estimator_config,
+)
 from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -556,10 +560,8 @@ class DataParallelPPOActor(BasePPOActor):
         # KL estimator: "k3" (Schulman, per-token) or "mean_logprob" (paper-faithful,
         # per-sample mean of logprob diff over response tokens).
         dime_kl_estimator = data.meta_info.get('dime_kl_estimator', 'k3') if dime_enabled else 'k3'
-        if dime_kl_estimator not in ('k3', 'mean_logprob'):
-            raise ValueError(
-                f"dime.kl_estimator={dime_kl_estimator!r} must be 'k3' or 'mean_logprob'."
-            )
+        if dime_enabled:
+            validate_kl_estimator_config(dime_kl_estimator, dime_kl_beta_teacher)
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []

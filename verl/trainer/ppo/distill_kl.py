@@ -64,12 +64,41 @@ def compute_kl_filter_keep(
     return keep
 
 
+def validate_kl_estimator_config(kl_estimator: str, beta_teacher: float) -> None:
+    """Reject illegal kl_estimator / teacher-KL combinations.
+
+    The mean_logprob estimator is only correct for the STUDENT (forward) KL:
+    KL_S is estimated on teacher samples as mean(sg[logπ_T] − logπ_S), whose
+    gradient w.r.t. the student is behaviour-cloning toward teacher actions
+    (bounded, correct). The TEACHER term is a reverse KL D_KL(π_T ‖ sg[π_S])
+    whose sampling distribution depends on the teacher params; the analogous
+    mean(logπ_T) − sg(mean logπ_S) is NOT a valid reverse-KL gradient — descending
+    it merely lowers logπ_T on the sampled actions (degenerate), so we forbid it.
+    Use kl_estimator=k3 (a proper per-token KL estimator) for teacher-side KL.
+    """
+    if kl_estimator not in ("k3", "mean_logprob"):
+        raise ValueError(
+            f"dime.kl_estimator={kl_estimator!r} must be 'k3' or 'mean_logprob'."
+        )
+    if kl_estimator == "mean_logprob" and beta_teacher > 0:
+        raise ValueError(
+            "dime.kl_estimator='mean_logprob' is incompatible with kl_beta_teacher>0: "
+            "the mean-logprob estimator only yields a correct gradient for the student "
+            "(forward) KL. For teacher-side KL use kl_estimator='k3'."
+        )
+
+
 def compute_distill_kl_mean_logprob(
     student_log_prob: torch.Tensor,
     teacher_log_prob: torch.Tensor,
     response_mask: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Per-sample mean-logprob KL_T and KL_S.
+
+    NOTE: only kl_S_seq is a valid loss term (forward KL, grad → student =
+    behaviour-cloning toward teacher). kl_T_seq is returned for diagnostics/symmetry
+    only; its gradient is NOT a correct reverse-KL estimator (see
+    validate_kl_estimator_config), so it must not be added to the loss.
 
     Args:
         student_log_prob: (B, T) student-context per-token logprobs (grad-tracking).
