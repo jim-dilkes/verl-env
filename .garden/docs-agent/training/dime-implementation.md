@@ -169,6 +169,12 @@ Paired eval blocks measure **internalization gap**: how much diversity is "rente
 - **No dynamic batching / balancing under DIME:** the dual forward sizes micro-batches from
   the base prompt but the teacher forward uses the longer instructed prompt. `dp_actor`
   raises if `actor.use_dynamic_bsz=True` with DIME; keep `trainer.balance_batch=False` too.
+- **Interpreting `dime/student_*` clip metrics at 0<α<1:** the student ratio π_S/π_T_old
+  is a cross-policy IS ratio, NOT a proximal (own-old) ratio, so PPO clipping bounds
+  student-vs-teacher divergence rather than the student's step size. Large
+  `dime/student_ppo_kl` / `pg_clipfrac` and some response-length growth are EXPECTED for
+  α<1 (the paper notes this; it motivates the KL terms) — not an implementation defect.
+  Moot at α=1 (student weight 0).
 - **Student & teacher PG share the `teacher_old_log_probs` anchor.** Both terms are
   estimated on teacher rollouts, so the PPO behaviour anchor is the old teacher policy:
   teacher ratio = π_T/π_T_old, student ratio = π_S/π_T_old (= the paper's IS-corrected
