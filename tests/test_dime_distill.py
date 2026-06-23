@@ -114,6 +114,22 @@ def test_validate_kl_estimator_allows_valid_combos():
     validate_kl_estimator_config("k3", beta_teacher=0.0)
 
 
+# --- k3 student KL argument orientation -----------------------------------------
+
+def test_k3_student_kl_orientation_bounded():
+    # KL_S must call kl_penalty_forward(teacher.detach(), student, 'k3'): k3 estimates
+    # KL(A||B) for samples from A, and samples are teacher rollouts. With this order the
+    # student gradient is exp(student-teacher)-1 ∈ (-1,0) when student<teacher (bounded,
+    # pulls student up). The swapped order gives 1-exp(teacher-student), which EXPLODES
+    # (≈ -1+π_T/π_S) for student≪teacher — this test fails under the wrong arg order.
+    from verl.trainer.ppo.core_algos import kl_penalty_forward
+    teacher = torch.tensor([-0.5])
+    student = torch.tensor([-5.0], requires_grad=True)  # far below teacher
+    kl_penalty_forward(teacher.detach(), student, 'k3').sum().backward()
+    g = student.grad.item()
+    assert -1.0 < g < 0.0
+
+
 # --- masked_sample_mean (filter application) -----------------------------------
 
 def test_masked_sample_mean():

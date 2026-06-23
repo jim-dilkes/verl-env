@@ -160,7 +160,15 @@ Paired eval blocks measure **internalization gap**: how much diversity is "rente
 - Template uses `{STEP_TEXT}` placeholder (not f-string)
 - `no_supplement_prob` is REQUIRED when `dime.enabled=true`
 - **Memory:** Two forward passes per micro-batch ≈ 2x activation memory. May need to halve `ppo_micro_batch_size_per_gpu` for DIME+KL runs.
-- KL terms use `kl_penalty_forward` with `'k3'` (Schulman approximation from `core_algos.py`)
+- KL terms use `kl_penalty_forward` with `'k3'` (Schulman approximation from `core_algos.py`).
+  **Argument order matters:** k3 estimates `KL(A||B)` for samples from `A` (first arg).
+  Samples are teacher rollouts, so the first arg must be the (detached) teacher.
+  KL_T = `kl_penalty_forward(teacher, student.detach())` (grad→teacher); KL_S =
+  `kl_penalty_forward(teacher.detach(), student)` (grad→student, bounded). Swapping KL_S's
+  args estimates the wrong divergence with an exploding gradient when π_S≪π_T.
+- **No dynamic batching / balancing under DIME:** the dual forward sizes micro-batches from
+  the base prompt but the teacher forward uses the longer instructed prompt. `dp_actor`
+  raises if `actor.use_dynamic_bsz=True` with DIME; keep `trainer.balance_batch=False` too.
 - Non-instructed samples: teacher == student forward passes produce identical outputs, so KL ≈ 0 and PG losses are equal. Batch sorting puts these first to skip redundant teacher forward.
 
 ## Tests

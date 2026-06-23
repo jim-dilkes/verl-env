@@ -581,6 +581,17 @@ class DataParallelPPOActor(BasePPOActor):
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
 
+        if dime_enabled and self.config.use_dynamic_bsz:
+            # prepare_dynamic_batch sizes micro-batches from the (base/student) attention_mask,
+            # but the DIME teacher forward uses the longer instructed prompt — token budgets can
+            # overflow (OOM) and DP balance is wrong. Reject rather than silently mis-size.
+            # (trainer.balance_batch has the same base-vs-teacher mismatch; keep it False for DIME.)
+            raise NotImplementedError(
+                "DIME dual-forward does not support actor.use_dynamic_bsz=True: micro-batches are "
+                "sized from the base prompt but the teacher forward uses the longer instructed "
+                "prompt. Set actor.use_dynamic_bsz=False (and trainer.balance_batch=False) for DIME."
+            )
+
         metrics = {}
         for _ in range(self.config.ppo_epochs):
             for batch_idx, mini_batch in enumerate(mini_batches):
@@ -792,8 +803,12 @@ class DataParallelPPOActor(BasePPOActor):
                                 pg_loss = pg_loss + dime_kl_beta_teacher * kl_t_agg
                                 micro_batch_metrics["dime/kl_teacher"] = kl_t_agg.detach().item()
                             if dime_kl_beta_student > 0 and student_response_mask.sum() > 0:
-                                # D_KL(π^S || sg(π^T)) — gradient through student, pulls student→teacher
-                                kl_s = kl_penalty_forward(student_log_prob, teacher_log_prob.detach(), 'k3')
+                                # Forward KL D_KL(sg(π^T) || π^S), grad through student → pulls
+                                # student toward teacher. k3 estimates KL(A||B) for samples drawn
+                                # from A (first arg); samples are teacher rollouts, so A MUST be the
+                                # (detached) teacher and B the student. Swapping the args would
+                                # estimate the wrong divergence under the wrong sampling policy.
+                                kl_s = kl_penalty_forward(teacher_log_prob.detach(), student_log_prob, 'k3')
                                 kl_s_agg = agg_loss(kl_s, student_response_mask, loss_agg_mode)
                                 pg_loss = pg_loss + dime_kl_beta_student * kl_s_agg
                                 micro_batch_metrics["dime/kl_student"] = kl_s_agg.detach().item()
