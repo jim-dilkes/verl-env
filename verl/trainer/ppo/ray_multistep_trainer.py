@@ -74,8 +74,10 @@ from verl.envs.environments.focus_instructions import (
     get_dime_instructions,
     has_dime_instructions,
     sample_focus_for_episode,
+    assign_focus_deterministic,
     inject_focus_into_obs,
 )
+from verl.trainer.ppo.distill_kl import compute_kl_filter_keep
 
 
 def _flatten_nested_lists(val):
@@ -842,12 +844,16 @@ class RayMultistepTrainer(object):
 
         n_envs = len(val_obs)
 
-        # DIME: mirror training focus injection during validation
+        # DIME: mirror training focus injection during validation, UNLESS
+        # dime.eval_unconditioned=true (Asymmetric-RL/SD deploys the unconditioned
+        # student, so inline validation should measure it with no focus injected).
         dime_config = getattr(self.config.prompt.prompt, 'dime', None)
         dime_source = getattr(dime_config, 'source', 'specific') if dime_config else 'specific'
+        dime_eval_unconditioned = getattr(dime_config, 'eval_unconditioned', False) if dime_config else False
         val_dime_enabled = (
             dime_config is not None
             and getattr(dime_config, 'enabled', False)
+            and not dime_eval_unconditioned
             and has_dime_instructions(self.config.envs.env_name, dime_source)
         )
         if val_dime_enabled:
@@ -1276,18 +1282,35 @@ class RayMultistepTrainer(object):
                             dime_template = getattr(dime_config, 'template', '') if dime_source == 'specific' else '{STEP_TEXT}'
                             env_name = self.config.envs.env_name
                             dime_instructions = get_dime_instructions(env_name, dime_source)
-                            if self.adaptive_dime is not None:
-                                dime_no_supplement_prob = self.adaptive_dime.get_no_supplement_prob()
+                            dime_assignment = getattr(dime_config, 'assignment', 'stochastic')
+                            if dime_assignment == 'deterministic':
+                                # Covering assignment: exactly n_duplicates of each instruction +
+                                # n_no_instruction unconditioned, shuffled per training step.
+                                focus_per_rollout = assign_focus_deterministic(
+                                    self.config.envs.n_rollouts,
+                                    dime_instructions,
+                                    getattr(dime_config, 'n_duplicates', 1),
+                                    getattr(dime_config, 'n_no_instruction', 0),
+                                    seed=self.global_steps,
+                                )
+                            elif dime_assignment == 'stochastic':
+                                if self.adaptive_dime is not None:
+                                    dime_no_supplement_prob = self.adaptive_dime.get_no_supplement_prob()
+                                else:
+                                    dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', None)
+                                    if dime_no_supplement_prob is None:
+                                        raise ValueError(
+                                            "dime.no_supplement_prob must be set explicitly when dime.enabled=true "
+                                            "with assignment=stochastic (or enable dime.adaptive). "
+                                            "Recommended: 0.125 (12.5% clean rollouts)."
+                                        )
+                                focus_per_rollout = sample_focus_for_episode(
+                                    self.config.envs.n_rollouts, dime_instructions, dime_no_supplement_prob
+                                )
                             else:
-                                dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', None)
-                                if dime_no_supplement_prob is None:
-                                    raise ValueError(
-                                        "dime.no_supplement_prob must be set explicitly when dime.enabled=true "
-                                        "(or enable dime.adaptive). Recommended: 0.125 (12.5% clean rollouts)."
-                                    )
-                            focus_per_rollout = sample_focus_for_episode(
-                                self.config.envs.n_rollouts, dime_instructions, dime_no_supplement_prob
-                            )
+                                raise ValueError(
+                                    f"dime.assignment={dime_assignment!r} must be 'stochastic' or 'deterministic'."
+                                )
                             has_instruction = [f is not None for f in focus_per_rollout]
                             base_prompt_tokens_by_step = []
                             dime_supplement_count = sum(1 for f in focus_per_rollout if f is not None)
@@ -1685,6 +1708,25 @@ class RayMultistepTrainer(object):
                                         has_inst_tensor[sample_idx] = True
                         batch.batch['has_instruction'] = has_inst_tensor
 
+                        # KL_S filter: select which teacher rollouts (episodes) contribute the
+                        # student-branch KL, then broadcast the per-env keep to all its steps.
+                        dime_kl_filter = getattr(dime_config, 'kl_filter', 'none')
+                        dime_kl_filter_top_pct = getattr(dime_config, 'kl_filter_top_pct', 0.5)
+                        keep_per_env = compute_kl_filter_keep(
+                            episode_returns, has_instruction, dime_kl_filter, dime_kl_filter_top_pct,
+                        )
+                        kl_filter_tensor = torch.zeros(batch.batch['input_ids'].shape[0], dtype=torch.float32)
+                        for step_idx in range(episode_len + 1):
+                            for env_idx in range(n_rollouts):
+                                if keep_per_env[env_idx]:
+                                    sample_idx = step_idx * n_rollouts + env_idx
+                                    if sample_idx < kl_filter_tensor.shape[0]:
+                                        kl_filter_tensor[sample_idx] = 1.0
+                        batch.batch['dime_kl_filter_mask'] = kl_filter_tensor
+                        metrics['dime/kl_filter_keep_rate'] = (
+                            sum(keep_per_env) / max(sum(has_instruction), 1)
+                        )
+
                         # Pass DIME config via meta_info
                         dime_alpha = getattr(dime_config, 'alpha', 0.5)
                         dime_kl_beta_teacher = getattr(dime_config, 'kl_beta_teacher', 0.0)
@@ -1692,6 +1734,7 @@ class RayMultistepTrainer(object):
                         batch.meta_info['dime_alpha'] = dime_alpha
                         batch.meta_info['dime_kl_beta_teacher'] = dime_kl_beta_teacher
                         batch.meta_info['dime_kl_beta_student'] = dime_kl_beta_student
+                        batch.meta_info['dime_kl_estimator'] = getattr(dime_config, 'kl_estimator', 'k3')
 
                     if dime_enabled:
                         metrics['dime/supplement_rate'] = dime_supplement_count / self.config.envs.n_rollouts

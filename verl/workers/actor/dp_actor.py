@@ -32,6 +32,7 @@ from torch.distributed.tensor import DTensor
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty, kl_penalty_forward
+from verl.trainer.ppo.distill_kl import compute_distill_kl_mean_logprob, masked_sample_mean
 from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -542,7 +543,8 @@ class DataParallelPPOActor(BasePPOActor):
 
         # DIME parallel optimisation: include teacher data if present
         dime_keys = ["teacher_input_ids", "teacher_attention_mask",
-                     "teacher_position_ids", "teacher_old_log_probs", "has_instruction"]
+                     "teacher_position_ids", "teacher_old_log_probs", "has_instruction",
+                     "dime_kl_filter_mask"]
         for k in dime_keys:
             if k in data.batch.keys():
                 select_keys.append(k)
@@ -551,6 +553,9 @@ class DataParallelPPOActor(BasePPOActor):
         dime_alpha = data.meta_info.get('dime_alpha', 0.5) if dime_enabled else 0
         dime_kl_beta_teacher = data.meta_info.get('dime_kl_beta_teacher', 0.0) if dime_enabled else 0
         dime_kl_beta_student = data.meta_info.get('dime_kl_beta_student', 0.0) if dime_enabled else 0
+        # KL estimator: "k3" (Schulman, per-token) or "mean_logprob" (paper-faithful,
+        # per-sample mean of logprob diff over response tokens).
+        dime_kl_estimator = data.meta_info.get('dime_kl_estimator', 'k3') if dime_enabled else 'k3'
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
@@ -722,25 +727,52 @@ class DataParallelPPOActor(BasePPOActor):
                         else:
                             pg_loss = student_pg_loss
 
-                        # KL terms (instructed-only mask for correct normalisation)
-                        # Use masked response_mask so agg_loss normalises by instructed tokens only
+                        # KL terms. Teacher branch (KL_T) is averaged over all instructed
+                        # samples. Student branch (KL_S) is additionally restricted to the
+                        # teacher rollouts selected by the trainer's filter
+                        # (dime_kl_filter_mask; absent ⇒ all instructed) — the paper's
+                        # correctness/top-pct filter on the distillation target.
                         has_inst_f = has_inst.float().unsqueeze(-1)  # (bsz, 1)
                         inst_response_mask = response_mask * has_inst_f
 
-                        if dime_kl_beta_teacher > 0 and has_inst.any():
-                            # kl_penalty_forward(logprob=A, ref_logprob=B, 'k3') ≈ D_KL(πA || πB)
-                            # Here: D_KL(π^T || sg(π^S)) — gradient through teacher, pulls teacher→student
-                            kl_t = kl_penalty_forward(teacher_log_prob, student_log_prob.detach(), 'k3')
-                            kl_t_agg = agg_loss(kl_t, inst_response_mask, loss_agg_mode)
-                            pg_loss = pg_loss + dime_kl_beta_teacher * kl_t_agg
-                            micro_batch_metrics["dime/kl_teacher"] = kl_t_agg.detach().item()
+                        kl_filter_mask = model_inputs.get('dime_kl_filter_mask', None)
+                        if kl_filter_mask is not None:
+                            keep_s = has_inst.float() * kl_filter_mask.float()  # (bsz,)
+                        else:
+                            keep_s = has_inst.float()
+                        student_response_mask = response_mask * keep_s.unsqueeze(-1)
 
-                        if dime_kl_beta_student > 0 and has_inst.any():
-                            # D_KL(π^S || sg(π^T)) — gradient through student, pulls student→teacher
-                            kl_s = kl_penalty_forward(student_log_prob, teacher_log_prob.detach(), 'k3')
-                            kl_s_agg = agg_loss(kl_s, inst_response_mask, loss_agg_mode)
-                            pg_loss = pg_loss + dime_kl_beta_student * kl_s_agg
-                            micro_batch_metrics["dime/kl_student"] = kl_s_agg.detach().item()
+                        if dime_kl_estimator == 'mean_logprob':
+                            # Paper-faithful: per-sample mean of logprob diff over response tokens.
+                            kl_t_seq, kl_s_seq = compute_distill_kl_mean_logprob(
+                                student_log_prob, teacher_log_prob, response_mask,
+                            )
+                            if dime_kl_beta_teacher > 0 and has_inst.any():
+                                kl_t_term = masked_sample_mean(kl_t_seq, has_inst.float())
+                                pg_loss = pg_loss + dime_kl_beta_teacher * kl_t_term
+                                micro_batch_metrics["dime/kl_teacher"] = kl_t_term.detach().item()
+                            if dime_kl_beta_student > 0 and has_inst.any():
+                                kl_s_term = masked_sample_mean(kl_s_seq, keep_s)
+                                pg_loss = pg_loss + dime_kl_beta_student * kl_s_term
+                                micro_batch_metrics["dime/kl_student"] = kl_s_term.detach().item()
+                                micro_batch_metrics["dime/kl_student_keep_frac"] = (
+                                    keep_s.sum() / has_inst.float().sum().clamp_min(1.0)
+                                ).detach().item()
+                        else:
+                            # k3 (Schulman) per-token estimator (branch default).
+                            if dime_kl_beta_teacher > 0 and has_inst.any():
+                                # kl_penalty_forward(logprob=A, ref_logprob=B, 'k3') ≈ D_KL(πA || πB)
+                                # Here: D_KL(π^T || sg(π^S)) — gradient through teacher, pulls teacher→student
+                                kl_t = kl_penalty_forward(teacher_log_prob, student_log_prob.detach(), 'k3')
+                                kl_t_agg = agg_loss(kl_t, inst_response_mask, loss_agg_mode)
+                                pg_loss = pg_loss + dime_kl_beta_teacher * kl_t_agg
+                                micro_batch_metrics["dime/kl_teacher"] = kl_t_agg.detach().item()
+                            if dime_kl_beta_student > 0 and has_inst.any():
+                                # D_KL(π^S || sg(π^T)) — gradient through student, pulls student→teacher
+                                kl_s = kl_penalty_forward(student_log_prob, teacher_log_prob.detach(), 'k3')
+                                kl_s_agg = agg_loss(kl_s, student_response_mask, loss_agg_mode)
+                                pg_loss = pg_loss + dime_kl_beta_student * kl_s_agg
+                                micro_batch_metrics["dime/kl_student"] = kl_s_agg.detach().item()
 
                         # Log DIME metrics
                         teacher_loss_val = teacher_pg_loss.detach().item()

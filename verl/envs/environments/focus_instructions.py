@@ -95,6 +95,57 @@ def sample_focus_for_episode(
     return result
 
 
+def validate_deterministic_assignment(
+    n_rollouts: int,
+    n_instructions: int,
+    n_duplicates: int,
+    n_no_instruction: int,
+) -> None:
+    """Assert the deterministic group fills exactly n_rollouts.
+
+    group_size = n_instructions * n_duplicates + n_no_instruction must equal
+    n_rollouts (mirrors OpenRLHF DICEConfig.group_size).
+    """
+    if n_duplicates < 1:
+        raise ValueError(f"dime.n_duplicates={n_duplicates} must be >= 1.")
+    if n_no_instruction < 0:
+        raise ValueError(f"dime.n_no_instruction={n_no_instruction} must be >= 0.")
+    group_size = n_instructions * n_duplicates + n_no_instruction
+    if group_size != n_rollouts:
+        raise ValueError(
+            f"deterministic DIME assignment: n_instructions*n_duplicates + "
+            f"n_no_instruction = {n_instructions}*{n_duplicates} + {n_no_instruction} "
+            f"= {group_size} != n_rollouts ({n_rollouts}). Adjust n_duplicates / "
+            f"n_no_instruction so the group fills exactly n_rollouts."
+        )
+
+
+def assign_focus_deterministic(
+    n_rollouts: int,
+    instructions: list[str],
+    n_duplicates: int,
+    n_no_instruction: int,
+    seed: int,
+) -> list[Optional[str]]:
+    """Deterministic covering assignment of focuses across a task group.
+
+    Builds exactly n_duplicates copies of each instruction plus n_no_instruction
+    unconditioned (None) slots, then shuffles per group using `seed` so the
+    instruction identity is decorrelated from rollout index (mirrors OpenRLHF
+    DICEAugmentor base-assignment + per-prompt shuffle) while remaining
+    reproducible. Requires the group-size constraint (validated).
+    """
+    validate_deterministic_assignment(
+        n_rollouts, len(instructions), n_duplicates, n_no_instruction
+    )
+    assignment: list[Optional[str]] = []
+    for instr in instructions:
+        assignment.extend([instr] * n_duplicates)
+    assignment.extend([None] * n_no_instruction)
+    rng = random.Random(seed)
+    rng.shuffle(assignment)
+    return assignment
+
 
 def inject_focus_into_obs(
     obs_vec: list[list[dict]],

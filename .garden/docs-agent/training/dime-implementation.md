@@ -57,12 +57,35 @@ In `dp_actor.py` `update_policy`:
 prompt.prompt.dime:
   enabled: false          # master toggle
   source: "specific"      # "specific" (env instructions + template) or "generic" (standalone principles)
-  no_supplement_prob: 0.125 # REQUIRED when enabled. No auto-compute — must be explicit.
-  alpha: 0.5              # teacher/student PG loss weighting: α*L_teacher + (1-α)*L_student
-  kl_beta_teacher: 0.0    # coefficient for D_KL(π^T || sg(π^S))
-  kl_beta_student: 0.0    # coefficient for D_KL(sg(π^T) || π^S)
+  assignment: stochastic  # stochastic | deterministic (covering: n_duplicates each + n_no_instruction)
+  no_supplement_prob: 0.125 # stochastic mode only. No auto-compute — must be explicit.
+  n_duplicates: 1         # deterministic mode: copies of EACH instruction per group (n_rollouts)
+  n_no_instruction: 3     # deterministic mode: unconditioned samples per group
+  alpha: 0.5              # teacher/student PG weighting: α·L_teacher + (1-α)·L_student (Asymmetric-RL/SD: 1.0)
+  kl_beta_teacher: 0.0    # coefficient for D_KL(π^T || sg(π^S)) — teacher→student
+  kl_beta_student: 0.0    # coefficient for D_KL(sg(π^T) || π^S) — student→teacher
+  kl_estimator: k3        # k3 (Schulman per-token) | mean_logprob (paper-faithful per-sample logprob diff)
+  kl_filter: none         # KL_S target filter: none | return_positive | top_pct
+  kl_filter_top_pct: 0.5  # top_pct: fraction of instructed episodes (by return) kept
+  eval_unconditioned: false # inline _validate() skips focus injection (measure deployed student)
   template: '...'         # focus instruction template with {STEP_TEXT} placeholder
 ```
+
+### Asymmetric-RL/SD variation (paper-faithful)
+The EMNLP-26 ICE π-distill "Asymmetric-RL/SD" config = `alpha=1.0` (teacher-only RL),
+`kl_beta_student>0`, `kl_beta_teacher=0`, `kl_estimator=mean_logprob`, and a KL_S filter
+(`return_positive` / `top_pct`). The student forward still runs at α=1 (needed for KL_S);
+only the (1-α) student PG term vanishes.
+- **kl_estimator=mean_logprob** (`verl/trainer/ppo/distill_kl.py`): per-sample mean over
+  response tokens of `sg(logπ_T) − logπ_S` (KL_S) / `logπ_T − sg(logπ_S)` (KL_T). Student &
+  teacher share response tokens + response_mask in dp_actor, so means are taken over one
+  shared index set. `k3` (branch default) is preserved as an option.
+- **kl_filter** restricts KL_S to selected teacher rollouts (whole episodes, broadcast to
+  steps). Keep-set computed in trainer (`compute_kl_filter_keep`, has episode returns),
+  passed to actor as per-sample `dime_kl_filter_mask`; actor applies it to KL_S only.
+- **assignment=deterministic** (`assign_focus_deterministic`): exactly n_duplicates of each
+  instruction + n_no_instruction unconditioned per group, shuffled per training step.
+  Requires `n_instructions*n_duplicates + n_no_instruction == n_rollouts`.
 
 ### Instruction Sources
 - **`specific`**: Environment-specific instructions from `FOCUS_REGISTRY` (e.g., Overcooked [How to Cook] steps). Wrapped in deliberative `template`.
@@ -97,15 +120,20 @@ prompt.prompt.dime.adaptive:
 - `dime/teacher_pg_loss` — teacher policy gradient loss
 - `dime/student_pg_loss` — student policy gradient loss
 - `dime/alpha` — teacher/student weighting
-- `dime/kl_teacher` — D_KL(π^T || sg(π^S)) (when kl_beta_teacher > 0)
-- `dime/kl_student` — D_KL(sg(π^T) || π^S) (when kl_beta_student > 0)
+- `dime/kl_teacher` — teacher-branch KL (when kl_beta_teacher > 0)
+- `dime/kl_student` — student-branch KL (when kl_beta_student > 0)
+- `dime/kl_student_keep_frac` — (mean_logprob path) fraction of instructed samples kept by the KL_S filter, per micro-batch
+- `dime/kl_filter_keep_rate` — (trainer) fraction of instructed episodes selected by kl_filter
 - `dime/teacher_*` — teacher-specific PG sub-metrics
 - `dime/student_*` — student-specific PG sub-metrics
 
 ## Validation & Evaluation Injection
 
 ### Validation (`_validate()`)
-Always injects focus when `dime.enabled=True`. Mirrors training generation conditions exactly.
+Injects focus when `dime.enabled=True`, UNLESS `dime.eval_unconditioned=true` (then no
+injection — measures the deployed unconditioned student, e.g. for Asymmetric-RL/SD).
+For tracking BOTH with- and without-focus performance, use the split eval specs in
+`multi_env_evaluator.py` (`inherit_dime` + `dime_proportion`).
 
 ### Evaluation (`multi_env_evaluator.py`)
 Per-env opt-in via `inherit_dime: true` in eval environment config. Default is `false`.
