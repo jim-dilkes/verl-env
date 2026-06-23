@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DIME_ASYM_bS01_r16_201
+#SBATCH --job-name=DIME_ASYM_bS01_filt_r16_202
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=350GB
@@ -26,10 +26,10 @@
 
 # --- Define experiment variables ---
 project_name=rl_sdm
-experiment_name=OC_4B_DIME_ASYM_bS01_r16
-run_number=201
+experiment_name=OC_4B_DIME_ASYM_bS01_filt_r16
+run_number=202
 number_of_gpus=2
-WANDB_TAGS='["DIME","asymmetric_rlsd","mean_logprob","alpha1","kl_filter_none"]'
+WANDB_TAGS='["DIME","asymmetric_rlsd","mean_logprob","alpha1","kl_filter_return_positive"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -193,7 +193,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   prompt.prompt.dime.kl_beta_teacher=0.0 \
   prompt.prompt.dime.kl_beta_student=0.1 \
   prompt.prompt.dime.kl_estimator=mean_logprob \
-  prompt.prompt.dime.kl_filter=none \
+  prompt.prompt.dime.kl_filter=return_positive \
   prompt.prompt.dime.eval_unconditioned=true \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
