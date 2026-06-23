@@ -714,6 +714,14 @@ class DataParallelPPOActor(BasePPOActor):
                         # Teacher PG loss (instructed prompt old_log_probs)
                         # For non-instructed samples: teacher_old_log_probs == old_log_probs by construction
                         # (inject_focus_into_obs skips None entries, so prompts are identical)
+                        #
+                        # rollout_is_weights are NOT applied to the teacher term: they are computed
+                        # as π_train(base) / π_rollout from the post-swap base old_log_probs, so the
+                        # numerator is the student/base policy. The teacher anchor is
+                        # teacher_old_log_probs (instructed), so those weights are the wrong policy
+                        # ratio for the teacher. Passing None (no rollout correction) is safer than
+                        # a wrong correction. TODO(V2): proper teacher-context rollout IS
+                        # (exp(teacher_old_log_probs - rollout_log_probs), clamped via rollout_corr_helper).
                         teacher_old_log_prob = model_inputs['teacher_old_log_probs']
                         teacher_pg_loss, teacher_pg_metrics = policy_loss_fn(
                             old_log_prob=teacher_old_log_prob,
@@ -722,7 +730,7 @@ class DataParallelPPOActor(BasePPOActor):
                             response_mask=response_mask,
                             loss_agg_mode=loss_agg_mode,
                             config=self.config,
-                            rollout_is_weights=rollout_is_weights,
+                            rollout_is_weights=None,
                         )
 
                         # Combined PG:
@@ -772,14 +780,18 @@ class DataParallelPPOActor(BasePPOActor):
                                 ).detach().item()
                         else:
                             # k3 (Schulman) per-token estimator (branch default).
-                            if dime_kl_beta_teacher > 0 and has_inst.any():
+                            # Guard on mask.sum()>0 (not just has_inst.any()): the KL_S filter
+                            # can keep zero instructed rows (e.g. return_positive early in
+                            # training), making student_response_mask all-zero → agg_loss
+                            # token-mean would divide by 0 → NaN.
+                            if dime_kl_beta_teacher > 0 and inst_response_mask.sum() > 0:
                                 # kl_penalty_forward(logprob=A, ref_logprob=B, 'k3') ≈ D_KL(πA || πB)
                                 # Here: D_KL(π^T || sg(π^S)) — gradient through teacher, pulls teacher→student
                                 kl_t = kl_penalty_forward(teacher_log_prob, student_log_prob.detach(), 'k3')
                                 kl_t_agg = agg_loss(kl_t, inst_response_mask, loss_agg_mode)
                                 pg_loss = pg_loss + dime_kl_beta_teacher * kl_t_agg
                                 micro_batch_metrics["dime/kl_teacher"] = kl_t_agg.detach().item()
-                            if dime_kl_beta_student > 0 and has_inst.any():
+                            if dime_kl_beta_student > 0 and student_response_mask.sum() > 0:
                                 # D_KL(π^S || sg(π^T)) — gradient through student, pulls student→teacher
                                 kl_s = kl_penalty_forward(student_log_prob, teacher_log_prob.detach(), 'k3')
                                 kl_s_agg = agg_loss(kl_s, student_response_mask, loss_agg_mode)

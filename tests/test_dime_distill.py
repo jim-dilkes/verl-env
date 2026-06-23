@@ -17,6 +17,7 @@ from verl.trainer.ppo.distill_kl import (
 from verl.envs.environments.focus_instructions import (
     assign_focus_deterministic,
     validate_deterministic_assignment,
+    has_dime_instructions,
 )
 
 
@@ -76,6 +77,21 @@ def test_kl_grad_directions():
     kl_t.sum().backward()
     assert teacher.grad is not None and teacher.grad.abs().sum() > 0  # teacher-branch grad
     assert student.grad is None                                       # student detached in KL_T
+
+
+# --- source registration invariant (motivates config defaults) -----------------
+
+def test_generic_source_always_available():
+    assert has_dime_instructions("snake", "generic") is True
+    assert has_dime_instructions("babyai", "generic") is True
+
+
+def test_specific_source_only_for_registered_envs():
+    # Only overcooked registers specific instructions; non-overcooked prompt configs
+    # must default to source=generic or DIME-enable raises immediately.
+    assert has_dime_instructions("overcooked", "specific") is True
+    assert has_dime_instructions("snake", "specific") is False
+    assert has_dime_instructions("babyai", "specific") is False
 
 
 # --- estimator/teacher-KL config validation ------------------------------------

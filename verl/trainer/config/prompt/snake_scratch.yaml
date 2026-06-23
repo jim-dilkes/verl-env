@@ -45,7 +45,7 @@ prompt:
   # DIME (Diverse Instruction-Masked Exploration) config
   dime:
     enabled: false
-    source: "specific"        # "specific" (env instructions + template) or "generic" (standalone principles)
+    source: "generic"        # "specific" (env instructions + template) or "generic" (standalone principles)
     no_supplement_prob: 0.125  # REQUIRED when enabled. Fixed across conditions.
     alpha: 0.5                # teacher/student PG loss weighting: α*L_teacher + (1-α)*L_student
     kl_beta_teacher: 0.0      # coefficient for D_KL(π^T || sg(π^S)) — constrains teacher toward student
