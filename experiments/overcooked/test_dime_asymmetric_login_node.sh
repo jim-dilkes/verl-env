@@ -12,6 +12,7 @@
 # smoke-test deterministic assignment separately.
 
 set -e
+set -o pipefail  # fail if python crashes despite the `| tee` at the end
 
 project_name=verl_env
 experiment_name=test_dime_asymmetric_login_node

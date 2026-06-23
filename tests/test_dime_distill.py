@@ -41,6 +41,27 @@ def test_kl_mean_logprob_respects_mask():
     assert torch.allclose(kl_s, torch.tensor([(-0.5 + -0.5) / 2 - (-1.0 + -2.0) / 2]))
 
 
+def test_kl_zero_token_row_is_zero_not_nan():
+    # Terminal/empty row (all-zero mask) must yield finite 0 KL (verl masked_mean +1e-8),
+    # so it can be safely excluded by a valid-row mask without poisoning the sum.
+    student = torch.tensor([[-1.0, -2.0], [0.0, 0.0]])
+    teacher = torch.tensor([[-0.5, -0.5], [0.0, 0.0]])
+    mask = torch.tensor([[1.0, 1.0], [0.0, 0.0]])  # row 1 empty
+    kl_t, kl_s = compute_distill_kl_mean_logprob(student, teacher, mask)
+    assert torch.isfinite(kl_s).all() and torch.isfinite(kl_t).all()
+    assert kl_s[1].item() == 0.0
+
+
+def test_dilution_fix_excludes_empty_rows():
+    # Regression for P1: an empty instructed row (KL 0) must NOT dilute the per-sample
+    # mean. keep weighting by valid-rows recovers the true mean over real rows.
+    kl_s_seq = torch.tensor([2.0, 0.0])      # row1 is the empty terminal row
+    keep = torch.tensor([1.0, 1.0])          # both instructed (broadcast over steps)
+    valid = torch.tensor([1.0, 0.0])         # row1 has no response tokens
+    assert masked_sample_mean(kl_s_seq, keep).item() == pytest.approx(1.0)        # diluted
+    assert masked_sample_mean(kl_s_seq, keep * valid).item() == pytest.approx(2.0)  # fixed
+
+
 def test_kl_grad_directions():
     student = torch.tensor([[-1.0, -2.0]], requires_grad=True)
     teacher = torch.tensor([[-0.5, -0.5]], requires_grad=True)

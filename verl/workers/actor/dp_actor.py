@@ -556,6 +556,10 @@ class DataParallelPPOActor(BasePPOActor):
         # KL estimator: "k3" (Schulman, per-token) or "mean_logprob" (paper-faithful,
         # per-sample mean of logprob diff over response tokens).
         dime_kl_estimator = data.meta_info.get('dime_kl_estimator', 'k3') if dime_enabled else 'k3'
+        if dime_kl_estimator not in ('k3', 'mean_logprob'):
+            raise ValueError(
+                f"dime.kl_estimator={dime_kl_estimator!r} must be 'k3' or 'mean_logprob'."
+            )
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
@@ -744,19 +748,25 @@ class DataParallelPPOActor(BasePPOActor):
 
                         if dime_kl_estimator == 'mean_logprob':
                             # Paper-faithful: per-sample mean of logprob diff over response tokens.
+                            # Exclude rows with no response tokens (e.g. the terminal observation
+                            # row, broadcast as instructed) so they don't dilute the per-sample
+                            # mean's denominator — their KL is 0 but they'd still be counted.
+                            valid_rows = (response_mask.sum(-1) > 0).to(keep_s.dtype)  # (bsz,)
+                            keep_t = has_inst.float() * valid_rows
+                            keep_s_valid = keep_s * valid_rows
                             kl_t_seq, kl_s_seq = compute_distill_kl_mean_logprob(
                                 student_log_prob, teacher_log_prob, response_mask,
                             )
                             if dime_kl_beta_teacher > 0 and has_inst.any():
-                                kl_t_term = masked_sample_mean(kl_t_seq, has_inst.float())
+                                kl_t_term = masked_sample_mean(kl_t_seq, keep_t)
                                 pg_loss = pg_loss + dime_kl_beta_teacher * kl_t_term
                                 micro_batch_metrics["dime/kl_teacher"] = kl_t_term.detach().item()
                             if dime_kl_beta_student > 0 and has_inst.any():
-                                kl_s_term = masked_sample_mean(kl_s_seq, keep_s)
+                                kl_s_term = masked_sample_mean(kl_s_seq, keep_s_valid)
                                 pg_loss = pg_loss + dime_kl_beta_student * kl_s_term
                                 micro_batch_metrics["dime/kl_student"] = kl_s_term.detach().item()
                                 micro_batch_metrics["dime/kl_student_keep_frac"] = (
-                                    keep_s.sum() / has_inst.float().sum().clamp_min(1.0)
+                                    keep_s_valid.sum() / keep_t.sum().clamp_min(1.0)
                                 ).detach().item()
                         else:
                             # k3 (Schulman) per-token estimator (branch default).
