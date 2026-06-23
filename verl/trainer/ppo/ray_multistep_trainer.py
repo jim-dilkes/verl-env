@@ -577,6 +577,22 @@ class RayMultistepTrainer(object):
         assert real_train_batch_size % n_gpus == 0, \
             f"real_train_batch_size ({real_train_batch_size}) must be divisible by total n_gpus ({n_gpus})."
 
+        # DIME: fail fast at startup (not at training step 1) on a misconfigured
+        # deterministic assignment or an unregistered specific-instruction source.
+        dime_cfg = getattr(config.prompt.prompt, 'dime', None) if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt') else None
+        if dime_cfg is not None and getattr(dime_cfg, 'enabled', False):
+            from verl.envs.environments.focus_instructions import (
+                get_dime_instructions, validate_deterministic_assignment,
+            )
+            _dime_src = getattr(dime_cfg, 'source', 'specific')
+            _dime_instr = get_dime_instructions(config.envs.env_name, _dime_src)
+            if getattr(dime_cfg, 'assignment', 'stochastic') == 'deterministic':
+                validate_deterministic_assignment(
+                    config.envs.n_rollouts, len(_dime_instr),
+                    getattr(dime_cfg, 'n_duplicates', 1),
+                    getattr(dime_cfg, 'n_no_instruction', 0),
+                )
+
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
         def check_mutually_exclusive(mbs, mbs_per_gpu, name: str):

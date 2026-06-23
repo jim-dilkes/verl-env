@@ -169,6 +169,12 @@ Paired eval blocks measure **internalization gap**: how much diversity is "rente
 - **No dynamic batching / balancing under DIME:** the dual forward sizes micro-batches from
   the base prompt but the teacher forward uses the longer instructed prompt. `dp_actor`
   raises if `actor.use_dynamic_bsz=True` with DIME; keep `trainer.balance_batch=False` too.
+- **Student & teacher PG share the `teacher_old_log_probs` anchor.** Both terms are
+  estimated on teacher rollouts, so the PPO behaviour anchor is the old teacher policy:
+  teacher ratio = π_T/π_T_old, student ratio = π_S/π_T_old (= the paper's IS-corrected
+  `J_S^R = E_{π_T}[(π_S/sg[π_T])·R]`). For non-instructed rows teacher_old == base
+  old_log_probs by construction, so they're unaffected. Neither term applies
+  `rollout_is_weights` (those are base-context, wrong for a teacher anchor).
 - Non-instructed samples: teacher == student forward passes produce identical outputs, so KL ≈ 0 and PG losses are equal. Batch sorting puts these first to skip redundant teacher forward.
 
 ## Tests
@@ -204,18 +210,6 @@ generalization of the hard `kl_filter`.
   per-sample (like `dime_kl_filter_mask`), apply as a weighted mean in the actor's
   `mean_logprob` path (extend `masked_sample_mean`). Sketch: `dime.kl_weight: none|awr`,
   `dime.kl_weight_temp: <τ>`; consider capping max weight.
-
-### α<1 student reward is not IS-corrected (spec deviation)
-The paper's student reward term is `J_S^R = E_{π_T}[(π_S/sg[π_T])·R]` — an importance
-ratio from the teacher (sampling) policy to the student. The implementation's
-`student_pg_loss` instead uses standard PPO with the **base** old_log_probs anchor
-(ratio π_S/π_S_base), i.e. a proximal trust-region update, NOT the IS ratio to the
-teacher. This is **moot at α=1** (student reward weight = 0, the validated config) but
-means **0<α<1 runs (e.g. the DIME_a05_* sweeps) are not paper-faithful** for the
-student reward term — they're a defensible "strip-and-retrain with proximal anchor"
-variant, not `J_S^R`. To make α<1 faithful, anchor student_pg_loss on
-`teacher_old_log_probs` (sg[π_T]) so the ratio is π_S/π_T. Decide per experiment whether
-the variant or the paper form is wanted.
 
 ### k3 teacher KL is also a heuristic (β_T>0 exploratory)
 k3-on-teacher's autograd gives only the pathwise `1 − π_S/π_T` gradient; a faithful

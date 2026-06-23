@@ -565,6 +565,14 @@ class DataParallelPPOActor(BasePPOActor):
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        # DIME's teacher forward reuses the student dict's multi_modal_inputs unchanged,
+        # which would be stale for the (different-length) teacher sequence. DIME targets
+        # text-only envs; reject multimodal rather than silently mis-condition the teacher.
+        if dime_enabled and has_multi_modal_inputs:
+            raise NotImplementedError(
+                "DIME dual-forward does not support multi_modal_inputs: the teacher forward "
+                "would reuse the student's multimodal features for a different sequence."
+            )
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
@@ -711,15 +719,23 @@ class DataParallelPPOActor(BasePPOActor):
                         else:
                             teacher_log_prob = student_log_prob
 
-                        # Student PG loss (base prompt old_log_probs)
+                        # Student PG loss — paper-faithful J_S^R = E_{π_T}[(π_S/sg[π_T])·R].
+                        # The samples are teacher rollouts, so the PPO behaviour anchor is the
+                        # (old) teacher policy: ratio = π_S_current / π_T_old = teacher importance
+                        # ratio (NOT a base-vs-base proximal ratio). teacher_old_log_probs == base
+                        # old_log_probs for non-instructed rows by construction, so those are
+                        # unaffected. rollout_is_weights are dropped here for the same reason as the
+                        # teacher term: they are base-context (π_train_base / π_rollout), the wrong
+                        # context for a teacher-anchored ratio. TODO(V2): teacher-context rollout IS.
+                        teacher_old_log_prob = model_inputs['teacher_old_log_probs']
                         student_pg_loss, student_pg_metrics = policy_loss_fn(
-                            old_log_prob=old_log_prob,
+                            old_log_prob=teacher_old_log_prob,
                             log_prob=student_log_prob,
                             advantages=advantages,
                             response_mask=response_mask,
                             loss_agg_mode=loss_agg_mode,
                             config=self.config,
-                            rollout_is_weights=rollout_is_weights,
+                            rollout_is_weights=None,
                         )
 
                         # Teacher PG loss (instructed prompt old_log_probs)
@@ -733,7 +749,7 @@ class DataParallelPPOActor(BasePPOActor):
                         # ratio for the teacher. Passing None (no rollout correction) is safer than
                         # a wrong correction. TODO(V2): proper teacher-context rollout IS
                         # (exp(teacher_old_log_probs - rollout_log_probs), clamped via rollout_corr_helper).
-                        teacher_old_log_prob = model_inputs['teacher_old_log_probs']
+                        # teacher_old_log_prob defined above (shared anchor with the student term).
                         teacher_pg_loss, teacher_pg_metrics = policy_loss_fn(
                             old_log_prob=teacher_old_log_prob,
                             log_prob=teacher_log_prob,
