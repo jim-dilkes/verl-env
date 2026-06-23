@@ -166,7 +166,35 @@ Paired eval blocks measure **internalization gap**: how much diversity is "rente
 - `tests/test_dime_dual_tokenize.py` — tokenization shape/content consistency [P0] (requires model)
 - `tests/test_dime_swap.py` — swap correctness + gold standard [P0]
 - `tests/test_dime_edge_cases.py` — single rollout, zero episode, empty response [P1]
+- `tests/test_dime_distill.py` — mean_logprob KL (values/grad directions), kl_filter modes, deterministic assignment [P0]
 - `experiments/overcooked/test_dime_login_node.sh` — parallel opt without KL (α=0.5, β=0)
 - `experiments/overcooked/test_dime_kl_login_node.sh` — parallel opt with KL (α=0.5, β=0.01)
+- `experiments/overcooked/test_dime_asymmetric_login_node.sh` — Asymmetric-RL/SD (α=1, mean_logprob KL_S, return_positive filter, eval_unconditioned)
 
 Run with: `PYTHONPATH=. python tests/test_dime_swap.py`
+
+## Future work (V2)
+
+### Advantage-weighted KL_S (AWR-style)
+Weight the per-sample KL_S distillation term by the teacher rollout's advantage so the
+student is pulled harder toward high-advantage teacher trajectories — a *soft*
+generalization of the hard `kl_filter`.
+
+- **Do NOT use raw signed (GRPO) advantages.** KL_S = `mean_t(sg[logπ_T] − logπ_S)`;
+  minimizing raises `logπ_S` on teacher tokens (bounded, logπ_S ≤ 0). A *negative* weight
+  flips the gradient to lower `logπ_S`, which is **unbounded below** (cross-entropy → +∞):
+  the student drives those actions' probability toward 0 with no minimum → anti-distillation
+  collapse / instability (not clipped like the PPO surrogate).
+- **Use positive, mean-normalized weights** (Advantage-Weighted Regression / RWR):
+  `w_i = N·softmax(A_i/τ)` → always >0, mean ≈ 1, preserves overall KL_S magnitude while
+  reallocating emphasis. `τ→∞` = uniform (current); `τ→0` = only the best rollout. The hard
+  `kl_filter` (top_pct/return_positive) is a hard special case of this soft weighting.
+- **Advantage source (multi-step):** per-episode group-normalized `episode_returns` (same
+  basis as the filter's per-episode keep), broadcast to steps. Compute in the trainer, pass
+  per-sample (like `dime_kl_filter_mask`), apply as a weighted mean in the actor's
+  `mean_logprob` path (extend `masked_sample_mean`). Sketch: `dime.kl_weight: none|awr`,
+  `dime.kl_weight_temp: <τ>`; consider capping max weight.
+
+### Per-focus eval breakdown + per-trajectory milestone tracking
+Pin each focus to its own eval condition (reuse `assign_focus_deterministic`); track which
+ordered sub-task milestone each trajectory reaches (from env info / shaped-reward events).
