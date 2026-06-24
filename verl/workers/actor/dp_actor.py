@@ -31,7 +31,12 @@ from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
+from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty, kl_penalty_forward
+from verl.trainer.ppo.distill_kl import (
+    compute_distill_kl_mean_logprob,
+    masked_sample_mean,
+    validate_kl_estimator_config,
+)
 from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -540,16 +545,60 @@ class DataParallelPPOActor(BasePPOActor):
         if "rollout_log_probs" in data.batch.keys():
             select_keys.append("rollout_log_probs")
 
+        # ICE parallel optimisation: include teacher data if present
+        ice_keys = ["teacher_input_ids", "teacher_attention_mask",
+                     "teacher_position_ids", "teacher_old_log_probs", "has_instruction",
+                     "ice_kl_filter_mask"]
+        for k in ice_keys:
+            if k in data.batch.keys():
+                select_keys.append(k)
+
+        ice_enabled = "teacher_input_ids" in data.batch.keys()
+        ice_alpha = data.meta_info.get('ice_alpha', 0.5) if ice_enabled else 0
+        ice_kl_beta_teacher = data.meta_info.get('ice_kl_beta_teacher', 0.0) if ice_enabled else 0
+        ice_kl_beta_student = data.meta_info.get('ice_kl_beta_student', 0.0) if ice_enabled else 0
+        # KL estimator: "k3" (Schulman, per-token) or "mean_logprob" (paper-faithful,
+        # per-sample mean of logprob diff over response tokens).
+        ice_kl_estimator = data.meta_info.get('ice_kl_estimator', 'k3') if ice_enabled else 'k3'
+        if ice_enabled:
+            validate_kl_estimator_config(ice_kl_estimator, ice_kl_beta_teacher)
+
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        # ICE's teacher forward reuses the student dict's multi_modal_inputs unchanged,
+        # which would be stale for the (different-length) teacher sequence. ICE targets
+        # text-only envs; reject multimodal rather than silently mis-condition the teacher.
+        if ice_enabled and has_multi_modal_inputs:
+            raise NotImplementedError(
+                "ICE dual-forward does not support multi_modal_inputs: the teacher forward "
+                "would reuse the student's multimodal features for a different sequence."
+            )
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
+
+        # ICE: sort so non-instructed samples come first → early micro-batches skip
+        # redundant teacher forward pass. Safe: _balance_batch already reorders,
+        # data.reorder() moves all tensors together, micro-batches are independent.
+        if ice_enabled:
+            sort_idx = torch.argsort(data.batch['has_instruction'].long())  # False(0) first
+            data.reorder(sort_idx)
 
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
         mini_batches = data.split(self.config.ppo_mini_batch_size)
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
+
+        if ice_enabled and self.config.use_dynamic_bsz:
+            # prepare_dynamic_batch sizes micro-batches from the (base/student) attention_mask,
+            # but the ICE teacher forward uses the longer instructed prompt — token budgets can
+            # overflow (OOM) and DP balance is wrong. Reject rather than silently mis-size.
+            # (trainer.balance_batch has the same base-vs-teacher mismatch; keep it False for ICE.)
+            raise NotImplementedError(
+                "ICE dual-forward does not support actor.use_dynamic_bsz=True: micro-batches are "
+                "sized from the base prompt but the teacher forward uses the longer instructed "
+                "prompt. Set actor.use_dynamic_bsz=False (and trainer.balance_batch=False) for ICE."
+            )
 
         metrics = {}
         for _ in range(self.config.ppo_epochs):
@@ -596,62 +645,206 @@ class DataParallelPPOActor(BasePPOActor):
                     else:
                         loss_scale_factor = 1 / self.gradient_accumulation
 
-                    # all return: (bsz, response_length)
-                    forward_out = self._forward_micro_batch(
-                        model_inputs,
-                        temperature=temperature,
-                        calculate_entropy=calculate_entropy,
-                        entropy_top_p=entropy_top_p,
-                    )
-                    log_prob = forward_out.log_probs
-                    entropy = forward_out.entropy_top_p
-                    entropy_full = forward_out.entropy_full
-
-                    # for fully_async_policy recipe
-                    if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
-                        old_log_prob = model_inputs["old_log_probs"]
-                    else:
-                        if on_policy:
-                            old_log_prob = log_prob.detach()
-                        else:
-                            old_log_prob = model_inputs["old_log_probs"]
-
                     loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
-                    # vanilla -> verl.trainer.ppo.core_algos.compute_policy_loss_vanilla
-
-                    # Extract pre-computed rollout correction weights if present
-                    # Weights are computed centrally in trainer and added when algorithm.rollout_is=True
+                    policy_loss_fn = get_policy_loss_fn(loss_mode)
                     rollout_is_weights = model_inputs.get("rollout_is_weights", None)
 
-                    # gpg -> verl.trainer.ppo.core_algos.compute_policy_loss_gpg
-                    # clip_cov -> verl.trainer.ppo.core_algos.compute_policy_loss_clip_cov
-                    policy_loss_fn = get_policy_loss_fn(loss_mode)
-
-                    # Compute policy loss (any function is expected to return 2 values)
-                    pg_loss, pg_metrics = policy_loss_fn(
-                        old_log_prob=old_log_prob,
-                        log_prob=log_prob,
-                        advantages=advantages,
-                        response_mask=response_mask,
-                        loss_agg_mode=loss_agg_mode,
-                        config=self.config,
-                        rollout_is_weights=rollout_is_weights,
-                    )
-                    micro_batch_metrics.update(pg_metrics)
-
-                    # Skip if using pure rollout correction mode (metrics already in pg_metrics)
-                    rollout_log_prob = model_inputs.get("rollout_log_probs", None)
-                    if loss_mode != "rollout_correction" and rollout_log_prob is not None:
-                        # Compute metrics using CURRENT policy π_θ vs π_rollout
-                        # Tracks evolving off-policy gap as π_θ updates during mini-batch training
-                        from verl.trainer.ppo.rollout_corr_helper import compute_rollout_corr_metrics_from_logprobs
-
-                        rollout_corr_metrics = compute_rollout_corr_metrics_from_logprobs(
-                            log_prob=log_prob,
-                            rollout_log_prob=rollout_log_prob,
-                            response_mask=response_mask,
+                    if not ice_enabled:
+                        # === Standard PPO path (unchanged) ===
+                        forward_out = self._forward_micro_batch(
+                            model_inputs,
+                            temperature=temperature,
+                            calculate_entropy=calculate_entropy,
+                            entropy_top_p=entropy_top_p,
                         )
-                        micro_batch_metrics.update(rollout_corr_metrics)
+                        log_prob = forward_out.log_probs
+                        entropy = forward_out.entropy_top_p
+                        entropy_full = forward_out.entropy_full
+
+                        if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
+                            old_log_prob = model_inputs["old_log_probs"]
+                        else:
+                            if on_policy:
+                                old_log_prob = log_prob.detach()
+                            else:
+                                old_log_prob = model_inputs["old_log_probs"]
+
+                        pg_loss, pg_metrics = policy_loss_fn(
+                            old_log_prob=old_log_prob,
+                            log_prob=log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            loss_agg_mode=loss_agg_mode,
+                            config=self.config,
+                            rollout_is_weights=rollout_is_weights,
+                        )
+                        micro_batch_metrics.update(pg_metrics)
+
+                        rollout_log_prob = model_inputs.get("rollout_log_probs", None)
+                        if loss_mode != "rollout_correction" and rollout_log_prob is not None:
+                            from verl.trainer.ppo.rollout_corr_helper import compute_rollout_corr_metrics_from_logprobs
+                            rollout_corr_metrics = compute_rollout_corr_metrics_from_logprobs(
+                                log_prob=log_prob,
+                                rollout_log_prob=rollout_log_prob,
+                                response_mask=response_mask,
+                            )
+                            micro_batch_metrics.update(rollout_corr_metrics)
+                    else:
+                        # === ICE parallel optimisation path ===
+                        # Student forward (base prompts — current input_ids)
+                        student_out = self._forward_micro_batch(
+                            model_inputs,
+                            temperature=temperature,
+                            calculate_entropy=calculate_entropy,
+                            entropy_top_p=entropy_top_p,
+                        )
+                        student_log_prob = student_out.log_probs
+                        entropy = student_out.entropy_top_p
+                        entropy_full = student_out.entropy_full
+
+                        # Teacher forward (instructed prompts — skip if no instructed in micro-batch)
+                        has_inst = model_inputs['has_instruction']
+                        if has_inst.any():
+                            # Shallow copy safe: _forward_micro_batch reads but doesn't mutate the dict
+                            teacher_inputs = {**model_inputs}
+                            teacher_inputs['input_ids'] = model_inputs['teacher_input_ids']
+                            teacher_inputs['attention_mask'] = model_inputs['teacher_attention_mask']
+                            teacher_inputs['position_ids'] = model_inputs['teacher_position_ids']
+                            teacher_out = self._forward_micro_batch(
+                                teacher_inputs,
+                                temperature=temperature,
+                                calculate_entropy=False,
+                            )
+                            teacher_log_prob = teacher_out.log_probs
+                        else:
+                            teacher_log_prob = student_log_prob
+
+                        # Student PG loss — paper-faithful J_S^R = E_{π_T}[(π_S/sg[π_T])·R].
+                        # The samples are teacher rollouts, so the PPO behaviour anchor is the
+                        # (old) teacher policy: ratio = π_S_current / π_T_old = teacher importance
+                        # ratio (NOT a base-vs-base proximal ratio). teacher_old_log_probs == base
+                        # old_log_probs for non-instructed rows by construction, so those are
+                        # unaffected. rollout_is_weights are dropped here for the same reason as the
+                        # teacher term: they are base-context (π_train_base / π_rollout), the wrong
+                        # context for a teacher-anchored ratio. TODO(V2): teacher-context rollout IS.
+                        teacher_old_log_prob = model_inputs['teacher_old_log_probs']
+                        student_pg_loss, student_pg_metrics = policy_loss_fn(
+                            old_log_prob=teacher_old_log_prob,
+                            log_prob=student_log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            loss_agg_mode=loss_agg_mode,
+                            config=self.config,
+                            rollout_is_weights=None,
+                        )
+
+                        # Teacher PG loss (instructed prompt old_log_probs)
+                        # For non-instructed samples: teacher_old_log_probs == old_log_probs by construction
+                        # (inject_focus_into_obs skips None entries, so prompts are identical)
+                        #
+                        # rollout_is_weights are NOT applied to the teacher term: they are computed
+                        # as π_train(base) / π_rollout from the post-swap base old_log_probs, so the
+                        # numerator is the student/base policy. The teacher anchor is
+                        # teacher_old_log_probs (instructed), so those weights are the wrong policy
+                        # ratio for the teacher. Passing None (no rollout correction) is safer than
+                        # a wrong correction. TODO(V2): proper teacher-context rollout IS
+                        # (exp(teacher_old_log_probs - rollout_log_probs), clamped via rollout_corr_helper).
+                        # teacher_old_log_prob defined above (shared anchor with the student term).
+                        teacher_pg_loss, teacher_pg_metrics = policy_loss_fn(
+                            old_log_prob=teacher_old_log_prob,
+                            log_prob=teacher_log_prob,
+                            advantages=advantages,
+                            response_mask=response_mask,
+                            loss_agg_mode=loss_agg_mode,
+                            config=self.config,
+                            rollout_is_weights=None,
+                        )
+
+                        # Combined PG:
+                        # - No instructed samples in this micro-batch: standard PPO loss
+                        # - Otherwise: α*teacher + (1-α)*student
+                        if has_inst.any():
+                            pg_loss = ice_alpha * teacher_pg_loss + (1 - ice_alpha) * student_pg_loss
+                        else:
+                            pg_loss = student_pg_loss
+
+                        # KL terms. Teacher branch (KL_T) is averaged over all instructed
+                        # samples. Student branch (KL_S) is additionally restricted to the
+                        # teacher rollouts selected by the trainer's filter
+                        # (ice_kl_filter_mask; absent ⇒ all instructed) — the paper's
+                        # correctness/top-pct filter on the distillation target.
+                        has_inst_f = has_inst.float().unsqueeze(-1)  # (bsz, 1)
+                        inst_response_mask = response_mask * has_inst_f
+
+                        kl_filter_mask = model_inputs.get('ice_kl_filter_mask', None)
+                        if kl_filter_mask is not None:
+                            keep_s = has_inst.float() * kl_filter_mask.float()  # (bsz,)
+                        else:
+                            keep_s = has_inst.float()
+                        student_response_mask = response_mask * keep_s.unsqueeze(-1)
+
+                        if ice_kl_estimator == 'mean_logprob':
+                            # Paper-faithful: per-sample mean of logprob diff over response tokens.
+                            # Exclude rows with no response tokens (e.g. the terminal observation
+                            # row, broadcast as instructed) so they don't dilute the per-sample
+                            # mean's denominator — their KL is 0 but they'd still be counted.
+                            valid_rows = (response_mask.sum(-1) > 0).to(keep_s.dtype)  # (bsz,)
+                            keep_t = has_inst.float() * valid_rows
+                            keep_s_valid = keep_s * valid_rows
+                            kl_t_seq, kl_s_seq = compute_distill_kl_mean_logprob(
+                                student_log_prob, teacher_log_prob, response_mask,
+                            )
+                            if ice_kl_beta_teacher > 0 and has_inst.any():
+                                kl_t_term = masked_sample_mean(kl_t_seq, keep_t)
+                                pg_loss = pg_loss + ice_kl_beta_teacher * kl_t_term
+                                micro_batch_metrics["ice/kl_teacher"] = kl_t_term.detach().item()
+                            if ice_kl_beta_student > 0 and has_inst.any():
+                                kl_s_term = masked_sample_mean(kl_s_seq, keep_s_valid)
+                                pg_loss = pg_loss + ice_kl_beta_student * kl_s_term
+                                micro_batch_metrics["ice/kl_student"] = kl_s_term.detach().item()
+                                micro_batch_metrics["ice/kl_student_keep_frac"] = (
+                                    keep_s_valid.sum() / keep_t.sum().clamp_min(1.0)
+                                ).detach().item()
+                        else:
+                            # k3 (Schulman) per-token estimator (branch default).
+                            # Guard on mask.sum()>0 (not just has_inst.any()): the KL_S filter
+                            # can keep zero instructed rows (e.g. return_positive early in
+                            # training), making student_response_mask all-zero → agg_loss
+                            # token-mean would divide by 0 → NaN.
+                            if ice_kl_beta_teacher > 0 and inst_response_mask.sum() > 0:
+                                # kl_penalty_forward(logprob=A, ref_logprob=B, 'k3') ≈ D_KL(πA || πB)
+                                # Here: D_KL(π^T || sg(π^S)) — gradient through teacher, pulls teacher→student
+                                kl_t = kl_penalty_forward(teacher_log_prob, student_log_prob.detach(), 'k3')
+                                kl_t_agg = agg_loss(kl_t, inst_response_mask, loss_agg_mode)
+                                pg_loss = pg_loss + ice_kl_beta_teacher * kl_t_agg
+                                micro_batch_metrics["ice/kl_teacher"] = kl_t_agg.detach().item()
+                            if ice_kl_beta_student > 0 and student_response_mask.sum() > 0:
+                                # Forward KL D_KL(sg(π^T) || π^S), grad through student → pulls
+                                # student toward teacher. k3 estimates KL(A||B) for samples drawn
+                                # from A (first arg); samples are teacher rollouts, so A MUST be the
+                                # (detached) teacher and B the student. Swapping the args would
+                                # estimate the wrong divergence under the wrong sampling policy.
+                                kl_s = kl_penalty_forward(teacher_log_prob.detach(), student_log_prob, 'k3')
+                                kl_s_agg = agg_loss(kl_s, student_response_mask, loss_agg_mode)
+                                pg_loss = pg_loss + ice_kl_beta_student * kl_s_agg
+                                micro_batch_metrics["ice/kl_student"] = kl_s_agg.detach().item()
+
+                        # Log ICE metrics
+                        teacher_loss_val = teacher_pg_loss.detach().item()
+                        student_loss_val = student_pg_loss.detach().item()
+                        micro_batch_metrics["ice/teacher_loss"] = teacher_loss_val
+                        micro_batch_metrics["ice/student_loss"] = student_loss_val
+                        micro_batch_metrics["ice/alpha"] = ice_alpha
+                        for k, v in teacher_pg_metrics.items():
+                            micro_batch_metrics[f"ice/teacher_{k.replace('actor/', '')}"] = v
+                        for k, v in student_pg_metrics.items():
+                            micro_batch_metrics[f"ice/student_{k.replace('actor/', '')}"] = v
+
+                        # Student log_prob for downstream entropy/ref-KL (ref_log_prob was computed
+                        # on base prompts at rollout time, so student comparison is correct)
+                        log_prob = student_log_prob
+                        # Populate actor/* metrics from student (already in ice/student_* above)
+                        micro_batch_metrics.update(student_pg_metrics)
 
                     policy_loss = pg_loss
                     if calculate_entropy and entropy is not None:

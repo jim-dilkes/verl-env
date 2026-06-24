@@ -1,4 +1,4 @@
-"""Test Group 3+4 [P0]: swap_dime_prompts correctness + gold standard verification.
+"""Test Group 3+4 [P0]: swap_all_instructed_to_base correctness + gold standard verification.
 
 Tests use synthetic tensors mimicking real batch structure.
 """
@@ -8,7 +8,7 @@ import numpy as np
 
 
 def make_synthetic_batch(plen, rlen, n_rollouts, n_steps, pad_token_id=0):
-    """Build a synthetic batch mimicking DIME rollout structure.
+    """Build a synthetic batch mimicking ICE rollout structure.
 
     Returns:
         batch: DataProto-like object
@@ -77,24 +77,26 @@ def make_synthetic_batch(plen, rlen, n_rollouts, n_steps, pad_token_id=0):
 
 def test_response_tokens_unchanged():
     """P0: Response tokens must be identical after swap."""
-    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+    from verl.trainer.ppo.ray_multistep_trainer import swap_all_instructed_to_base
 
     plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
     batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
+    has_instruction = [True] * n_rollouts
 
     responses_before = batch.batch["responses"].clone()
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
     assert torch.equal(batch.batch["responses"], responses_before), "Responses changed after swap!"
 
 
 def test_input_ids_response_portion():
     """P0: input_ids[-rlen:] must equal responses after swap."""
-    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+    from verl.trainer.ppo.ray_multistep_trainer import swap_all_instructed_to_base
 
     plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
     batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    has_instruction = [True] * n_rollouts
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
     total = n_rollouts * (n_steps + 1)
     for i in range(total):
@@ -105,11 +107,12 @@ def test_input_ids_response_portion():
 
 def test_input_ids_prompt_portion():
     """P0: input_ids[:plen] must equal base prompt after swap."""
-    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+    from verl.trainer.ppo.ray_multistep_trainer import swap_all_instructed_to_base
 
     plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
     batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    has_instruction = [True] * n_rollouts
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
     for step in range(n_steps + 1):
         for env in range(n_rollouts):
@@ -122,11 +125,12 @@ def test_input_ids_prompt_portion():
 
 def test_position_ids_contiguous():
     """P0: position_ids must be contiguous (no gaps) in the real-token region."""
-    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+    from verl.trainer.ppo.ray_multistep_trainer import swap_all_instructed_to_base
 
     plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
     batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    has_instruction = [True] * n_rollouts
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
     total = n_rollouts * (n_steps + 1)
     for i in range(total):
@@ -139,12 +143,13 @@ def test_position_ids_contiguous():
 
 def test_attention_mask_consistent():
     """P0: Where attention_mask == 1, input_ids should not be pad_token."""
-    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+    from verl.trainer.ppo.ray_multistep_trainer import swap_all_instructed_to_base
 
     pad_token_id = 0
     plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
     batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps, pad_token_id)
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    has_instruction = [True] * n_rollouts
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
     total = n_rollouts * (n_steps + 1)
     for i in range(total):
@@ -156,27 +161,24 @@ def test_attention_mask_consistent():
 
 def test_gold_standard_independent_construction():
     """P0 CRITICAL: Independently constructing [base_prompt | response] must match swap output."""
-    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+    from verl.trainer.ppo.ray_multistep_trainer import swap_all_instructed_to_base
 
     pad_token_id = 0
     plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
     batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps, pad_token_id)
+    has_instruction = [True] * n_rollouts
 
-    # Save original responses before swap
     original_responses = batch.batch["responses"].clone()
-
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen)
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
     for step in range(n_steps + 1):
         for env in range(n_rollouts):
             idx = step * n_rollouts + env
 
-            # Method 1: swap result
             swapped_ids = batch.batch["input_ids"][idx]
             swapped_mask = batch.batch["attention_mask"][idx]
             swapped_pos = batch.batch["position_ids"][idx]
 
-            # Method 2: independent construction
             base_prompt_ids = base_tokens[step]["input_ids"][env]
             base_prompt_mask = base_tokens[step]["attention_mask"][env]
             response = original_responses[idx]
@@ -198,27 +200,9 @@ def test_gold_standard_independent_construction():
             )
 
 
-def test_swap_all_masked_matches_original():
-    """mask_per_rollout=all True must produce identical output to mask_per_rollout=None."""
-    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
-
-    plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
-    batch_a, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
-    batch_b, _ = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)  # same seed → same data
-
-    batch_a = swap_dime_prompts(batch_a, base_tokens, n_rollouts, n_steps, rlen,
-                                mask_per_rollout=None)
-    batch_b = swap_dime_prompts(batch_b, base_tokens, n_rollouts, n_steps, rlen,
-                                mask_per_rollout=[True] * n_rollouts)
-
-    for key in ('input_ids', 'attention_mask', 'position_ids', 'responses'):
-        assert torch.equal(batch_a.batch[key], batch_b.batch[key]), \
-            f"all-True mask differs from None for {key}"
-
-
-def test_swap_none_masked_preserves_rollout():
-    """mask_per_rollout=all False must leave batch unchanged."""
-    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+def test_non_instructed_unchanged():
+    """has_instruction=False rollouts must be unchanged."""
+    from verl.trainer.ppo.ray_multistep_trainer import swap_all_instructed_to_base
 
     plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
     batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
@@ -227,66 +211,42 @@ def test_swap_none_masked_preserves_rollout():
     original_mask = batch.batch['attention_mask'].clone()
     original_pos = batch.batch['position_ids'].clone()
 
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen,
-                              mask_per_rollout=[False] * n_rollouts)
+    # Only rollouts 0,2 instructed; rollouts 1,3 should be unchanged
+    has_instruction = [True, False, True, False]
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
-    assert torch.equal(batch.batch['input_ids'], original_ids), "input_ids changed with all-False mask"
-    assert torch.equal(batch.batch['attention_mask'], original_mask), "attention_mask changed"
-    assert torch.equal(batch.batch['position_ids'], original_pos), "position_ids changed"
+    for step in range(n_steps + 1):
+        for env in range(n_rollouts):
+            idx = step * n_rollouts + env
+            if has_instruction[env]:
+                assert torch.equal(
+                    batch.batch['input_ids'][idx, :plen],
+                    base_tokens[step]['input_ids'][env],
+                ), f"step={step} env={env}: instructed rollout should have base prompt"
+            else:
+                assert torch.equal(
+                    batch.batch['input_ids'][idx],
+                    original_ids[idx],
+                ), f"step={step} env={env}: non-instructed rollout should be unchanged"
 
 
-def test_swap_selective_mask():
-    """Mixed mask: masked rollouts get base prompt, unmasked keep rollout prompt."""
-    from verl.trainer.ppo.ray_multistep_trainer import swap_dime_prompts
+def test_all_non_instructed_noop():
+    """has_instruction=all False must leave batch entirely unchanged."""
+    from verl.trainer.ppo.ray_multistep_trainer import swap_all_instructed_to_base
 
     plen, rlen, n_rollouts, n_steps = 64, 32, 4, 3
     batch, base_tokens = make_synthetic_batch(plen, rlen, n_rollouts, n_steps)
 
     original_ids = batch.batch['input_ids'].clone()
-    mask_per_rollout = [True, False, True, False]  # rollouts 0,2 masked; 1,3 unmasked
+    original_mask = batch.batch['attention_mask'].clone()
+    original_pos = batch.batch['position_ids'].clone()
 
-    batch = swap_dime_prompts(batch, base_tokens, n_rollouts, n_steps, rlen,
-                              mask_per_rollout=mask_per_rollout)
+    has_instruction = [False] * n_rollouts
+    batch = swap_all_instructed_to_base(batch, base_tokens, n_rollouts, n_steps, rlen, has_instruction)
 
-    for step in range(n_steps + 1):
-        for env in range(n_rollouts):
-            idx = step * n_rollouts + env
-            if mask_per_rollout[env]:
-                # Masked: prompt portion should be base prompt
-                assert torch.equal(
-                    batch.batch['input_ids'][idx, :plen],
-                    base_tokens[step]['input_ids'][env],
-                ), f"step={step} env={env}: masked rollout should have base prompt"
-            else:
-                # Unmasked: entire row should be unchanged
-                assert torch.equal(
-                    batch.batch['input_ids'][idx],
-                    original_ids[idx],
-                ), f"step={step} env={env}: unmasked rollout should be unchanged"
-
-
-def test_sample_mask_decisions_none_focus():
-    """focus=None always produces mask=False regardless of mask_probability."""
-    from verl.envs.environments.focus_instructions import sample_mask_decisions
-
-    focus = [None, "instruction A", None, "instruction B"]
-    masks = sample_mask_decisions(focus, mask_probability=1.0)
-    assert masks[0] is False, "None-focus should never be masked"
-    assert masks[2] is False, "None-focus should never be masked"
-    assert masks[1] is True, "focus with p=1.0 should always be masked"
-    assert masks[3] is True, "focus with p=1.0 should always be masked"
-
-
-def test_sample_mask_decisions_distribution():
-    """With many samples, mask rate should converge to mask_probability."""
-    from verl.envs.environments.focus_instructions import sample_mask_decisions
-
-    n_trials = 5000
-    p = 0.5
-    focus = ["instruction"] * n_trials  # all have focus
-    masks = sample_mask_decisions(focus, mask_probability=p)
-    rate = sum(masks) / n_trials
-    assert abs(rate - p) < 0.05, f"Mask rate {rate:.3f} too far from {p}"
+    assert torch.equal(batch.batch['input_ids'], original_ids), "input_ids changed with no instructed"
+    assert torch.equal(batch.batch['attention_mask'], original_mask), "attention_mask changed"
+    assert torch.equal(batch.batch['position_ids'], original_pos), "position_ids changed"
 
 
 if __name__ == "__main__":
@@ -302,14 +262,8 @@ if __name__ == "__main__":
     print("  [PASS] attention_mask consistent")
     test_gold_standard_independent_construction()
     print("  [PASS] gold standard independent construction")
-    test_swap_all_masked_matches_original()
-    print("  [PASS] all-True mask matches original (no regression)")
-    test_swap_none_masked_preserves_rollout()
-    print("  [PASS] all-False mask preserves rollout")
-    test_swap_selective_mask()
-    print("  [PASS] selective mask correctness")
-    test_sample_mask_decisions_none_focus()
-    print("  [PASS] None-focus always unmasked")
-    test_sample_mask_decisions_distribution()
-    print("  [PASS] mask rate converges to mask_probability")
+    test_non_instructed_unchanged()
+    print("  [PASS] non-instructed rollouts unchanged")
+    test_all_non_instructed_noop()
+    print("  [PASS] all non-instructed is noop")
     print("All tests passed!")

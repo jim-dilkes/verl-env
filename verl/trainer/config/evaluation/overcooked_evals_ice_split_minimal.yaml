@@ -1,11 +1,11 @@
 # @package eval
-# Minimal split eval for DIME internalization — login node smoke test
+# Minimal split eval for ICE internalization — login node smoke test
 # 4 diagnostic blocks (base + ctx) with tiny rollout counts
-# Use with: evaluation=overcooked_evals_dime_split_minimal
+# Use with: evaluation=overcooked_evals_ice_split_minimal
 
 evaluation:
   environments:
-    # --- Base Entropy (no DIME focus — internalization) ---
+    # --- Base Entropy (no ICE focus — internalization) ---
     - name: "Overcooked-CrampedRoom-Entropy-Check"
       n_rollouts: 4
       episode_length: 1
@@ -43,7 +43,7 @@ evaluation:
         exclusive_metric: true
         max_batch_size: 32
 
-    # --- Base State Visitation (no DIME focus — internalization) ---
+    # --- Base State Visitation (no ICE focus — internalization) ---
     - name: "Overcooked-CrampedRoom-StateVisitation"
       n_rollouts: 10
       batch_size: 5
@@ -75,7 +75,7 @@ evaluation:
         print_coordinates: true
         random_agent_positions: true
 
-    # --- Context-Augmented Entropy (with DIME focus — ceiling) ---
+    # --- Context-Augmented Entropy (with ICE focus — ceiling) ---
     - name: "Overcooked-CrampedRoom-Entropy-Check-Ctx"
       n_rollouts: 4
       episode_length: 1
@@ -92,8 +92,8 @@ evaluation:
       task: none
       format_penalty: 0.0
       inherit_training_multiaction: true
-      inherit_dime: true
-      dime_proportion: 0.8
+      inherit_ice: true
+      ice_proportion: 0.8
       captioner:
         type: naive
         max_text_history: 0
@@ -115,7 +115,7 @@ evaluation:
         exclusive_metric: true
         max_batch_size: 32
 
-    # --- Context-Augmented State Visitation (with DIME focus — ceiling) ---
+    # --- Context-Augmented State Visitation (with ICE focus — ceiling) ---
     - name: "Overcooked-CrampedRoom-StateVisitation-Ctx"
       n_rollouts: 10
       batch_size: 5
@@ -134,8 +134,8 @@ evaluation:
       task: none
       format_penalty: 0.0
       inherit_training_multiaction: true
-      inherit_dime: true
-      dime_proportion: 0.8
+      inherit_ice: true
+      ice_proportion: 0.8
       captioner:
         type: naive
         max_text_history: 0

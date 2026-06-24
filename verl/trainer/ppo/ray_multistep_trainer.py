@@ -71,12 +71,13 @@ from verl.utils.tracking import ValidationGenerationsLogger
 from verl.envs.environments.focus_instructions import (
     get_focus_instructions,
     has_focus_instructions,
-    get_dime_instructions,
-    has_dime_instructions,
+    get_ice_instructions,
+    has_ice_instructions,
     sample_focus_for_episode,
-    sample_mask_decisions,
+    assign_focus_deterministic,
     inject_focus_into_obs,
 )
+from verl.trainer.ppo.distill_kl import compute_kl_filter_keep
 
 
 def _flatten_nested_lists(val):
@@ -200,27 +201,26 @@ def retokenize_epsilon_sample(
     }
 
 
-def swap_dime_prompts(
+def swap_all_instructed_to_base(
     batch: DataProto,
     base_prompt_tokens_by_step: list[dict],
     n_rollouts: int,
     episode_len: int,
     rlen: int,
-    mask_per_rollout: list[bool] | None = None,
+    has_instruction: list[bool],
 ) -> DataProto:
-    """Replace rollout prompts (with focus) with base prompts (without focus).
+    """Replace instructed rollout prompts (with focus) with base prompts (without focus).
+
+    Swaps ALL rollouts where has_instruction[env_idx] is True.
 
     Batch layout: [step0_env0, step0_env1, ..., step0_envN, step1_env0, ..., stepE_envN]
     Each sample i maps to: step = i // n_rollouts, env = i % n_rollouts.
     Response tokens are preserved exactly; only the prompt portion is swapped.
-
-    If mask_per_rollout is provided, only swap for rollouts where mask is True.
-    mask_per_rollout=None swaps all (backwards compatible).
     """
     for step_idx in range(episode_len + 1):
         base = base_prompt_tokens_by_step[step_idx]
         for env_idx in range(n_rollouts):
-            if mask_per_rollout is not None and not mask_per_rollout[env_idx]:
+            if not has_instruction[env_idx]:
                 continue
             sample_idx = step_idx * n_rollouts + env_idx
 
@@ -502,14 +502,14 @@ class RayMultistepTrainer(object):
             logger.debug("[RayMultistepTrainer] No evaluation config found, setting multi_env_evaluator to None")
             self.multi_env_evaluator = None
 
-        # Initialize adaptive DIME if configured
-        self.adaptive_dime = None
-        dime_config = getattr(self.config.prompt.prompt, 'dime', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
-        if dime_config and getattr(dime_config, 'enabled', False):
-            ad_config = getattr(dime_config, 'adaptive', None)
+        # Initialize adaptive ICE if configured
+        self.adaptive_ice = None
+        ice_config = getattr(self.config.prompt.prompt, 'ice', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
+        if ice_config and getattr(ice_config, 'enabled', False):
+            ad_config = getattr(ice_config, 'adaptive', None)
             if ad_config and getattr(ad_config, 'enabled', False):
-                from verl.trainer.ppo.adaptive_dime import AdaptiveDIME
-                self.adaptive_dime = AdaptiveDIME(
+                from verl.trainer.ppo.adaptive_ice import AdaptiveICE
+                self.adaptive_ice = AdaptiveICE(
                     supplement_min=ad_config.supplement_min,
                     supplement_max=ad_config.supplement_max,
                     window_size=ad_config.window_size,
@@ -517,7 +517,7 @@ class RayMultistepTrainer(object):
                     inflection=getattr(ad_config, 'inflection', 0.0),
                 )
                 logger.info(
-                    "[Trainer] Adaptive DIME enabled: min=%.2f, max=%.2f, W=%d, k=%.1f, inflection=%.2f",
+                    "[Trainer] Adaptive ICE enabled: min=%.2f, max=%.2f, W=%d, k=%.1f, inflection=%.2f",
                     ad_config.supplement_min, ad_config.supplement_max, ad_config.window_size, ad_config.k, getattr(ad_config, 'inflection', 0.0),
                 )
 
@@ -576,6 +576,32 @@ class RayMultistepTrainer(object):
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
         assert real_train_batch_size % n_gpus == 0, \
             f"real_train_batch_size ({real_train_batch_size}) must be divisible by total n_gpus ({n_gpus})."
+
+        # ICE: fail fast at startup (not at training step 1) on a misconfigured
+        # deterministic assignment or an unregistered specific-instruction source.
+        ice_cfg = getattr(config.prompt.prompt, 'ice', None) if hasattr(config, 'prompt') and hasattr(config.prompt, 'prompt') else None
+        if ice_cfg is not None and getattr(ice_cfg, 'enabled', False):
+            from verl.envs.environments.focus_instructions import (
+                get_ice_instructions, validate_deterministic_assignment,
+            )
+            _ice_src = getattr(ice_cfg, 'source', 'specific')
+            _ice_instr = get_ice_instructions(config.envs.env_name, _ice_src)
+            if getattr(ice_cfg, 'assignment', 'stochastic') == 'deterministic':
+                validate_deterministic_assignment(
+                    config.envs.n_rollouts, len(_ice_instr),
+                    getattr(ice_cfg, 'n_duplicates', 1),
+                    getattr(ice_cfg, 'n_no_instruction', 0),
+                )
+            # balance_batch reorders/sizes DP partitions from the (base/student)
+            # attention_mask, but the ICE teacher forward uses the longer instructed
+            # prompt — same base-vs-teacher token mismatch as use_dynamic_bsz. Reject it
+            # (the actor already rejects use_dynamic_bsz under ICE).
+            if config.trainer.balance_batch:
+                raise ValueError(
+                    "ICE (ice.enabled=true) requires trainer.balance_batch=false: balancing "
+                    "sizes DP work from the base prompt, but the teacher forward uses the longer "
+                    "instructed prompt, risking mis-balanced DP / OOM. Set trainer.balance_batch=false."
+                )
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
@@ -844,28 +870,32 @@ class RayMultistepTrainer(object):
 
         n_envs = len(val_obs)
 
-        # DIME: mirror training focus injection during validation
-        dime_config = getattr(self.config.prompt.prompt, 'dime', None)
-        dime_source = getattr(dime_config, 'source', 'specific') if dime_config else 'specific'
-        val_dime_enabled = (
-            dime_config is not None
-            and getattr(dime_config, 'enabled', False)
-            and has_dime_instructions(self.config.envs.env_name, dime_source)
+        # ICE: mirror training focus injection during validation, UNLESS
+        # ice.eval_unconditioned=true (Asymmetric-RL/SD deploys the unconditioned
+        # student, so inline validation should measure it with no focus injected).
+        ice_config = getattr(self.config.prompt.prompt, 'ice', None)
+        ice_source = getattr(ice_config, 'source', 'specific') if ice_config else 'specific'
+        ice_eval_unconditioned = getattr(ice_config, 'eval_unconditioned', False) if ice_config else False
+        val_ice_enabled = (
+            ice_config is not None
+            and getattr(ice_config, 'enabled', False)
+            and not ice_eval_unconditioned
+            and has_ice_instructions(self.config.envs.env_name, ice_source)
         )
-        if val_dime_enabled:
-            val_dime_template = getattr(dime_config, 'template', '') if dime_source == 'specific' else '{STEP_TEXT}'
-            val_dime_instructions = get_dime_instructions(self.config.envs.env_name, dime_source)
-            if self.adaptive_dime is not None:
-                val_dime_no_supp = self.adaptive_dime.get_no_supplement_prob()
+        if val_ice_enabled:
+            val_ice_template = getattr(ice_config, 'template', '') if ice_source == 'specific' else '{STEP_TEXT}'
+            val_ice_instructions = get_ice_instructions(self.config.envs.env_name, ice_source)
+            if self.adaptive_ice is not None:
+                val_ice_no_supp = self.adaptive_ice.get_no_supplement_prob()
             else:
-                val_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
-                if val_dime_no_supp is None:
+                val_ice_no_supp = getattr(ice_config, 'no_supplement_prob', None)
+                if val_ice_no_supp is None:
                     raise ValueError(
-                        "dime.no_supplement_prob must be set explicitly when dime.enabled=true "
-                        "(or enable dime.adaptive). Recommended: 0.125 (12.5% clean rollouts)."
+                        "ice.no_supplement_prob must be set explicitly when ice.enabled=true "
+                        "(or enable ice.adaptive). Recommended: 0.125 (12.5% clean rollouts)."
                     )
             val_focus_per_rollout = sample_focus_for_episode(
-                n_envs, val_dime_instructions, val_dime_no_supp
+                n_envs, val_ice_instructions, val_ice_no_supp
             )
 
         # Per-env tracking for episode logging (like eval tables)
@@ -881,8 +911,8 @@ class RayMultistepTrainer(object):
         while True:
 
             self.tokenizer.padding_side = "left"
-            if val_dime_enabled:
-                val_obs_for_gen = inject_focus_into_obs(val_obs, val_focus_per_rollout, val_dime_template)
+            if val_ice_enabled:
+                val_obs_for_gen = inject_focus_into_obs(val_obs, val_focus_per_rollout, val_ice_template)
             else:
                 val_obs_for_gen = val_obs
             val_input_obs_text = self.tokenizer.apply_chat_template(val_obs_for_gen, tokenize=False, add_generation_prompt=True)
@@ -1263,38 +1293,57 @@ class RayMultistepTrainer(object):
                         f"train_batch_size ({self.config.data.train_batch_size}) must be divisible by n_rollouts ({self.config.envs.n_rollouts})."
                     episode_len = bsize // self.config.envs.n_rollouts
                 
-                    # DIME config (outside conditional so variable is defined during critic warmup)
-                    dime_config = getattr(self.config.prompt.prompt, 'dime', None)
-                    dime_enabled = dime_config is not None and getattr(dime_config, 'enabled', False)
+                    # ICE config (outside conditional so variable is defined during critic warmup)
+                    ice_config = getattr(self.config.prompt.prompt, 'ice', None)
+                    ice_enabled = ice_config is not None and getattr(ice_config, 'enabled', False)
+                    n_rollouts = self.config.envs.n_rollouts
+                    has_instruction = [False] * n_rollouts
+                    ice_supplement_count = 0
+                    ice_unique_count = 0
 
                     if self.global_steps == 1 or self.global_steps > self.critic_warmup_step:
 
-                        if dime_enabled:
-                            dime_mask_for_training = getattr(dime_config, 'mask_for_training', True)
-                            dime_source = getattr(dime_config, 'source', 'specific')
-                            dime_template = getattr(dime_config, 'template', '') if dime_source == 'specific' else '{STEP_TEXT}'
+                        if ice_enabled:
+                            ice_source = getattr(ice_config, 'source', 'specific')
+                            ice_template = getattr(ice_config, 'template', '') if ice_source == 'specific' else '{STEP_TEXT}'
                             env_name = self.config.envs.env_name
-                            dime_instructions = get_dime_instructions(env_name, dime_source)
-                            if self.adaptive_dime is not None:
-                                dime_no_supplement_prob = self.adaptive_dime.get_no_supplement_prob()
+                            ice_instructions = get_ice_instructions(env_name, ice_source)
+                            ice_assignment = getattr(ice_config, 'assignment', 'stochastic')
+                            if ice_assignment == 'deterministic':
+                                # Covering assignment: exactly n_duplicates of each instruction +
+                                # n_no_instruction unconditioned, shuffled per training step.
+                                focus_per_rollout = assign_focus_deterministic(
+                                    self.config.envs.n_rollouts,
+                                    ice_instructions,
+                                    getattr(ice_config, 'n_duplicates', 1),
+                                    getattr(ice_config, 'n_no_instruction', 0),
+                                    seed=self.global_steps,
+                                )
+                            elif ice_assignment == 'stochastic':
+                                if self.adaptive_ice is not None:
+                                    ice_no_supplement_prob = self.adaptive_ice.get_no_supplement_prob()
+                                else:
+                                    ice_no_supplement_prob = getattr(ice_config, 'no_supplement_prob', None)
+                                    if ice_no_supplement_prob is None:
+                                        raise ValueError(
+                                            "ice.no_supplement_prob must be set explicitly when ice.enabled=true "
+                                            "with assignment=stochastic (or enable ice.adaptive). "
+                                            "Recommended: 0.125 (12.5% clean rollouts)."
+                                        )
+                                focus_per_rollout = sample_focus_for_episode(
+                                    self.config.envs.n_rollouts, ice_instructions, ice_no_supplement_prob
+                                )
                             else:
-                                dime_no_supplement_prob = getattr(dime_config, 'no_supplement_prob', None)
-                                if dime_no_supplement_prob is None:
-                                    raise ValueError(
-                                        "dime.no_supplement_prob must be set explicitly when dime.enabled=true "
-                                        "(or enable dime.adaptive). Recommended: 0.125 (12.5% clean rollouts)."
-                                    )
-                            focus_per_rollout = sample_focus_for_episode(
-                                self.config.envs.n_rollouts, dime_instructions, dime_no_supplement_prob
-                            )
-                            dime_mask_probability = getattr(dime_config, 'mask_probability', 1.0)
-                            mask_per_rollout = sample_mask_decisions(focus_per_rollout, dime_mask_probability)
+                                raise ValueError(
+                                    f"ice.assignment={ice_assignment!r} must be 'stochastic' or 'deterministic'."
+                                )
+                            has_instruction = [f is not None for f in focus_per_rollout]
                             base_prompt_tokens_by_step = []
-                            dime_supplement_count = sum(1 for f in focus_per_rollout if f is not None)
-                            dime_unique_count = len(set(f for f in focus_per_rollout if f is not None))
+                            ice_supplement_count = sum(1 for f in focus_per_rollout if f is not None)
+                            ice_unique_count = len(set(f for f in focus_per_rollout if f is not None))
                             logger.debug(
-                                "DIME: %d/%d rollouts with focus, %d unique instructions",
-                                dime_supplement_count, self.config.envs.n_rollouts, dime_unique_count,
+                                "ICE: %d/%d rollouts with focus, %d unique instructions",
+                                ice_supplement_count, self.config.envs.n_rollouts, ice_unique_count,
                             )
 
                         # Initialize episode tracking for freezing logic
@@ -1311,9 +1360,9 @@ class RayMultistepTrainer(object):
                             with _timer_accumulate('text_gen_proc', timing_raw):
                                 self.tokenizer.padding_side = "left"
 
-                                if dime_enabled:
+                                if ice_enabled:
                                     # Dual tokenize: WITH focus for generation, WITHOUT for training
-                                    rollout_obs_vec = inject_focus_into_obs(obs_vec, focus_per_rollout, dime_template)
+                                    rollout_obs_vec = inject_focus_into_obs(obs_vec, focus_per_rollout, ice_template)
                                     input_obs_text = self.tokenizer.apply_chat_template(
                                         rollout_obs_vec, tokenize=False, add_generation_prompt=True,
                                     )
@@ -1603,8 +1652,8 @@ class RayMultistepTrainer(object):
                         mean_episode_return = episode_returns.mean().item()
                         metrics['train/episode_return_mean'] = mean_episode_return
 
-                        # DIME reward split: base (no focus) vs supplemented (had focus)
-                        if dime_enabled:
+                        # ICE reward split: base (no focus) vs supplemented (had focus)
+                        if ice_enabled:
                             base_mask = torch.tensor([f is None for f in focus_per_rollout])
                             supp_mask = ~base_mask
                             if base_mask.any():
@@ -1613,10 +1662,10 @@ class RayMultistepTrainer(object):
                                 metrics['reward/base_std'] = base_returns.std().item() if base_mask.sum() > 1 else 0.0
                             if supp_mask.any():
                                 supp_returns = episode_returns[supp_mask]
-                                metrics['reward/dime_mean'] = supp_returns.mean().item()
-                                metrics['reward/dime_std'] = supp_returns.std().item() if supp_mask.sum() > 1 else 0.0
+                                metrics['reward/ice_mean'] = supp_returns.mean().item()
+                                metrics['reward/ice_std'] = supp_returns.std().item() if supp_mask.sum() > 1 else 0.0
                             if base_mask.any() and supp_mask.any():
-                                metrics['reward/internalization_gap'] = metrics['reward/dime_mean'] - metrics['reward/base_mean']
+                                metrics['reward/internalization_gap'] = metrics['reward/ice_mean'] - metrics['reward/base_mean']
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
@@ -1647,32 +1696,76 @@ class RayMultistepTrainer(object):
                     # batch = batch.union(gen_batch_output)
                     assert self.config.actor_rollout_ref.rollout.n == 1, "For multi-turn rollout, we only support n=1"
 
-                    # DIME: swap rollout prompts (with focus) for base prompts (without focus)
-                    dime_focus_log_probs = None
-                    if dime_enabled and dime_mask_for_training and any(mask_per_rollout):
-                        # DIME Diagnostics: compute logprobs on focus-prompted batch BEFORE swap
-                        # This measures the prompt conditioning effect: KL(π(·|x_focus) || π(·|x_base))
-                        dime_diagnostics = getattr(dime_config, 'diagnostics', False)
-                        if dime_diagnostics:
-                            with _timer('dime_diag_focus_logprob', timing_raw):
-                                batch.batch['response_mask'] = compute_response_mask(batch)
-                                focus_log_prob_result = self.actor_rollout_wg.compute_log_prob(batch)
-                                dime_focus_log_probs = focus_log_prob_result.batch['old_log_probs'].clone()
+                    # ICE: parallel teacher/student optimisation
+                    if ice_enabled and any(has_instruction):
+                        # Save teacher batch (instructed prompts) before swap
+                        teacher_input_ids = batch.batch['input_ids'].clone()
+                        teacher_attention_mask = batch.batch['attention_mask'].clone()
+                        teacher_position_ids = batch.batch['position_ids'].clone()
 
-                        batch = swap_dime_prompts(
+                        # Compute teacher old_log_probs on instructed prompts
+                        batch.batch['response_mask'] = compute_response_mask(batch)
+                        with _timer('ice_teacher_logprob', timing_raw):
+                            teacher_log_prob_result = self.actor_rollout_wg.compute_log_prob(batch)
+                        teacher_old_log_probs = teacher_log_prob_result.batch['old_log_probs'].clone()
+
+                        # Swap all instructed prompts to base (student conditioning)
+                        batch = swap_all_instructed_to_base(
                             batch, base_prompt_tokens_by_step,
                             self.config.envs.n_rollouts, episode_len, rlen,
-                            mask_per_rollout=mask_per_rollout,
+                            has_instruction=has_instruction,
                         )
-                        # Force recompute since tokens changed
                         bypass_recomputing_logprobs = False
 
-                    if dime_enabled:
-                        metrics['dime/supplement_rate'] = dime_supplement_count / self.config.envs.n_rollouts
-                        metrics['dime/unique_instructions'] = dime_unique_count
-                        if dime_mask_for_training:
-                            masked_count = sum(mask_per_rollout)
-                            metrics['dime/mask_rate'] = masked_count / max(dime_supplement_count, 1)
+                        # Attach teacher data to batch for actor dual forward pass
+                        batch.batch['teacher_input_ids'] = teacher_input_ids
+                        batch.batch['teacher_attention_mask'] = teacher_attention_mask
+                        batch.batch['teacher_position_ids'] = teacher_position_ids
+                        batch.batch['teacher_old_log_probs'] = teacher_old_log_probs
+
+                        # Build per-sample has_instruction mask
+                        n_rollouts = self.config.envs.n_rollouts
+                        has_inst_tensor = torch.zeros(batch.batch['input_ids'].shape[0], dtype=torch.bool)
+                        for step_idx in range(episode_len + 1):
+                            for env_idx in range(n_rollouts):
+                                if has_instruction[env_idx]:
+                                    sample_idx = step_idx * n_rollouts + env_idx
+                                    if sample_idx < has_inst_tensor.shape[0]:
+                                        has_inst_tensor[sample_idx] = True
+                        batch.batch['has_instruction'] = has_inst_tensor
+
+                        # KL_S filter: select which teacher rollouts (episodes) contribute the
+                        # student-branch KL, then broadcast the per-env keep to all its steps.
+                        ice_kl_filter = getattr(ice_config, 'kl_filter', 'none')
+                        ice_kl_filter_top_pct = getattr(ice_config, 'kl_filter_top_pct', 0.5)
+                        keep_per_env = compute_kl_filter_keep(
+                            episode_returns, has_instruction, ice_kl_filter, ice_kl_filter_top_pct,
+                        )
+                        kl_filter_tensor = torch.zeros(batch.batch['input_ids'].shape[0], dtype=torch.float32)
+                        for step_idx in range(episode_len + 1):
+                            for env_idx in range(n_rollouts):
+                                if keep_per_env[env_idx]:
+                                    sample_idx = step_idx * n_rollouts + env_idx
+                                    if sample_idx < kl_filter_tensor.shape[0]:
+                                        kl_filter_tensor[sample_idx] = 1.0
+                        batch.batch['ice_kl_filter_mask'] = kl_filter_tensor
+                        metrics['ice/kl_filter_keep_rate'] = (
+                            sum(keep_per_env) / max(sum(has_instruction), 1)
+                        )
+
+                        # Pass ICE config via meta_info
+                        ice_alpha = getattr(ice_config, 'alpha', 0.5)
+                        ice_kl_beta_teacher = getattr(ice_config, 'kl_beta_teacher', 0.0)
+                        ice_kl_beta_student = getattr(ice_config, 'kl_beta_student', 0.0)
+                        batch.meta_info['ice_alpha'] = ice_alpha
+                        batch.meta_info['ice_kl_beta_teacher'] = ice_kl_beta_teacher
+                        batch.meta_info['ice_kl_beta_student'] = ice_kl_beta_student
+                        batch.meta_info['ice_kl_estimator'] = getattr(ice_config, 'kl_estimator', 'k3')
+
+                    if ice_enabled:
+                        metrics['ice/supplement_rate'] = ice_supplement_count / self.config.envs.n_rollouts
+                        metrics['ice/unique_instructions'] = ice_unique_count
+                        metrics['ice/has_instruction_rate'] = sum(has_instruction) / len(has_instruction)
 
                     batch.batch['response_mask'] = compute_response_mask(batch)
                     # balance the number of valid tokens on each dp rank.
@@ -1715,52 +1808,6 @@ class RayMultistepTrainer(object):
                             old_log_prob.batch.pop("entropys")
                             batch = batch.union(old_log_prob)
 
-                    # DIME Diagnostics: compare focus vs base logprobs
-                    # Measures per-token KL(π(·|x_focus) || π(·|x_base)) for masked rollouts
-                    # This tells us how much the focus instruction shifts the response distribution
-                    if dime_enabled and dime_mask_for_training and dime_focus_log_probs is not None:
-                        response_mask = batch.batch['response_mask']
-                        base_log_probs = batch.batch['old_log_probs']  # π(y|x_base)
-                        # Build mask for DIME-masked rollouts only (ones that had focus swapped to base)
-                        n_rollouts = self.config.envs.n_rollouts
-                        masked_rollout_mask = torch.zeros(base_log_probs.shape[0], dtype=torch.bool)
-                        for step_idx in range(episode_len + 1):
-                            for env_idx in range(n_rollouts):
-                                if mask_per_rollout[env_idx]:
-                                    sample_idx = step_idx * n_rollouts + env_idx
-                                    if sample_idx < base_log_probs.shape[0]:
-                                        masked_rollout_mask[sample_idx] = True
-
-                        if masked_rollout_mask.any():
-                            # Per-token log ratio: log π(y_t|x_focus) - log π(y_t|x_base)
-                            # Positive = focus made this token more likely; Negative = focus made it less likely
-                            focus_lp = dime_focus_log_probs[masked_rollout_mask]
-                            base_lp = base_log_probs[masked_rollout_mask]
-                            rmask = response_mask[masked_rollout_mask]
-
-                            log_ratio = (focus_lp - base_lp) * rmask  # zero out padding
-                            valid_tokens = rmask.sum()
-
-                            if valid_tokens > 0:
-                                # Mean absolute per-token log-ratio (how different are the distributions)
-                                abs_log_ratio = log_ratio.abs()
-                                metrics['dime/prompt_kl_mean'] = (abs_log_ratio.sum() / valid_tokens).item()
-                                metrics['dime/prompt_kl_max'] = abs_log_ratio.max().item()
-                                # Signed mean (positive = focus generally increases token likelihood)
-                                metrics['dime/prompt_logprob_shift'] = (log_ratio.sum() / valid_tokens).item()
-                                # Per-sequence sum of |log ratio| (proxy for how much IS ratios would diverge)
-                                seq_abs_sum = abs_log_ratio.sum(dim=-1)
-                                seq_valid = rmask.sum(dim=-1).clamp(min=1)
-                                metrics['dime/prompt_kl_per_seq_mean'] = seq_abs_sum.mean().item()
-                                metrics['dime/prompt_kl_per_seq_max'] = seq_abs_sum.max().item()
-                                # Effective IS ratio magnitude: exp(|sum of log ratios per sequence|)
-                                signed_seq_sum = log_ratio.sum(dim=-1)
-                                is_ratio_proxy = signed_seq_sum.abs().exp()
-                                metrics['dime/is_ratio_proxy_mean'] = is_ratio_proxy.mean().item()
-                                metrics['dime/is_ratio_proxy_max'] = is_ratio_proxy.max().item()
-
-                        del dime_focus_log_probs  # free memory
-
                     if self.use_reference_policy:
                         # compute reference log_prob
                         with _timer('ref', timing_raw):
@@ -1791,8 +1838,22 @@ class RayMultistepTrainer(object):
                             metrics.update(kl_metrics)
 
                         if rollout_corr_config is not None and 'rollout_log_probs' in batch.batch and not bypass_recomputing_logprobs:
-                            batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
-                            metrics.update(is_metrics)
+                            if ice_enabled:
+                                # The ICE actor drops rollout_is_weights for both PG terms (they
+                                # are base-context π_train_base/π_rollout, the wrong policy for the
+                                # teacher-anchored ratios). Computing them here from post-swap base
+                                # logprobs vs teacher-context rollout logprobs would only log
+                                # misleading correction metrics, so skip it entirely under ICE.
+                                # TODO(V2): teacher-context rollout IS (exp(teacher_old - rollout)).
+                                if self.global_steps == 1:
+                                    logger.warning(
+                                        "ICE enabled: skipping rollout correction (rollout_is "
+                                        "weights are not applied to the ICE PG; the base-context "
+                                        "ratio would be mislabeled). Set rollout_is=null to silence."
+                                    )
+                            else:
+                                batch, is_metrics = compute_rollout_correction_and_add_to_batch(batch, rollout_corr_config)
+                                metrics.update(is_metrics)
 
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,
@@ -1901,14 +1962,14 @@ class RayMultistepTrainer(object):
                         self.env.update_epsilon(new_eps)
                     metrics.update(self.adaptive_epsilon.get_metrics())
 
-                # Update adaptive DIME from base-only reward trend (used next episode)
-                if self.adaptive_dime is not None and self.global_steps > self.critic_warmup_step:
+                # Update adaptive ICE from base-only reward trend (used next episode)
+                if self.adaptive_ice is not None and self.global_steps > self.critic_warmup_step:
                     base_reward = metrics.get('reward/base_mean')
                     if base_reward is not None:
-                        self.adaptive_dime.update(base_reward)
+                        self.adaptive_ice.update(base_reward)
                     else:
-                        metrics['dime/adaptive_update_skipped'] = 1.0
-                    metrics.update(self.adaptive_dime.get_metrics())
+                        metrics['ice/adaptive_update_skipped'] = 1.0
+                    metrics.update(self.adaptive_ice.get_metrics())
 
                 tracking_logger.log(data=metrics, step=self.global_steps)
 

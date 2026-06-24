@@ -1,13 +1,13 @@
 # @package eval
-# Split evaluation for DIME internalization measurement
-# Base evals (no focus) vs Context-augmented evals (with focus)
-# Gap between them = "rented" diversity (context-dependent) vs "owned" (internalized)
-# Use with: evaluation=overcooked_evals_dime_split
+# Evaluation configs for ICE experiments (no multi-action evals)
+# Standard + mixed deployment evals (bare prompts)
+# Entropy + state visitation diagnostic evals (inherit_ice for focus injection)
+# Use with: evaluation=overcooked_evals_ice
 
 evaluation:
   environments:
     # =============================================================================
-    # DEPLOYMENT EVALS (bare prompts — no DIME focus injection)
+    # DEPLOYMENT EVALS (bare prompts — no ICE focus injection)
     # =============================================================================
 
     - name: "Overcooked-CrampedRoom"
@@ -129,9 +129,10 @@ evaluation:
 
 
     # =============================================================================
-    # DIAGNOSTIC EVALS — BASE (no DIME focus — measures internalization)
+    # DIAGNOSTIC EVALS (inherit_ice — focus injection matches training conditions)
     # =============================================================================
 
+    # --- Action Entropy (inherits training config + ICE focus) ---
     - name: "Overcooked-CrampedRoom-Entropy-Check"
       n_rollouts: 50
       episode_length: 1
@@ -148,6 +149,7 @@ evaluation:
       task: none
       format_penalty: 0.0
       inherit_training_multiaction: true
+      inherit_ice: true
       captioner:
         type: naive
         max_text_history: 0
@@ -170,6 +172,7 @@ evaluation:
         max_batch_size: 32
 
 
+    # --- State Visitation (inherits training config + ICE focus) ---
     - name: "Overcooked-CrampedRoom-StateVisitation"
       n_rollouts: 300
       batch_size: 50
@@ -188,162 +191,7 @@ evaluation:
       task: none
       format_penalty: 0.0
       inherit_training_multiaction: true
-      captioner:
-        type: naive
-        max_text_history: 0
-      overcooked_kwargs:
-        layout_name: cramped_room
-        horizon: 8
-        partner_policy: none
-        shaped_reward: true
-        pot_cook_time: 5
-        print_visualization: false
-        print_coordinates: true
-        random_agent_positions: true
-
-
-    # =============================================================================
-    # DIAGNOSTIC EVALS — CONTEXT-AUGMENTED (with 0.4 DIME focus — measures ceiling)
-    # =============================================================================
-
-    - name: "Overcooked-CrampedRoom-Entropy-Check-pt4-Ctx"
-      n_rollouts: 50
-      episode_length: 1
-      generation:
-        temperature: 0.0
-        top_p: 1.0
-        top_k: -1
-        min_p: 0.0
-        do_sample: false
-      initial_seed: 30000
-      freeze_completed_episodes: true
-      duplication_mode: none
-      env_name: overcooked
-      task: none
-      format_penalty: 0.0
-      inherit_training_multiaction: true
-      inherit_dime: true
-      dime_proportion: 0.4
-      captioner:
-        type: naive
-        max_text_history: 0
-      overcooked_kwargs:
-        layout_name: cramped_room
-        horizon: 40
-        partner_policy: none
-        shaped_reward: true
-        pot_cook_time: 5
-        print_visualization: false
-        print_coordinates: true
-        random_agent_positions: true
-      action_entropy:
-        enabled: true
-        n_samples: 20
-        temperature: 1.25
-        measure_at_steps: "start"
-        step_interval: 1
-        exclusive_metric: true
-        max_batch_size: 32
-
-
-    - name: "Overcooked-CrampedRoom-StateVisitation-pt4-Ctx"
-      n_rollouts: 300
-      batch_size: 50
-      episode_length: 8
-      generation:
-        temperature: 1.25
-        top_p: 1.0
-        top_k: -1
-        min_p: 0.0
-        do_sample: true
-      initial_seed: 40000
-      seed_group_size: 20
-      freeze_completed_episodes: true
-      duplication_mode: none
-      env_name: overcooked
-      task: none
-      format_penalty: 0.0
-      inherit_training_multiaction: true
-      inherit_dime: true
-      dime_proportion: 0.4
-      captioner:
-        type: naive
-        max_text_history: 0
-      overcooked_kwargs:
-        layout_name: cramped_room
-        horizon: 8
-        partner_policy: none
-        shaped_reward: true
-        pot_cook_time: 5
-        print_visualization: false
-        print_coordinates: true
-        random_agent_positions: true
-
-
-    # =============================================================================
-    # DIAGNOSTIC EVALS — CONTEXT-AUGMENTED (with 0.8 DIME focus — measures ceiling)
-    # =============================================================================
-
-    - name: "Overcooked-CrampedRoom-Entropy-Check-pt8-Ctx"
-      n_rollouts: 50
-      episode_length: 1
-      generation:
-        temperature: 0.0
-        top_p: 1.0
-        top_k: -1
-        min_p: 0.0
-        do_sample: false
-      initial_seed: 30000
-      freeze_completed_episodes: true
-      duplication_mode: none
-      env_name: overcooked
-      task: none
-      format_penalty: 0.0
-      inherit_training_multiaction: true
-      inherit_dime: true
-      dime_proportion: 0.8
-      captioner:
-        type: naive
-        max_text_history: 0
-      overcooked_kwargs:
-        layout_name: cramped_room
-        horizon: 40
-        partner_policy: none
-        shaped_reward: true
-        pot_cook_time: 5
-        print_visualization: false
-        print_coordinates: true
-        random_agent_positions: true
-      action_entropy:
-        enabled: true
-        n_samples: 20
-        temperature: 1.25
-        measure_at_steps: "start"
-        step_interval: 1
-        exclusive_metric: true
-        max_batch_size: 32
-
-
-    - name: "Overcooked-CrampedRoom-StateVisitation-pt8-Ctx"
-      n_rollouts: 300
-      batch_size: 50
-      episode_length: 8
-      generation:
-        temperature: 1.25
-        top_p: 1.0
-        top_k: -1
-        min_p: 0.0
-        do_sample: true
-      initial_seed: 40000
-      seed_group_size: 20
-      freeze_completed_episodes: true
-      duplication_mode: none
-      env_name: overcooked
-      task: none
-      format_penalty: 0.0
-      inherit_training_multiaction: true
-      inherit_dime: true
-      dime_proportion: 0.8
+      inherit_ice: true
       captioner:
         type: naive
         max_text_history: 0

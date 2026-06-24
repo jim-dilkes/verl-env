@@ -1,10 +1,10 @@
-"""Test Group 1 [P1]: DIME focus instruction registry, sampling, injection."""
+"""Test Group 1 [P1]: ICE focus instruction registry, sampling, injection."""
 
 from verl.envs.environments.focus_instructions import (
     get_focus_instructions,
     has_focus_instructions,
-    get_dime_instructions,
-    has_dime_instructions,
+    get_ice_instructions,
+    has_ice_instructions,
     GENERIC_FOCUS_INSTRUCTIONS,
     sample_focus_for_episode,
     inject_focus_into_obs,
@@ -94,47 +94,47 @@ def test_inject_focus_multi_message():
     assert "step1" not in result[0][1]["content"]
 
 
-def test_get_dime_instructions_specific():
-    instructions = get_dime_instructions("overcooked", "specific")
+def test_get_ice_instructions_specific():
+    instructions = get_ice_instructions("overcooked", "specific")
     assert len(instructions) == 7
     assert instructions == get_focus_instructions("overcooked")
 
 
-def test_get_dime_instructions_generic():
-    instructions = get_dime_instructions("overcooked", "generic")
+def test_get_ice_instructions_generic():
+    instructions = get_ice_instructions("overcooked", "generic")
     assert instructions is GENERIC_FOCUS_INSTRUCTIONS
     assert len(instructions) == 10
 
 
-def test_get_dime_instructions_generic_any_env():
-    instructions = get_dime_instructions("nonexistent_env", "generic")
+def test_get_ice_instructions_generic_any_env():
+    instructions = get_ice_instructions("nonexistent_env", "generic")
     assert instructions is GENERIC_FOCUS_INSTRUCTIONS
 
 
-def test_get_dime_instructions_specific_unknown_env():
+def test_get_ice_instructions_specific_unknown_env():
     try:
-        get_dime_instructions("nonexistent_env", "specific")
+        get_ice_instructions("nonexistent_env", "specific")
         assert False, "Should have raised ValueError"
     except ValueError:
         pass
 
 
-def test_get_dime_instructions_invalid_source():
+def test_get_ice_instructions_invalid_source():
     try:
-        get_dime_instructions("overcooked", "invalid")
+        get_ice_instructions("overcooked", "invalid")
         assert False, "Should have raised ValueError"
     except ValueError as e:
         assert "invalid" in str(e)
 
 
-def test_has_dime_instructions_generic():
-    assert has_dime_instructions("overcooked", "generic") is True
-    assert has_dime_instructions("nonexistent_env", "generic") is True
+def test_has_ice_instructions_generic():
+    assert has_ice_instructions("overcooked", "generic") is True
+    assert has_ice_instructions("nonexistent_env", "generic") is True
 
 
-def test_has_dime_instructions_specific():
-    assert has_dime_instructions("overcooked", "specific") is True
-    assert has_dime_instructions("snake", "specific") is False
+def test_has_ice_instructions_specific():
+    assert has_ice_instructions("overcooked", "specific") is True
+    assert has_ice_instructions("snake", "specific") is False
 
 
 def test_inject_focus_passthrough_template():
@@ -163,13 +163,13 @@ if __name__ == "__main__":
     test_inject_focus_preserves_original()
     test_inject_focus_none_leaves_unchanged()
     test_inject_focus_multi_message()
-    test_get_dime_instructions_specific()
-    test_get_dime_instructions_generic()
-    test_get_dime_instructions_generic_any_env()
-    test_get_dime_instructions_specific_unknown_env()
-    test_get_dime_instructions_invalid_source()
-    test_has_dime_instructions_generic()
-    test_has_dime_instructions_specific()
+    test_get_ice_instructions_specific()
+    test_get_ice_instructions_generic()
+    test_get_ice_instructions_generic_any_env()
+    test_get_ice_instructions_specific_unknown_env()
+    test_get_ice_instructions_invalid_source()
+    test_has_ice_instructions_generic()
+    test_has_ice_instructions_specific()
     test_inject_focus_passthrough_template()
     test_sample_focus_requires_no_supplement_prob()
     print("All Group 1 tests passed!")

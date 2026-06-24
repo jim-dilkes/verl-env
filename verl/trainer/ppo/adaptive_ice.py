@@ -1,7 +1,7 @@
-"""Adaptive DIME supplement ratio based on reward trend.
+"""Adaptive ICE supplement ratio based on reward trend.
 
 Same inverted schedule as AdaptiveEpsilon: sliding window, linear
-regression slope, sigmoid mapping. But controls the DIME supplement
+regression slope, sigmoid mapping. But controls the ICE supplement
 ratio instead of epsilon.
 
 - Improving rewards → low supplement_prob (consolidate with clean rollouts)
@@ -15,7 +15,7 @@ from collections import deque
 from verl.trainer.ppo.adaptive_epsilon import _std, _sigmoid, AdaptiveEpsilon
 
 
-class AdaptiveDIME:
+class AdaptiveICE:
     def __init__(
         self,
         supplement_min: float,
@@ -68,10 +68,10 @@ class AdaptiveDIME:
 
     def get_metrics(self) -> dict:
         return {
-            "dime/adaptive_supplement_prob": self.current_supplement_prob,
-            "dime/adaptive_slope": self._last_slope,
-            "dime/adaptive_inflection": self.inflection,
-            "dime/adaptive_buffer_fill": len(self.reward_buffer) / self.window_size,
+            "ice/adaptive_supplement_prob": self.current_supplement_prob,
+            "ice/adaptive_slope": self._last_slope,
+            "ice/adaptive_inflection": self.inflection,
+            "ice/adaptive_buffer_fill": len(self.reward_buffer) / self.window_size,
         }
 
 

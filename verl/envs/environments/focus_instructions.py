@@ -1,7 +1,7 @@
-"""DIME (Diverse Instruction-Masked Exploration) focus instruction registry.
+"""ICE (Instruction-Conditioned Exploration) focus instruction registry.
 
 Provides per-environment focus instructions, sampling, and injection utilities
-for the DIME technique. During rollout, a random focus instruction is appended
+for the ICE technique. During rollout, a random focus instruction is appended
 to each rollout's prompt. During training, the focus is stripped so the model
 learns focus-guided behaviors without depending on the instruction at inference.
 """
@@ -48,28 +48,28 @@ def get_focus_instructions(env_name: str) -> list[str]:
     key = env_name.lower()
     if key not in FOCUS_REGISTRY:
         raise ValueError(
-            f"No DIME focus instructions registered for env '{env_name}'. "
+            f"No ICE focus instructions registered for env '{env_name}'. "
             f"Available: {list(FOCUS_REGISTRY.keys())}"
         )
     return FOCUS_REGISTRY[key]
 
 
-def has_dime_instructions(env_name: str, source: str) -> bool:
-    """Check whether DIME instructions are available for the given source."""
+def has_ice_instructions(env_name: str, source: str) -> bool:
+    """Check whether ICE instructions are available for the given source."""
     if source == "generic":
         return True
     if source == "specific":
         return has_focus_instructions(env_name)
-    raise ValueError(f"Unknown DIME source: '{source}'. Must be 'specific' or 'generic'.")
+    raise ValueError(f"Unknown ICE source: '{source}'. Must be 'specific' or 'generic'.")
 
 
-def get_dime_instructions(env_name: str, source: str) -> list[str]:
-    """Return DIME instructions for the given source."""
+def get_ice_instructions(env_name: str, source: str) -> list[str]:
+    """Return ICE instructions for the given source."""
     if source == "generic":
         return GENERIC_FOCUS_INSTRUCTIONS
     if source == "specific":
         return get_focus_instructions(env_name)
-    raise ValueError(f"Unknown DIME source: '{source}'. Must be 'specific' or 'generic'.")
+    raise ValueError(f"Unknown ICE source: '{source}'. Must be 'specific' or 'generic'.")
 
 
 def sample_focus_for_episode(
@@ -95,19 +95,56 @@ def sample_focus_for_episode(
     return result
 
 
-def sample_mask_decisions(
-    focus_per_rollout: list[Optional[str]],
-    mask_probability: float,
-) -> list[bool]:
-    """Per-rollout mask decision. Only focus-injected rollouts are candidates.
+def validate_deterministic_assignment(
+    n_rollouts: int,
+    n_instructions: int,
+    n_duplicates: int,
+    n_no_instruction: int,
+) -> None:
+    """Assert the deterministic group fills exactly n_rollouts.
 
-    Returns list[bool] where True = swap to base prompt (strip focus for training).
-    Rollouts without focus (None) always return False (no swap needed).
+    group_size = n_instructions * n_duplicates + n_no_instruction must equal
+    n_rollouts (mirrors OpenRLHF DICEConfig.group_size).
     """
-    return [
-        (f is not None) and (random.random() < mask_probability)
-        for f in focus_per_rollout
-    ]
+    if n_duplicates < 1:
+        raise ValueError(f"ice.n_duplicates={n_duplicates} must be >= 1.")
+    if n_no_instruction < 0:
+        raise ValueError(f"ice.n_no_instruction={n_no_instruction} must be >= 0.")
+    group_size = n_instructions * n_duplicates + n_no_instruction
+    if group_size != n_rollouts:
+        raise ValueError(
+            f"deterministic ICE assignment: n_instructions*n_duplicates + "
+            f"n_no_instruction = {n_instructions}*{n_duplicates} + {n_no_instruction} "
+            f"= {group_size} != n_rollouts ({n_rollouts}). Adjust n_duplicates / "
+            f"n_no_instruction so the group fills exactly n_rollouts."
+        )
+
+
+def assign_focus_deterministic(
+    n_rollouts: int,
+    instructions: list[str],
+    n_duplicates: int,
+    n_no_instruction: int,
+    seed: int,
+) -> list[Optional[str]]:
+    """Deterministic covering assignment of focuses across a task group.
+
+    Builds exactly n_duplicates copies of each instruction plus n_no_instruction
+    unconditioned (None) slots, then shuffles per group using `seed` so the
+    instruction identity is decorrelated from rollout index (mirrors OpenRLHF
+    DICEAugmentor base-assignment + per-prompt shuffle) while remaining
+    reproducible. Requires the group-size constraint (validated).
+    """
+    validate_deterministic_assignment(
+        n_rollouts, len(instructions), n_duplicates, n_no_instruction
+    )
+    assignment: list[Optional[str]] = []
+    for instr in instructions:
+        assignment.extend([instr] * n_duplicates)
+    assignment.extend([None] * n_no_instruction)
+    rng = random.Random(seed)
+    rng.shuffle(assignment)
+    return assignment
 
 
 def inject_focus_into_obs(
