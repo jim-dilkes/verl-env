@@ -158,6 +158,19 @@ are keyed by the suffixed eval name (`..._nofocus`, `..._focus{k}`). Cost = (1 +
 × n_rollouts; cap via `n_rollouts` or `ice_focus_indices: [..]` to expand a subset.
 Requires `ice.enabled=true`. Ready config: `evaluation=overcooked_evals_ice_per_focus`.
 
+### Milestone Tracking (V2)
+The Overcooked env emits a per-step `info["milestones"]` (list[bool], ordered by
+`MILESTONE_NAMES` in `overcooked/milestones.py`): hold_ingredient → ingredient_in_pot →
+pot_cooking → hold_dish → hold_soup → delivered. Derived from the controlled agent's
+inventory + pot contents (`compute_milestones`, jax-free, called from the wrapper's
+`_compute_milestones` after decoding state); `delivered` uses the sparse (pre-shaping)
+reward. The evaluator OR-accumulates these per trajectory over active steps (terminating
+step included, post-auto-reset excluded) and reports `milestone/{k}_{name}_reached` =
+fraction of trajectories that ever reached milestone k. Combined with per-focus eval
+conditions, this gives the per-focus × per-milestone breakdown ("which focus most helps
+which sub-task"). Quantifies how consistently each new task step is being learned over
+training. Works for any eval; emitted in training info too (currently only aggregated in eval).
+
 ## Adding Focus Instructions for New Environments
 1. Add instruction list to `FOCUS_REGISTRY` in `focus_instructions.py`
 2. Key must match `config.envs.env_name` (lowercased)
@@ -240,6 +253,5 @@ teacher-side KL must use `k3`. A correct sample-based reverse-KL `D_KL(π_T‖sg
 gradient needs the score-function (REINFORCE) term, since the sampling distribution `π_T`
 depends on the teacher params. Add this if a paper-faithful teacher KL is wanted.
 
-### Per-focus eval breakdown + per-trajectory milestone tracking
-Pin each focus to its own eval condition (reuse `assign_focus_deterministic`); track which
-ordered sub-task milestone each trajectory reaches (from env info / shaped-reward events).
+### Per-focus eval breakdown + per-trajectory milestone tracking — IMPLEMENTED (V2)
+See "Per-focus Eval (V2)" and "Milestone Tracking (V2)" under Validation & Evaluation.
