@@ -14,6 +14,8 @@ from jaxmarl.environments.overcooked_v2.overcooked import Actions, Direction
 
 from verl.envs.environments.overcooked import ACTION_TO_IDX, IDX_TO_ACTION, DIRECTION_NAMES
 
+from verl.envs.environments.overcooked.milestones import MILESTONE_NAMES, compute_milestones
+
 JAXMARL_DEFAULT_COOK_TIME = 20
 
 
@@ -154,7 +156,8 @@ class OvercookedGymWrapper(gym.Env):
         self._step_count += 1
 
         obs_array = np.array(obs[self.controlled_agent])
-        reward = float(rewards[self.controlled_agent])
+        sparse_reward = float(rewards[self.controlled_agent])  # delivery reward (pre-shaping)
+        reward = sparse_reward
         if self.shaped_reward and "shaped_reward" in info:
             reward += float(info["shaped_reward"][self.controlled_agent])
 
@@ -166,7 +169,25 @@ class OvercookedGymWrapper(gym.Env):
         return obs_array, reward, terminated, truncated, {
             "state": self._state,
             "step": self._step_count,
+            "milestones": self._compute_milestones(sparse_reward),
         }
+
+    def _compute_milestones(self, sparse_reward):
+        """Per-step boolean flags for the ordered recipe-agnostic task chain.
+
+        MILESTONE_NAMES gives the order: holding a raw ingredient -> >=1 ingredient in
+        a pot -> a pot cooking/cooked -> holding a dish -> holding cooked soup ->
+        delivered. Derived from the controlled agent's inventory + pot contents (same
+        decode helpers used for rendering); delivery uses the sparse (pre-shaping)
+        reward. The evaluator aggregates per-trajectory furthest-reached over an episode.
+        """
+        state = self._state
+        grid = np.array(state.grid)
+        inv_np = np.array(state.agents.inventory)
+        agent_idx = 0 if self.controlled_agent == "agent_0" else 1
+        held = self._decode_item(int(inv_np[agent_idx]))
+        pots = self._get_pot_info(grid)
+        return compute_milestones(held, pots, sparse_reward)
 
     def _describe_step(self, action_idx, reward):
         action_name = IDX_TO_ACTION.get(action_idx, "unknown")
