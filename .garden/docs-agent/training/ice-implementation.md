@@ -147,6 +147,17 @@ Guard chain: `inherit_ice=true` AND `ice.enabled=true` AND `has_ice_instructions
 ### Split Eval Pattern (Internalization Measurement)
 Paired eval blocks measure **internalization gap**: how much diversity is "rented" (context-dependent) vs "owned" (learned).
 
+### Per-focus Eval (V2)
+Set `ice_per_focus: true` on an eval env to auto-expand it into a **no-focus** condition
+plus **one condition per focus instruction** (each pins that focus across all rollouts,
+shared seeds) — so per checkpoint you see how each individual focus helps vs the
+unconditioned student. Implemented by `expand_per_focus_eval_envs` (focus_instructions.py)
++ `_expand_per_focus_eval_environments` (evaluator), with `ice_fixed_focus` (-1=no focus,
+else focus index) + `fixed_focus_for_batch` pinning the focus in the eval loop. Metrics
+are keyed by the suffixed eval name (`..._nofocus`, `..._focus{k}`). Cost = (1 + N_focus)
+× n_rollouts; cap via `n_rollouts` or `ice_focus_indices: [..]` to expand a subset.
+Requires `ice.enabled=true`. Ready config: `evaluation=overcooked_evals_ice_per_focus`.
+
 ## Adding Focus Instructions for New Environments
 1. Add instruction list to `FOCUS_REGISTRY` in `focus_instructions.py`
 2. Key must match `config.envs.env_name` (lowercased)

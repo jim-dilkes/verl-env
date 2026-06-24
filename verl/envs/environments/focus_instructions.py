@@ -95,6 +95,55 @@ def sample_focus_for_episode(
     return result
 
 
+def fixed_focus_for_batch(
+    n_rollouts: int,
+    instruction: Optional[str],
+) -> list[Optional[str]]:
+    """All rollouts get the same focus instruction (or None for a no-focus condition).
+
+    Used by per-focus evaluation, where each eval condition pins one specific
+    instruction (or none) across all rollouts so its effect can be measured in
+    isolation.
+    """
+    return [instruction] * n_rollouts
+
+
+def expand_per_focus_eval_envs(env_config: dict, instructions: list[str]) -> list[dict]:
+    """Expand one eval-env spec into per-focus + no-focus conditions.
+
+    For an eval env with ``ice_per_focus: true``, produce one condition per focus
+    instruction (each pinned to all rollouts) plus a no-focus condition, all sharing
+    the base env's seeds/layout so the per-focus effect is directly comparable.
+
+    ``ice_focus_indices`` (optional list of ints) restricts which focuses to expand
+    (to bound eval cost); defaults to all instructions. Each produced config is a
+    plain dict carrying ``ice_fixed_focus`` (-1 = no focus, else the focus index) and
+    ``inherit_ice=True``; ``name`` is suffixed ``_nofocus`` / ``_focus{k}``.
+    """
+    base = env_config.get("name", "env")
+    indices = env_config.get("ice_focus_indices", None)
+    if indices is None:
+        indices = list(range(len(instructions)))
+
+    def _mk(suffix, fixed_focus):
+        c = dict(env_config)
+        c.pop("ice_per_focus", None)
+        c.pop("ice_focus_indices", None)
+        c["name"] = f"{base}_{suffix}"
+        c["inherit_ice"] = True
+        c["ice_fixed_focus"] = fixed_focus
+        return c
+
+    out = [_mk("nofocus", -1)]
+    for k in indices:
+        if not (0 <= k < len(instructions)):
+            raise ValueError(
+                f"ice_focus_indices entry {k} out of range for {len(instructions)} instructions."
+            )
+        out.append(_mk(f"focus{k}", k))
+    return out
+
+
 def validate_deterministic_assignment(
     n_rollouts: int,
     n_instructions: int,
