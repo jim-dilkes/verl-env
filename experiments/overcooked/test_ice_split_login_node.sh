@@ -1,21 +1,12 @@
 #!/bin/bash
-# DIME Asymmetric-RL/SD login node smoke test (paper-faithful variation).
-# Exercises the NEW paths: alpha=1.0 (teacher-only RL), student->teacher forward-KL
-# via the mean_logprob estimator, with the return_positive KL_S filter, and
-# unconditioned inline validation.
-# NOTE: micro_batch_size=1 to account for 2x activation memory from the dual forward.
-# Usage: bash experiments/overcooked/test_dime_asymmetric_login_node.sh
-#
-# Deterministic assignment (dime.assignment=deterministic) is NOT used here because
-# it requires n_instructions*n_duplicates + n_no_instruction == n_rollouts; overcooked
-# has 7 specific instructions, which cannot fill n_rollouts=4. Use n_rollouts>=8 to
-# smoke-test deterministic assignment separately.
+# ICE split eval login node smoke test — validates base vs context-augmented eval blocks
+# Usage: bash experiments/overcooked/test_ice_split_login_node.sh
+# Runs: 1 critic warmup step, 2 training steps with ICE enabled + split evals
 
 set -e
-set -o pipefail  # fail if python crashes despite the `| tee` at the end
 
 project_name=verl_env
-experiment_name=test_dime_asymmetric_login_node
+experiment_name=test_ice_split_login_node
 run_number=1
 number_of_gpus=1
 
@@ -48,8 +39,8 @@ module load gcc/13.3.0
 eval "$(conda shell.bash hook)"
 conda activate verl
 
-# Tuned for 24GB L4 GPUs (login nodes). micro_batch=1 for 2x dual-forward activations.
-micro_batch_size=1
+# Tuned for 24GB L4 GPUs (login nodes)
+micro_batch_size=2
 max_prompt_length=384
 max_response_length=96
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
@@ -148,15 +139,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
-  prompt.prompt.dime.enabled=true \
-  prompt.prompt.dime.assignment=stochastic \
-  prompt.prompt.dime.no_supplement_prob=0.125 \
-  prompt.prompt.dime.alpha=1.0 \
-  prompt.prompt.dime.kl_beta_teacher=0.0 \
-  prompt.prompt.dime.kl_beta_student=0.1 \
-  prompt.prompt.dime.kl_estimator=mean_logprob \
-  prompt.prompt.dime.kl_filter=return_positive \
-  prompt.prompt.dime.eval_unconditioned=true \
+  prompt.prompt.ice.enabled=true \
+  prompt.prompt.ice.no_supplement_prob=0.125 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_name} \
@@ -170,8 +154,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.render=False \
   trainer.total_epochs=1000 \
   trainer.total_training_steps=2 \
-  evaluation=overcooked_evals_minimal \
-  prompt=overcooked 2>&1 | tee test_dime_asymmetric_login_node.log
+  evaluation=overcooked_evals_ice_split_minimal \
+  prompt=overcooked 2>&1 | tee test_ice_split_login_node.log
 
-echo "DIME Asymmetric-RL/SD test run complete!"
-echo "Check logs for dime/kl_student, dime/kl_student_keep_frac, dime/kl_filter_keep_rate metrics"
+echo "ICE split eval test complete!"

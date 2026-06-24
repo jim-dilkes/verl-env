@@ -13,8 +13,8 @@ prompt:
   # If null, the hardcoded default in the environment will be used
   environment_instruction: null
 
-  # DIME (Diverse Instruction-Masked Exploration) config
-  dime:
+  # ICE (Instruction-Conditioned Exploration) config
+  ice:
     enabled: false
     # Default is "generic" (always available). Use "specific" ONLY for envs with a
     # registered instruction set (currently overcooked); "specific" elsewhere raises.

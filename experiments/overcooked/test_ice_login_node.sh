@@ -1,12 +1,13 @@
 #!/bin/bash
-# DIME split eval login node smoke test — validates base vs context-augmented eval blocks
-# Usage: bash experiments/overcooked/test_dime_split_login_node.sh
-# Runs: 1 critic warmup step, 2 training steps with DIME enabled + split evals
+# ICE login node smoke test — validates ICE feature before full cluster runs
+# Usage: bash experiments/overcooked/test_ice_login_node.sh
+# Runs: 1 critic warmup step, 2 training steps with ICE parallel optimisation (no KL)
 
 set -e
+set -o pipefail  # fail if python crashes despite the `| tee` at the end
 
 project_name=verl_env
-experiment_name=test_dime_split_login_node
+experiment_name=test_ice_login_node
 run_number=1
 number_of_gpus=1
 
@@ -139,8 +140,11 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
-  prompt.prompt.dime.enabled=true \
-  prompt.prompt.dime.no_supplement_prob=0.125 \
+  prompt.prompt.ice.enabled=true \
+  prompt.prompt.ice.no_supplement_prob=0.125 \
+  prompt.prompt.ice.alpha=0.5 \
+  prompt.prompt.ice.kl_beta_teacher=0.0 \
+  prompt.prompt.ice.kl_beta_student=0.0 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_name} \
@@ -154,7 +158,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.render=False \
   trainer.total_epochs=1000 \
   trainer.total_training_steps=2 \
-  evaluation=overcooked_evals_dime_split_minimal \
-  prompt=overcooked 2>&1 | tee test_dime_split_login_node.log
+  evaluation=overcooked_evals_minimal \
+  prompt=overcooked 2>&1 | tee test_ice_login_node.log
 
-echo "DIME split eval test complete!"
+echo "ICE test run complete!"

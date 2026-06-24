@@ -1,12 +1,21 @@
 #!/bin/bash
-# Adaptive DIME login node smoke test — validates base-only gradient source
-# Usage: bash experiments/overcooked/test_dime_adaptive_login_node.sh
-# Runs: 1 critic warmup step, 3 training steps with adaptive DIME enabled
+# ICE Asymmetric-RL/SD login node smoke test (paper-faithful variation).
+# Exercises the NEW paths: alpha=1.0 (teacher-only RL), student->teacher forward-KL
+# via the mean_logprob estimator, with the return_positive KL_S filter, and
+# unconditioned inline validation.
+# NOTE: micro_batch_size=1 to account for 2x activation memory from the dual forward.
+# Usage: bash experiments/overcooked/test_ice_asymmetric_login_node.sh
+#
+# Deterministic assignment (ice.assignment=deterministic) is NOT used here because
+# it requires n_instructions*n_duplicates + n_no_instruction == n_rollouts; overcooked
+# has 7 specific instructions, which cannot fill n_rollouts=4. Use n_rollouts>=8 to
+# smoke-test deterministic assignment separately.
 
 set -e
+set -o pipefail  # fail if python crashes despite the `| tee` at the end
 
 project_name=verl_env
-experiment_name=test_dime_adaptive_login_node
+experiment_name=test_ice_asymmetric_login_node
 run_number=1
 number_of_gpus=1
 
@@ -39,8 +48,8 @@ module load gcc/13.3.0
 eval "$(conda shell.bash hook)"
 conda activate verl
 
-# Tuned for 24GB L4 GPUs (login nodes)
-micro_batch_size=2
+# Tuned for 24GB L4 GPUs (login nodes). micro_batch=1 for 2x dual-forward activations.
+micro_batch_size=1
 max_prompt_length=384
 max_response_length=96
 max_token_len_per_gpu=$((max_prompt_length + max_response_length))
@@ -139,13 +148,15 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
-  prompt.prompt.dime.enabled=true \
-  prompt.prompt.dime.no_supplement_prob=0.25 \
-  prompt.prompt.dime.adaptive.enabled=true \
-  prompt.prompt.dime.adaptive.supplement_min=0.1 \
-  prompt.prompt.dime.adaptive.supplement_max=0.9 \
-  prompt.prompt.dime.adaptive.window_size=2 \
-  prompt.prompt.dime.adaptive.k=5.0 \
+  prompt.prompt.ice.enabled=true \
+  prompt.prompt.ice.assignment=stochastic \
+  prompt.prompt.ice.no_supplement_prob=0.125 \
+  prompt.prompt.ice.alpha=1.0 \
+  prompt.prompt.ice.kl_beta_teacher=0.0 \
+  prompt.prompt.ice.kl_beta_student=0.1 \
+  prompt.prompt.ice.kl_estimator=mean_logprob \
+  prompt.prompt.ice.kl_filter=return_positive \
+  prompt.prompt.ice.eval_unconditioned=true \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_name} \
@@ -158,16 +169,9 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.test_freq=2 \
   trainer.render=False \
   trainer.total_epochs=1000 \
-  trainer.total_training_steps=3 \
+  trainer.total_training_steps=2 \
   evaluation=overcooked_evals_minimal \
-  prompt=overcooked 2>&1 | tee test_dime_adaptive_login_node.log
+  prompt=overcooked 2>&1 | tee test_ice_asymmetric_login_node.log
 
-echo ""
-echo "=== Adaptive DIME Test Summary ==="
-echo "Check test_dime_adaptive_login_node.log for:"
-echo "  1. '[Trainer] Adaptive DIME enabled' — init confirmed"
-echo "  2. dime/adaptive_supplement_prob metric logged each step"
-echo "  3. dime/adaptive_buffer_fill increasing (0.5 → 1.0)"
-echo "  4. reward/base_mean metric logged (no_supplement_prob=0.25, expect ~1 base per batch)"
-echo "  5. No dime/adaptive_update_skipped (or very rare)"
-echo "  6. No crashes"
+echo "ICE Asymmetric-RL/SD test run complete!"
+echo "Check logs for ice/kl_student, ice/kl_student_keep_frac, ice/kl_filter_keep_rate metrics"

@@ -1,4 +1,4 @@
-"""Test Group 5 [P1]: DIME edge cases."""
+"""Test Group 5 [P1]: ICE edge cases."""
 
 import torch
 from verl import DataProto

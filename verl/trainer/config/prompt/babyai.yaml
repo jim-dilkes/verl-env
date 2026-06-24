@@ -36,8 +36,8 @@ prompt:
 
     Output your action in: <action>your_action</action>
 
-  # DIME (Diverse Instruction-Masked Exploration) config
-  dime:
+  # ICE (Instruction-Conditioned Exploration) config
+  ice:
     enabled: false
     source: "generic"        # "specific" (env instructions + template) or "generic" (standalone principles)
     no_supplement_prob: 0.125  # REQUIRED when enabled. Fixed across conditions.

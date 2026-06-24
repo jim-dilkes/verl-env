@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=DIME_ASYM_bS01_filt_r16_202
+#SBATCH --job-name=ICE_ASYM_top50_r16_1
 #SBATCH --output=logs/slurm-%j.out
 #SBATCH --error=logs/slurm-%j.err
 #SBATCH --mem=350GB
@@ -11,25 +11,25 @@
 #SBATCH --gpus-per-node=2
 #SBATCH --exclude=swarmh1002
 
-# DIME Asymmetric-RL/SD (paper-faithful headline): alpha=1 (teacher-only RL) +
+# ICE Asymmetric-RL/SD (paper-faithful headline): alpha=1 (teacher-only RL) +
 # student->teacher forward-KL via the mean_logprob estimator. Unconditioned student is
 # the deployed policy (eval_unconditioned=true).
 # NOTE: micro_batch_size halved (16->8) for the dual forward-pass memory.
 #
 # Variation knobs (this run = headline; copy + flip for the sweep):
-#   prompt.prompt.dime.kl_beta_student : {0.05, 0.1, 0.5}   (KL strength)
-#   prompt.prompt.dime.kl_filter       : none | return_positive | top_pct
-#   prompt.prompt.dime.kl_filter_top_pct : 0.5              (only for kl_filter=top_pct)
-#   prompt.prompt.dime.assignment      : stochastic | deterministic
+#   prompt.prompt.ice.kl_beta_student : {0.05, 0.1, 0.5}   (KL strength)
+#   prompt.prompt.ice.kl_filter       : none | return_positive | top_pct
+#   prompt.prompt.ice.kl_filter_top_pct : 0.5              (only for kl_filter=top_pct)
+#   prompt.prompt.ice.assignment      : stochastic | deterministic
 #       deterministic at n_rollouts=16 with 7 overcooked instructions needs
 #       n_duplicates=2, n_no_instruction=2  (7*2 + 2 = 16).
 
 # --- Define experiment variables ---
-project_name=rl_sdm
-experiment_name=OC_4B_DIME_ASYM_bS01_filt_r16
-run_number=202
+project_name=rl_sdm_ice
+experiment_name=OC_4B_ICE_ASYM_top50_r16
+run_number=1
 number_of_gpus=2
-WANDB_TAGS='["DIME","asymmetric_rlsd","mean_logprob","alpha1","kl_filter_return_positive"]'
+WANDB_TAGS='["ICE","asymmetric_rlsd","mean_logprob","alpha1","kl_filter_top50","PPO"]'
 
 job_id=${SLURM_JOB_ID:-local}
 run_id=${experiment_name}_run${run_number}_slu${job_id}
@@ -186,15 +186,16 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
-  prompt.prompt.dime.enabled=true \
-  prompt.prompt.dime.assignment=stochastic \
-  prompt.prompt.dime.no_supplement_prob=0.125 \
-  prompt.prompt.dime.alpha=1.0 \
-  prompt.prompt.dime.kl_beta_teacher=0.0 \
-  prompt.prompt.dime.kl_beta_student=0.1 \
-  prompt.prompt.dime.kl_estimator=mean_logprob \
-  prompt.prompt.dime.kl_filter=return_positive \
-  prompt.prompt.dime.eval_unconditioned=true \
+  prompt.prompt.ice.enabled=true \
+  prompt.prompt.ice.assignment=stochastic \
+  prompt.prompt.ice.no_supplement_prob=0.125 \
+  prompt.prompt.ice.alpha=1.0 \
+  prompt.prompt.ice.kl_beta_teacher=0.0 \
+  prompt.prompt.ice.kl_beta_student=0.1 \
+  prompt.prompt.ice.kl_estimator=mean_logprob \
+  prompt.prompt.ice.kl_filter=top_pct \
+  prompt.prompt.ice.kl_filter_top_pct=0.5 \
+  prompt.prompt.ice.eval_unconditioned=true \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_name} \

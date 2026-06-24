@@ -1,13 +1,12 @@
 #!/bin/bash
-# DIME login node smoke test — validates DIME feature before full cluster runs
-# Usage: bash experiments/overcooked/test_dime_login_node.sh
-# Runs: 1 critic warmup step, 2 training steps with DIME parallel optimisation (no KL)
+# ICE split eval login node smoke test (FastSnake) — validates base vs context-augmented eval blocks
+# Usage: bash experiments/snake/test_ice_split_login_node.sh
+# Runs: 1 critic warmup step, 2 training steps with ICE enabled (generic source) + split evals
 
 set -e
-set -o pipefail  # fail if python crashes despite the `| tee` at the end
 
 project_name=verl_env
-experiment_name=test_dime_login_node
+experiment_name=test_ice_split_snake_login_node
 run_number=1
 number_of_gpus=1
 
@@ -115,20 +114,18 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   envs.n_rollouts=4 \
   envs.duplication_mode=none \
   envs.freeze_completed_episodes=True \
-  envs.env_name=overcooked \
+  envs.env_name=fastsnake \
   envs.format_penalty=1 \
   envs.binary_reward=False \
   envs.captioner.type=naive \
   envs.captioner.max_text_history=0 \
-  envs.captioner.max_cot_history=1 \
-  envs.overcooked_kwargs.layout_name=cramped_room \
-  envs.overcooked_kwargs.horizon=20 \
-  envs.overcooked_kwargs.partner_policy=none \
-  envs.overcooked_kwargs.shaped_reward=True \
-  envs.overcooked_kwargs.pot_cook_time=3 \
-  envs.overcooked_kwargs.print_visualization=false \
-  envs.overcooked_kwargs.print_coordinates=true \
-  envs.overcooked_kwargs.random_agent_positions=true \
+  envs.captioner.max_cot_history=0 \
+  envs.fastsnake_kwargs.width=10 \
+  envs.fastsnake_kwargs.height=10 \
+  envs.fastsnake_kwargs.max_rounds=8 \
+  envs.fastsnake_kwargs.num_external_snakes=1 \
+  envs.fastsnake_kwargs.num_random_snakes=1 \
+  envs.fastsnake_kwargs.death_reward=-1 \
   envs.vec_env_multiprocessing=fork \
   actor_rollout_ref.rollout.calculate_log_probs=true \
   algorithm.rollout_correction.rollout_is=sequence \
@@ -140,11 +137,9 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   algorithm.rollout_correction.bypass_mode=false \
   algorithm.rollout_correction.use_policy_gradient=false \
   algorithm.rollout_correction.rollout_is_batch_normalize=false \
-  prompt.prompt.dime.enabled=true \
-  prompt.prompt.dime.no_supplement_prob=0.125 \
-  prompt.prompt.dime.alpha=0.5 \
-  prompt.prompt.dime.kl_beta_teacher=0.0 \
-  prompt.prompt.dime.kl_beta_student=0.0 \
+  prompt.prompt.ice.enabled=true \
+  prompt.prompt.ice.source=generic \
+  prompt.prompt.ice.no_supplement_prob=0.125 \
   trainer.log_val_generations=1 \
   trainer.project_name=$project_name \
   trainer.experiment_name=${experiment_name} \
@@ -153,12 +148,12 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   trainer.critic_warmup_micro_batch_size_per_gpu=$micro_batch_size \
   trainer.n_gpus_per_node=$number_of_gpus \
   trainer.nnodes=1 \
-  trainer.save_freq=-1 \
+  trainer.save_freq=100 \
   trainer.test_freq=2 \
   trainer.render=False \
   trainer.total_epochs=1000 \
   trainer.total_training_steps=2 \
-  evaluation=overcooked_evals_minimal \
-  prompt=overcooked 2>&1 | tee test_dime_login_node.log
+  evaluation=snake_evals_ice_split_minimal \
+  prompt=snake 2>&1 | tee test_ice_split_snake_login_node.log
 
-echo "DIME test run complete!"
+echo "ICE split eval test (snake) complete!"

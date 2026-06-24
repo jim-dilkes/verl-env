@@ -8,7 +8,7 @@ import numpy as np
 
 
 def make_synthetic_batch(plen, rlen, n_rollouts, n_steps, pad_token_id=0):
-    """Build a synthetic batch mimicking DIME rollout structure.
+    """Build a synthetic batch mimicking ICE rollout structure.
 
     Returns:
         batch: DataProto-like object

@@ -55,8 +55,8 @@ prompt:
     - You cannot "go forward" if blocked by wall/object
     - Use 'toggle' to interact with objects in front of you
 
-  # DIME (Diverse Instruction-Masked Exploration) config
-  dime:
+  # ICE (Instruction-Conditioned Exploration) config
+  ice:
     enabled: false
     source: "generic"        # "specific" (env instructions + template) or "generic" (standalone principles)
     no_supplement_prob: 0.125  # REQUIRED when enabled. Fixed across conditions.

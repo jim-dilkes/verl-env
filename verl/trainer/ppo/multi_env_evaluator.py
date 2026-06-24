@@ -37,8 +37,8 @@ from verl.envs.environments import get_action_extraction_fn
 from verl.envs.environments.focus_instructions import (
     has_focus_instructions,
     get_focus_instructions,
-    has_dime_instructions,
-    get_dime_instructions,
+    has_ice_instructions,
+    get_ice_instructions,
     sample_focus_for_episode,
     inject_focus_into_obs,
 )
@@ -732,37 +732,37 @@ class MultiEnvEvaluator:
         # Get generation config for this environment (once per environment)
         self._current_gen_config = self._get_generation_config(env_config)
 
-        # DIME focus injection (opt-in per eval env via inherit_dime)
-        dime_config = getattr(self.config.prompt.prompt, 'dime', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
-        eval_dime_source = getattr(dime_config, 'source', 'specific') if dime_config else 'specific'
-        eval_dime_enabled = (
-            env_config.get('inherit_dime', False)
-            and dime_config is not None
-            and getattr(dime_config, 'enabled', False)
-            and has_dime_instructions(eval_env_name, eval_dime_source)
+        # ICE focus injection (opt-in per eval env via inherit_ice)
+        ice_config = getattr(self.config.prompt.prompt, 'ice', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
+        eval_ice_source = getattr(ice_config, 'source', 'specific') if ice_config else 'specific'
+        eval_ice_enabled = (
+            env_config.get('inherit_ice', False)
+            and ice_config is not None
+            and getattr(ice_config, 'enabled', False)
+            and has_ice_instructions(eval_env_name, eval_ice_source)
         )
-        if eval_dime_enabled:
-            eval_dime_template = getattr(dime_config, 'template', '') if eval_dime_source == 'specific' else '{STEP_TEXT}'
-            eval_dime_instructions = get_dime_instructions(eval_env_name, eval_dime_source)
-            eval_dime_no_supp = getattr(dime_config, 'no_supplement_prob', None)
-            if eval_dime_no_supp is None:
+        if eval_ice_enabled:
+            eval_ice_template = getattr(ice_config, 'template', '') if eval_ice_source == 'specific' else '{STEP_TEXT}'
+            eval_ice_instructions = get_ice_instructions(eval_env_name, eval_ice_source)
+            eval_ice_no_supp = getattr(ice_config, 'no_supplement_prob', None)
+            if eval_ice_no_supp is None:
                 raise ValueError(
-                    "dime.no_supplement_prob must be set explicitly when dime.enabled=true. "
+                    "ice.no_supplement_prob must be set explicitly when ice.enabled=true. "
                     "Recommended: 0.125 (12.5% clean rollouts)."
                 )
-            eval_dime_no_supp = float(eval_dime_no_supp)
-            # Per-eval-env override: dime_proportion = fraction WITH focus
-            eval_dime_proportion = env_config.get('dime_proportion', None)
-            if eval_dime_proportion is not None:
-                eval_dime_no_supp = 1.0 - float(eval_dime_proportion)
-            self._dbg_print(f"[MultiEnvEvaluator] DIME focus enabled for {eval_name} (no_supp={eval_dime_no_supp:.3f})")
-        elif env_config.get('inherit_dime', False):
+            eval_ice_no_supp = float(eval_ice_no_supp)
+            # Per-eval-env override: ice_proportion = fraction WITH focus
+            eval_ice_proportion = env_config.get('ice_proportion', None)
+            if eval_ice_proportion is not None:
+                eval_ice_no_supp = 1.0 - float(eval_ice_proportion)
+            self._dbg_print(f"[MultiEnvEvaluator] ICE focus enabled for {eval_name} (no_supp={eval_ice_no_supp:.3f})")
+        elif env_config.get('inherit_ice', False):
             logger.debug(
-                "[MultiEnvEvaluator] inherit_dime=true for %s but DIME not active "
+                "[MultiEnvEvaluator] inherit_ice=true for %s but ICE not active "
                 "(enabled=%s, has_instructions=%s)",
                 eval_name,
-                dime_config is not None and getattr(dime_config, 'enabled', False),
-                has_dime_instructions(eval_env_name, eval_dime_source) if dime_config else False,
+                ice_config is not None and getattr(ice_config, 'enabled', False),
+                has_ice_instructions(eval_env_name, eval_ice_source) if ice_config else False,
             )
 
         # Validate seed_group_size
@@ -930,10 +930,10 @@ class MultiEnvEvaluator:
                 # Raw game state texts for deterministic state-action dedup
                 current_game_state_texts = self._extract_from_info(info_vec, "game_state_text")
 
-                # DIME: sample focus instructions for this batch
-                if eval_dime_enabled:
+                # ICE: sample focus instructions for this batch
+                if eval_ice_enabled:
                     batch_focus = sample_focus_for_episode(
-                        batch_n, eval_dime_instructions, eval_dime_no_supp
+                        batch_n, eval_ice_instructions, eval_ice_no_supp
                     )
 
                 # Per-batch state
@@ -953,8 +953,8 @@ class MultiEnvEvaluator:
                 # Episode loop for this batch
                 for step_idx in range(env_config['episode_length']):
                     tokenizer_start = time.perf_counter()
-                    if eval_dime_enabled:
-                        obs_for_gen = inject_focus_into_obs(obs_vec, batch_focus, eval_dime_template)
+                    if eval_ice_enabled:
+                        obs_for_gen = inject_focus_into_obs(obs_vec, batch_focus, eval_ice_template)
                     else:
                         obs_for_gen = obs_vec
                     val_input_obs_text = self.tokenizer.apply_chat_template(

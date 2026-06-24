@@ -1,7 +1,7 @@
 """Test Group 2+6 [P0/P1]: Dual tokenization consistency + decode verification.
 
 Requires a tokenizer with chat template support.
-Run with: python tests/test_dime_dual_tokenize.py
+Run with: python tests/test_ice_dual_tokenize.py
 Set TEST_MODEL_ID env var to override model (default: Qwen/Qwen3-0.6B-Base).
 """
 

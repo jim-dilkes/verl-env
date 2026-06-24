@@ -1,4 +1,4 @@
-"""Paper-faithful sampled-action teacher/student KL for DIME (ICE π-distill).
+"""Paper-faithful sampled-action teacher/student KL for ICE (ICE π-distill).
 
 The branch's default KL estimator is Schulman ``k3`` (per-token, via
 ``kl_penalty_forward``). This module adds the paper's **mean-logprob** estimator
@@ -53,13 +53,13 @@ def compute_kl_filter_keep(
             keep[i] = returns[i] > 0.0
     elif kl_filter == "top_pct":
         if not (0.0 < top_pct <= 1.0):
-            raise ValueError(f"dime.kl_filter_top_pct={top_pct} must be in (0, 1].")
+            raise ValueError(f"ice.kl_filter_top_pct={top_pct} must be in (0, 1].")
         n_keep = math.ceil(top_pct * len(inst_idx)) if inst_idx else 0
         for i in sorted(inst_idx, key=lambda j: returns[j], reverse=True)[:n_keep]:
             keep[i] = True
     else:
         raise ValueError(
-            f"dime.kl_filter={kl_filter!r} must be 'none', 'return_positive', or 'top_pct'."
+            f"ice.kl_filter={kl_filter!r} must be 'none', 'return_positive', or 'top_pct'."
         )
     return keep
 
@@ -78,15 +78,15 @@ def validate_kl_estimator_config(kl_estimator: str, beta_teacher: float) -> None
     at least directionally sensible (pushes π_T toward π_S). NOTE k3-on-teacher is
     itself only a heuristic — a faithful reverse-KL gradient needs the score-function
     term too — so kl_beta_teacher>0 is exploratory; the paper's Asymmetric-RL/SD uses
-    kl_beta_teacher=0. See "Future work (V2)" in docs-agent/training/dime-implementation.md.
+    kl_beta_teacher=0. See "Future work (V2)" in docs-agent/training/ice-implementation.md.
     """
     if kl_estimator not in ("k3", "mean_logprob"):
         raise ValueError(
-            f"dime.kl_estimator={kl_estimator!r} must be 'k3' or 'mean_logprob'."
+            f"ice.kl_estimator={kl_estimator!r} must be 'k3' or 'mean_logprob'."
         )
     if kl_estimator == "mean_logprob" and beta_teacher > 0:
         raise ValueError(
-            "dime.kl_estimator='mean_logprob' is incompatible with kl_beta_teacher>0: "
+            "ice.kl_estimator='mean_logprob' is incompatible with kl_beta_teacher>0: "
             "the mean-logprob estimator only yields a correct gradient for the student "
             "(forward) KL. For teacher-side KL use kl_estimator='k3'."
         )

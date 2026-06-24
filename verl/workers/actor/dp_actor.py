@@ -545,41 +545,41 @@ class DataParallelPPOActor(BasePPOActor):
         if "rollout_log_probs" in data.batch.keys():
             select_keys.append("rollout_log_probs")
 
-        # DIME parallel optimisation: include teacher data if present
-        dime_keys = ["teacher_input_ids", "teacher_attention_mask",
+        # ICE parallel optimisation: include teacher data if present
+        ice_keys = ["teacher_input_ids", "teacher_attention_mask",
                      "teacher_position_ids", "teacher_old_log_probs", "has_instruction",
-                     "dime_kl_filter_mask"]
-        for k in dime_keys:
+                     "ice_kl_filter_mask"]
+        for k in ice_keys:
             if k in data.batch.keys():
                 select_keys.append(k)
 
-        dime_enabled = "teacher_input_ids" in data.batch.keys()
-        dime_alpha = data.meta_info.get('dime_alpha', 0.5) if dime_enabled else 0
-        dime_kl_beta_teacher = data.meta_info.get('dime_kl_beta_teacher', 0.0) if dime_enabled else 0
-        dime_kl_beta_student = data.meta_info.get('dime_kl_beta_student', 0.0) if dime_enabled else 0
+        ice_enabled = "teacher_input_ids" in data.batch.keys()
+        ice_alpha = data.meta_info.get('ice_alpha', 0.5) if ice_enabled else 0
+        ice_kl_beta_teacher = data.meta_info.get('ice_kl_beta_teacher', 0.0) if ice_enabled else 0
+        ice_kl_beta_student = data.meta_info.get('ice_kl_beta_student', 0.0) if ice_enabled else 0
         # KL estimator: "k3" (Schulman, per-token) or "mean_logprob" (paper-faithful,
         # per-sample mean of logprob diff over response tokens).
-        dime_kl_estimator = data.meta_info.get('dime_kl_estimator', 'k3') if dime_enabled else 'k3'
-        if dime_enabled:
-            validate_kl_estimator_config(dime_kl_estimator, dime_kl_beta_teacher)
+        ice_kl_estimator = data.meta_info.get('ice_kl_estimator', 'k3') if ice_enabled else 'k3'
+        if ice_enabled:
+            validate_kl_estimator_config(ice_kl_estimator, ice_kl_beta_teacher)
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
-        # DIME's teacher forward reuses the student dict's multi_modal_inputs unchanged,
-        # which would be stale for the (different-length) teacher sequence. DIME targets
+        # ICE's teacher forward reuses the student dict's multi_modal_inputs unchanged,
+        # which would be stale for the (different-length) teacher sequence. ICE targets
         # text-only envs; reject multimodal rather than silently mis-condition the teacher.
-        if dime_enabled and has_multi_modal_inputs:
+        if ice_enabled and has_multi_modal_inputs:
             raise NotImplementedError(
-                "DIME dual-forward does not support multi_modal_inputs: the teacher forward "
+                "ICE dual-forward does not support multi_modal_inputs: the teacher forward "
                 "would reuse the student's multimodal features for a different sequence."
             )
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
-        # DIME: sort so non-instructed samples come first → early micro-batches skip
+        # ICE: sort so non-instructed samples come first → early micro-batches skip
         # redundant teacher forward pass. Safe: _balance_batch already reorders,
         # data.reorder() moves all tensors together, micro-batches are independent.
-        if dime_enabled:
+        if ice_enabled:
             sort_idx = torch.argsort(data.batch['has_instruction'].long())  # False(0) first
             data.reorder(sort_idx)
 
@@ -589,15 +589,15 @@ class DataParallelPPOActor(BasePPOActor):
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
 
-        if dime_enabled and self.config.use_dynamic_bsz:
+        if ice_enabled and self.config.use_dynamic_bsz:
             # prepare_dynamic_batch sizes micro-batches from the (base/student) attention_mask,
-            # but the DIME teacher forward uses the longer instructed prompt — token budgets can
+            # but the ICE teacher forward uses the longer instructed prompt — token budgets can
             # overflow (OOM) and DP balance is wrong. Reject rather than silently mis-size.
-            # (trainer.balance_batch has the same base-vs-teacher mismatch; keep it False for DIME.)
+            # (trainer.balance_batch has the same base-vs-teacher mismatch; keep it False for ICE.)
             raise NotImplementedError(
-                "DIME dual-forward does not support actor.use_dynamic_bsz=True: micro-batches are "
+                "ICE dual-forward does not support actor.use_dynamic_bsz=True: micro-batches are "
                 "sized from the base prompt but the teacher forward uses the longer instructed "
-                "prompt. Set actor.use_dynamic_bsz=False (and trainer.balance_batch=False) for DIME."
+                "prompt. Set actor.use_dynamic_bsz=False (and trainer.balance_batch=False) for ICE."
             )
 
         metrics = {}
@@ -649,7 +649,7 @@ class DataParallelPPOActor(BasePPOActor):
                     policy_loss_fn = get_policy_loss_fn(loss_mode)
                     rollout_is_weights = model_inputs.get("rollout_is_weights", None)
 
-                    if not dime_enabled:
+                    if not ice_enabled:
                         # === Standard PPO path (unchanged) ===
                         forward_out = self._forward_micro_batch(
                             model_inputs,
@@ -690,7 +690,7 @@ class DataParallelPPOActor(BasePPOActor):
                             )
                             micro_batch_metrics.update(rollout_corr_metrics)
                     else:
-                        # === DIME parallel optimisation path ===
+                        # === ICE parallel optimisation path ===
                         # Student forward (base prompts — current input_ids)
                         student_out = self._forward_micro_batch(
                             model_inputs,
@@ -764,26 +764,26 @@ class DataParallelPPOActor(BasePPOActor):
                         # - No instructed samples in this micro-batch: standard PPO loss
                         # - Otherwise: α*teacher + (1-α)*student
                         if has_inst.any():
-                            pg_loss = dime_alpha * teacher_pg_loss + (1 - dime_alpha) * student_pg_loss
+                            pg_loss = ice_alpha * teacher_pg_loss + (1 - ice_alpha) * student_pg_loss
                         else:
                             pg_loss = student_pg_loss
 
                         # KL terms. Teacher branch (KL_T) is averaged over all instructed
                         # samples. Student branch (KL_S) is additionally restricted to the
                         # teacher rollouts selected by the trainer's filter
-                        # (dime_kl_filter_mask; absent ⇒ all instructed) — the paper's
+                        # (ice_kl_filter_mask; absent ⇒ all instructed) — the paper's
                         # correctness/top-pct filter on the distillation target.
                         has_inst_f = has_inst.float().unsqueeze(-1)  # (bsz, 1)
                         inst_response_mask = response_mask * has_inst_f
 
-                        kl_filter_mask = model_inputs.get('dime_kl_filter_mask', None)
+                        kl_filter_mask = model_inputs.get('ice_kl_filter_mask', None)
                         if kl_filter_mask is not None:
                             keep_s = has_inst.float() * kl_filter_mask.float()  # (bsz,)
                         else:
                             keep_s = has_inst.float()
                         student_response_mask = response_mask * keep_s.unsqueeze(-1)
 
-                        if dime_kl_estimator == 'mean_logprob':
+                        if ice_kl_estimator == 'mean_logprob':
                             # Paper-faithful: per-sample mean of logprob diff over response tokens.
                             # Exclude rows with no response tokens (e.g. the terminal observation
                             # row, broadcast as instructed) so they don't dilute the per-sample
@@ -794,15 +794,15 @@ class DataParallelPPOActor(BasePPOActor):
                             kl_t_seq, kl_s_seq = compute_distill_kl_mean_logprob(
                                 student_log_prob, teacher_log_prob, response_mask,
                             )
-                            if dime_kl_beta_teacher > 0 and has_inst.any():
+                            if ice_kl_beta_teacher > 0 and has_inst.any():
                                 kl_t_term = masked_sample_mean(kl_t_seq, keep_t)
-                                pg_loss = pg_loss + dime_kl_beta_teacher * kl_t_term
-                                micro_batch_metrics["dime/kl_teacher"] = kl_t_term.detach().item()
-                            if dime_kl_beta_student > 0 and has_inst.any():
+                                pg_loss = pg_loss + ice_kl_beta_teacher * kl_t_term
+                                micro_batch_metrics["ice/kl_teacher"] = kl_t_term.detach().item()
+                            if ice_kl_beta_student > 0 and has_inst.any():
                                 kl_s_term = masked_sample_mean(kl_s_seq, keep_s_valid)
-                                pg_loss = pg_loss + dime_kl_beta_student * kl_s_term
-                                micro_batch_metrics["dime/kl_student"] = kl_s_term.detach().item()
-                                micro_batch_metrics["dime/kl_student_keep_frac"] = (
+                                pg_loss = pg_loss + ice_kl_beta_student * kl_s_term
+                                micro_batch_metrics["ice/kl_student"] = kl_s_term.detach().item()
+                                micro_batch_metrics["ice/kl_student_keep_frac"] = (
                                     keep_s_valid.sum() / keep_t.sum().clamp_min(1.0)
                                 ).detach().item()
                         else:
@@ -811,14 +811,14 @@ class DataParallelPPOActor(BasePPOActor):
                             # can keep zero instructed rows (e.g. return_positive early in
                             # training), making student_response_mask all-zero → agg_loss
                             # token-mean would divide by 0 → NaN.
-                            if dime_kl_beta_teacher > 0 and inst_response_mask.sum() > 0:
+                            if ice_kl_beta_teacher > 0 and inst_response_mask.sum() > 0:
                                 # kl_penalty_forward(logprob=A, ref_logprob=B, 'k3') ≈ D_KL(πA || πB)
                                 # Here: D_KL(π^T || sg(π^S)) — gradient through teacher, pulls teacher→student
                                 kl_t = kl_penalty_forward(teacher_log_prob, student_log_prob.detach(), 'k3')
                                 kl_t_agg = agg_loss(kl_t, inst_response_mask, loss_agg_mode)
-                                pg_loss = pg_loss + dime_kl_beta_teacher * kl_t_agg
-                                micro_batch_metrics["dime/kl_teacher"] = kl_t_agg.detach().item()
-                            if dime_kl_beta_student > 0 and student_response_mask.sum() > 0:
+                                pg_loss = pg_loss + ice_kl_beta_teacher * kl_t_agg
+                                micro_batch_metrics["ice/kl_teacher"] = kl_t_agg.detach().item()
+                            if ice_kl_beta_student > 0 and student_response_mask.sum() > 0:
                                 # Forward KL D_KL(sg(π^T) || π^S), grad through student → pulls
                                 # student toward teacher. k3 estimates KL(A||B) for samples drawn
                                 # from A (first arg); samples are teacher rollouts, so A MUST be the
@@ -826,24 +826,24 @@ class DataParallelPPOActor(BasePPOActor):
                                 # estimate the wrong divergence under the wrong sampling policy.
                                 kl_s = kl_penalty_forward(teacher_log_prob.detach(), student_log_prob, 'k3')
                                 kl_s_agg = agg_loss(kl_s, student_response_mask, loss_agg_mode)
-                                pg_loss = pg_loss + dime_kl_beta_student * kl_s_agg
-                                micro_batch_metrics["dime/kl_student"] = kl_s_agg.detach().item()
+                                pg_loss = pg_loss + ice_kl_beta_student * kl_s_agg
+                                micro_batch_metrics["ice/kl_student"] = kl_s_agg.detach().item()
 
-                        # Log DIME metrics
+                        # Log ICE metrics
                         teacher_loss_val = teacher_pg_loss.detach().item()
                         student_loss_val = student_pg_loss.detach().item()
-                        micro_batch_metrics["dime/teacher_loss"] = teacher_loss_val
-                        micro_batch_metrics["dime/student_loss"] = student_loss_val
-                        micro_batch_metrics["dime/alpha"] = dime_alpha
+                        micro_batch_metrics["ice/teacher_loss"] = teacher_loss_val
+                        micro_batch_metrics["ice/student_loss"] = student_loss_val
+                        micro_batch_metrics["ice/alpha"] = ice_alpha
                         for k, v in teacher_pg_metrics.items():
-                            micro_batch_metrics[f"dime/teacher_{k.replace('actor/', '')}"] = v
+                            micro_batch_metrics[f"ice/teacher_{k.replace('actor/', '')}"] = v
                         for k, v in student_pg_metrics.items():
-                            micro_batch_metrics[f"dime/student_{k.replace('actor/', '')}"] = v
+                            micro_batch_metrics[f"ice/student_{k.replace('actor/', '')}"] = v
 
                         # Student log_prob for downstream entropy/ref-KL (ref_log_prob was computed
                         # on base prompts at rollout time, so student comparison is correct)
                         log_prob = student_log_prob
-                        # Populate actor/* metrics from student (already in dime/student_* above)
+                        # Populate actor/* metrics from student (already in ice/student_* above)
                         micro_batch_metrics.update(student_pg_metrics)
 
                     policy_loss = pg_loss

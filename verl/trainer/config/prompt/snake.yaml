@@ -20,8 +20,8 @@ prompt:
     k: 5.0
     update_every_n_steps: 1
 
-  # DIME (Diverse Instruction-Masked Exploration) config
-  dime:
+  # ICE (Instruction-Conditioned Exploration) config
+  ice:
     enabled: false
     source: "generic"
     no_supplement_prob: 0.125

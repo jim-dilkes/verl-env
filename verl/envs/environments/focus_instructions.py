@@ -1,7 +1,7 @@
-"""DIME (Diverse Instruction-Masked Exploration) focus instruction registry.
+"""ICE (Instruction-Conditioned Exploration) focus instruction registry.
 
 Provides per-environment focus instructions, sampling, and injection utilities
-for the DIME technique. During rollout, a random focus instruction is appended
+for the ICE technique. During rollout, a random focus instruction is appended
 to each rollout's prompt. During training, the focus is stripped so the model
 learns focus-guided behaviors without depending on the instruction at inference.
 """
@@ -48,28 +48,28 @@ def get_focus_instructions(env_name: str) -> list[str]:
     key = env_name.lower()
     if key not in FOCUS_REGISTRY:
         raise ValueError(
-            f"No DIME focus instructions registered for env '{env_name}'. "
+            f"No ICE focus instructions registered for env '{env_name}'. "
             f"Available: {list(FOCUS_REGISTRY.keys())}"
         )
     return FOCUS_REGISTRY[key]
 
 
-def has_dime_instructions(env_name: str, source: str) -> bool:
-    """Check whether DIME instructions are available for the given source."""
+def has_ice_instructions(env_name: str, source: str) -> bool:
+    """Check whether ICE instructions are available for the given source."""
     if source == "generic":
         return True
     if source == "specific":
         return has_focus_instructions(env_name)
-    raise ValueError(f"Unknown DIME source: '{source}'. Must be 'specific' or 'generic'.")
+    raise ValueError(f"Unknown ICE source: '{source}'. Must be 'specific' or 'generic'.")
 
 
-def get_dime_instructions(env_name: str, source: str) -> list[str]:
-    """Return DIME instructions for the given source."""
+def get_ice_instructions(env_name: str, source: str) -> list[str]:
+    """Return ICE instructions for the given source."""
     if source == "generic":
         return GENERIC_FOCUS_INSTRUCTIONS
     if source == "specific":
         return get_focus_instructions(env_name)
-    raise ValueError(f"Unknown DIME source: '{source}'. Must be 'specific' or 'generic'.")
+    raise ValueError(f"Unknown ICE source: '{source}'. Must be 'specific' or 'generic'.")
 
 
 def sample_focus_for_episode(
@@ -107,13 +107,13 @@ def validate_deterministic_assignment(
     n_rollouts (mirrors OpenRLHF DICEConfig.group_size).
     """
     if n_duplicates < 1:
-        raise ValueError(f"dime.n_duplicates={n_duplicates} must be >= 1.")
+        raise ValueError(f"ice.n_duplicates={n_duplicates} must be >= 1.")
     if n_no_instruction < 0:
-        raise ValueError(f"dime.n_no_instruction={n_no_instruction} must be >= 0.")
+        raise ValueError(f"ice.n_no_instruction={n_no_instruction} must be >= 0.")
     group_size = n_instructions * n_duplicates + n_no_instruction
     if group_size != n_rollouts:
         raise ValueError(
-            f"deterministic DIME assignment: n_instructions*n_duplicates + "
+            f"deterministic ICE assignment: n_instructions*n_duplicates + "
             f"n_no_instruction = {n_instructions}*{n_duplicates} + {n_no_instruction} "
             f"= {group_size} != n_rollouts ({n_rollouts}). Adjust n_duplicates / "
             f"n_no_instruction so the group fills exactly n_rollouts."
