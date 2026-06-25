@@ -51,6 +51,7 @@ class OvercookedGymWrapper(gym.Env):
         print_coordinates: bool = True,
         pot_cook_time: int = None,
         random_agent_positions: bool = False,
+        emit_milestones: bool = True,
     ):
         super().__init__()
 
@@ -60,6 +61,9 @@ class OvercookedGymWrapper(gym.Env):
         self.controlled_agent = controlled_agent
         self.partner_agent = "agent_1" if controlled_agent == "agent_0" else "agent_0"
         self.shaped_reward = shaped_reward
+        # Per-step task milestones (consumed only by eval). Default on; set False for
+        # training sweeps where the per-step state decode/device-sync overhead matters.
+        self.emit_milestones = emit_milestones
         self.print_visualization = print_visualization
         self.print_coordinates = print_coordinates
         self.solo_mode = partner_policy == "none"
@@ -166,11 +170,13 @@ class OvercookedGymWrapper(gym.Env):
 
         self._last_event = self._describe_step(action_idx, reward)
 
-        return obs_array, reward, terminated, truncated, {
+        info_out = {
             "state": self._state,
             "step": self._step_count,
-            "milestones": self._compute_milestones(sparse_reward),
         }
+        if self.emit_milestones:
+            info_out["milestones"] = self._compute_milestones(sparse_reward)
+        return obs_array, reward, terminated, truncated, info_out
 
     def _compute_milestones(self, sparse_reward):
         """Per-step boolean flags for the ordered recipe-agnostic task chain.
@@ -179,7 +185,9 @@ class OvercookedGymWrapper(gym.Env):
         a pot -> a pot cooking/cooked -> holding a dish -> holding cooked soup ->
         delivered. Derived from the controlled agent's inventory + pot contents (same
         decode helpers used for rendering); delivery uses the sparse (pre-shaping)
-        reward. The evaluator aggregates per-trajectory furthest-reached over an episode.
+        reward. The evaluator OR-accumulates these per trajectory and reports, per
+        milestone, the fraction of trajectories that ever reached it (independent
+        per-milestone rates, not a single monotonic furthest index).
         """
         state = self._state
         grid = np.array(state.grid)

@@ -796,10 +796,11 @@ class MultiEnvEvaluator:
             eval_ice_fixed_focus = env_config.get('ice_fixed_focus', None)
             if eval_ice_fixed_focus is not None:
                 eval_ice_fixed_focus = int(eval_ice_fixed_focus)
-                if eval_ice_fixed_focus >= len(eval_ice_instructions):
+                if not (-1 <= eval_ice_fixed_focus < len(eval_ice_instructions)):
                     raise ValueError(
                         f"ice_fixed_focus={eval_ice_fixed_focus} out of range for "
-                        f"{len(eval_ice_instructions)} instructions in {eval_name}."
+                        f"{len(eval_ice_instructions)} instructions in {eval_name} "
+                        f"(use -1 for no focus, or 0..{len(eval_ice_instructions) - 1})."
                     )
             self._dbg_print(
                 f"[MultiEnvEvaluator] ICE focus enabled for {eval_name} "
@@ -830,7 +831,7 @@ class MultiEnvEvaluator:
         all_len_of_traj = []
         all_score_of_traj = []
         all_pos_rew_of_traj = []
-        all_milestones_reached = []  # per-trajectory furthest-reached task milestones (if env emits them)
+        all_milestones_reached = []  # per-trajectory per-milestone ever-reached flags (if env emits them)
 
         # Per-group state-action tracking (global indexing)
         group_state_action_texts_valid = [[] for _ in range(n_groups)]

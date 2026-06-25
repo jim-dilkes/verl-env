@@ -4,7 +4,16 @@ Pure (no JAX) so it can be unit-tested and imported by the evaluator for metric
 naming without pulling the JAX env. The env wrapper decodes its state into the
 `held` / `pots` structures (via its existing `_decode_item` / `_get_pot_info`
 helpers) and calls `compute_milestones`; the evaluator OR-accumulates the per-step
-flags per trajectory and reports the furthest-reached fraction per milestone.
+flags per trajectory and reports, per milestone, the fraction of trajectories that
+EVER reached it. These are independent per-milestone "ever-reached" rates — they are
+NOT a single monotonic furthest-along-the-chain index, so they need not be monotonic
+across k (a trajectory can show `delivered` without an observed `hold_dish`, etc.);
+that is intended and is informative about which sub-tasks actually occur.
+
+NOTE on `delivered`: it is derived from the env's (shared) sparse reward, so in a
+two-agent setup it fires when EITHER agent delivers. Faithful for the single-agent
+configs we use (`partner_policy: none`); for 2-agent eval, attribute via the
+controlled agent's inventory transition instead.
 """
 
 from typing import List, Optional
