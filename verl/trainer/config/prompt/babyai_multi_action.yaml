@@ -66,6 +66,9 @@ prompt:
     kl_estimator: k3          # k3 (Schulman per-token) | mean_logprob (paper-faithful per-sample logprob diff)
     kl_filter: none           # KL_S target filter: none | return_positive | top_pct
     kl_filter_top_pct: 0.5    # top_pct mode: fraction of instructed episodes (by return) kept
+    kl_weight: none           # KL_S advantage weighting: none | awr (positive exp(z-return/temp))
+    kl_weight_temp: 1.0       # awr temperature: ->inf uniform, ->0 only-best
+    kl_weight_cap: null       # awr: optional max per-sample weight (null = uncapped)
     assignment: stochastic    # stochastic | deterministic
     n_duplicates: 1           # deterministic: copies of EACH instruction per group
     n_no_instruction: 3       # deterministic: unconditioned samples per group

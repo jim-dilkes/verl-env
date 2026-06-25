@@ -121,15 +121,55 @@ def compute_distill_kl_mean_logprob(
     return kl_T_seq, kl_S_seq
 
 
-def masked_sample_mean(seq: torch.Tensor, keep_mask: torch.Tensor) -> torch.Tensor:
-    """Mean of per-sample values over kept samples; 0 if none kept.
+def masked_sample_mean(seq: torch.Tensor, keep_mask: torch.Tensor, weights: torch.Tensor = None) -> torch.Tensor:
+    """(Weighted) mean of per-sample values over kept samples; 0 if none kept.
 
     Args:
         seq: (B,) per-sample scalars.
         keep_mask: (B,) 0/1 mask of samples to include (e.g. instructed & filtered).
+        weights: optional (B,) non-negative per-sample weights (e.g. AWR). When given,
+            a proper weighted mean over kept samples is returned — `sum(w·keep·seq) /
+            sum(w·keep)` — which auto-normalizes, preserving the loss SCALE (a convex
+            combination) while reallocating emphasis. None ⇒ uniform.
 
     Returns:
-        scalar = sum(seq * keep) / max(sum(keep), 1). All-zero mask → 0 (no grad).
+        scalar. All-zero kept set ⇒ 0 (no grad).
     """
     keep = keep_mask.to(seq.dtype)
-    return (seq * keep).sum() / keep.sum().clamp_min(1.0)
+    if weights is None:
+        return (seq * keep).sum() / keep.sum().clamp_min(1.0)
+    w = weights.to(seq.dtype) * keep
+    return (seq * w).sum() / w.sum().clamp_min(1e-8)
+
+
+def compute_awr_weights(episode_returns, instructed_mask, temp: float = 1.0, cap: float = None):
+    """Positive, advantage-weighted (AWR/RWR) per-episode weights for KL_S.
+
+    `A_i = (R_i - mean) / std` z-scored over the INSTRUCTED episodes (the teacher
+    rollouts — the KL_S target set), then `w_i = exp(A_i / temp)`, optionally capped at
+    `cap`. Always > 0, emphasising higher-return teacher rollouts; `temp→∞` → uniform,
+    `temp→0` → only the best. Non-instructed entries get weight 0 (KL_S ignores them
+    anyway). Applied as a *weighted mean* downstream, so absolute scale is preserved
+    (no separate mean-normalization needed). Returns a per-episode list[float].
+
+    Note: signed advantages are used only inside `exp` (so weights stay positive) — we
+    never multiply KL_S by a negative coefficient (that would be unbounded anti-distill).
+    """
+    import math
+    n = len(instructed_mask)
+    returns = [float(episode_returns[i]) for i in range(n)]
+    inst_idx = [i for i in range(n) if instructed_mask[i]]
+    weights = [0.0] * n
+    if not inst_idx:
+        return weights
+    vals = [returns[i] for i in inst_idx]
+    mean = sum(vals) / len(vals)
+    var = sum((v - mean) ** 2 for v in vals) / len(vals)
+    std = math.sqrt(var)
+    for i in inst_idx:
+        adv = (returns[i] - mean) / std if std > 1e-8 else 0.0
+        w = math.exp(adv / temp) if temp > 0 else 1.0
+        if cap is not None:
+            w = min(w, cap)
+        weights[i] = w
+    return weights

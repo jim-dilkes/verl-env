@@ -1753,6 +1753,33 @@ class RayMultistepTrainer(object):
                             sum(keep_per_env) / max(sum(has_instruction), 1)
                         )
 
+                        # AWR: optionally weight KL_S by per-episode advantage (positive,
+                        # exp(z-scored return / temp)); broadcast per-env weight to its steps.
+                        # Absent / kl_weight=none => no ice_kl_weight key => actor uses uniform.
+                        ice_kl_weight_mode = getattr(ice_config, 'kl_weight', 'none')
+                        if ice_kl_weight_mode == 'awr':
+                            from verl.trainer.ppo.distill_kl import compute_awr_weights
+                            awr_w = compute_awr_weights(
+                                episode_returns, has_instruction,
+                                temp=float(getattr(ice_config, 'kl_weight_temp', 1.0)),
+                                cap=getattr(ice_config, 'kl_weight_cap', None),
+                            )
+                            kl_weight_tensor = torch.ones(batch.batch['input_ids'].shape[0], dtype=torch.float32)
+                            for step_idx in range(episode_len + 1):
+                                for env_idx in range(n_rollouts):
+                                    sample_idx = step_idx * n_rollouts + env_idx
+                                    if sample_idx < kl_weight_tensor.shape[0]:
+                                        kl_weight_tensor[sample_idx] = awr_w[env_idx]
+                            batch.batch['ice_kl_weight'] = kl_weight_tensor
+                            inst_w = [awr_w[i] for i in range(n_rollouts) if has_instruction[i]]
+                            if inst_w:
+                                metrics['ice/kl_weight_mean'] = sum(inst_w) / len(inst_w)
+                                metrics['ice/kl_weight_max'] = max(inst_w)
+                        elif ice_kl_weight_mode != 'none':
+                            raise ValueError(
+                                f"ice.kl_weight={ice_kl_weight_mode!r} must be 'none' or 'awr'."
+                            )
+
                         # Pass ICE config via meta_info
                         ice_alpha = getattr(ice_config, 'alpha', 0.5)
                         ice_kl_beta_teacher = getattr(ice_config, 'kl_beta_teacher', 0.0)
