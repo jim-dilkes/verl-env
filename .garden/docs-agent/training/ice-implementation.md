@@ -207,7 +207,10 @@ a *soft* generalization of the hard `kl_filter`. Config: `ice.kl_weight: none|aw
   (absent / `none` ⇒ uniform); **actor** applies them via a *weighted* `masked_sample_mean`
   (`sum(w·keep·kl)/sum(w·keep)`) — a convex combination, so the loss SCALE is preserved (no
   separate mean-normalization needed). Orthogonal to `kl_filter`: the filter selects the kept
-  set, AWR re-weights within it. Metrics: `ice/kl_weight_mean`, `ice/kl_weight_max`.
+  set, AWR re-weights within it. Metrics: `ice/kl_weight_mean`, `ice/kl_weight_max_batch`
+  (trainer, over instructed episodes), `ice/kl_weight_max` (actor, per micro-batch kept).
+  Requires `kl_estimator=mean_logprob` (k3 ignores weights → rejected). `temp>0` and
+  `cap>0|null` are enforced; the `exp` argument is clamped to avoid overflow at tiny `temp`.
 - **Why not raw signed GRPO advantages:** KL_S = `mean_t(sg[logπ_T] − logπ_S)`; minimizing
   raises `logπ_S` on teacher tokens (bounded, logπ_S ≤ 0). A *negative* weight flips it to
   lower `logπ_S` — unbounded below → anti-distillation collapse. AWR's `exp(A/τ)` keeps

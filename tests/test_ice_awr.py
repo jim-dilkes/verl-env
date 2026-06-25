@@ -47,6 +47,28 @@ def test_empty_instructed_all_zero():
     assert compute_awr_weights([1.0, 2.0], [False, False], temp=1.0) == [0.0, 0.0]
 
 
+def test_temp_must_be_positive():
+    with pytest.raises(ValueError):
+        compute_awr_weights([0.0, 1.0], [True, True], temp=0.0)
+    with pytest.raises(ValueError):
+        compute_awr_weights([0.0, 1.0], [True, True], temp=-1.0)
+
+
+def test_cap_must_be_positive():
+    with pytest.raises(ValueError):
+        compute_awr_weights([0.0, 1.0], [True, True], temp=1.0, cap=0.0)
+    with pytest.raises(ValueError):
+        compute_awr_weights([0.0, 1.0], [True, True], temp=1.0, cap=-2.0)
+
+
+def test_small_temp_large_return_no_overflow():
+    # tiny temp + large z-advantage must NOT raise OverflowError; weights stay finite and
+    # non-negative (the low one may underflow to 0 = the only-best limit, never negative).
+    w = compute_awr_weights([0.0, 1000.0], [True, True], temp=1e-3)
+    assert all(math.isfinite(x) and x >= 0 for x in w)
+    assert w[1] > w[0] and w[1] > 0  # max-advantage sample keeps a positive (>=1) weight
+
+
 # --- weighted masked_sample_mean ----------------------------------------------
 
 def test_weighted_mean_none_is_uniform_regression():

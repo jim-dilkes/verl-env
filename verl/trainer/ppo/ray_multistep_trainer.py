@@ -1758,6 +1758,11 @@ class RayMultistepTrainer(object):
                         # Absent / kl_weight=none => no ice_kl_weight key => actor uses uniform.
                         ice_kl_weight_mode = getattr(ice_config, 'kl_weight', 'none')
                         if ice_kl_weight_mode == 'awr':
+                            if getattr(ice_config, 'kl_estimator', 'k3') != 'mean_logprob':
+                                raise ValueError(
+                                    "ice.kl_weight='awr' requires ice.kl_estimator='mean_logprob' "
+                                    "(the k3 KL_S path does not apply per-sample weights)."
+                                )
                             from verl.trainer.ppo.distill_kl import compute_awr_weights
                             awr_w = compute_awr_weights(
                                 episode_returns, has_instruction,
@@ -1774,7 +1779,7 @@ class RayMultistepTrainer(object):
                             inst_w = [awr_w[i] for i in range(n_rollouts) if has_instruction[i]]
                             if inst_w:
                                 metrics['ice/kl_weight_mean'] = sum(inst_w) / len(inst_w)
-                                metrics['ice/kl_weight_max'] = max(inst_w)
+                                metrics['ice/kl_weight_max_batch'] = max(inst_w)
                         elif ice_kl_weight_mode != 'none':
                             raise ValueError(
                                 f"ice.kl_weight={ice_kl_weight_mode!r} must be 'none' or 'awr'."

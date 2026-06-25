@@ -148,14 +148,25 @@ def compute_awr_weights(episode_returns, instructed_mask, temp: float = 1.0, cap
     `A_i = (R_i - mean) / std` z-scored over the INSTRUCTED episodes (the teacher
     rollouts — the KL_S target set), then `w_i = exp(A_i / temp)`, optionally capped at
     `cap`. Always > 0, emphasising higher-return teacher rollouts; `temp→∞` → uniform,
-    `temp→0` → only the best. Non-instructed entries get weight 0 (KL_S ignores them
-    anyway). Applied as a *weighted mean* downstream, so absolute scale is preserved
-    (no separate mean-normalization needed). Returns a per-episode list[float].
+    `temp→0+` → approaches only-the-best (the exponent is clamped to avoid `math.exp`
+    overflow). Non-instructed entries get weight 0 (KL_S ignores them anyway). Applied as
+    a *weighted mean* downstream, so absolute scale is preserved. Returns list[float].
 
-    Note: signed advantages are used only inside `exp` (so weights stay positive) — we
-    never multiply KL_S by a negative coefficient (that would be unbounded anti-distill).
+    `temp` must be > 0 and `cap` must be None or > 0 (enforced): signed advantages enter
+    only inside `exp` so weights stay strictly positive — we never multiply KL_S by a
+    negative coefficient (that would be unbounded anti-distillation).
     """
     import math
+    if temp <= 0:
+        raise ValueError(f"ice.kl_weight_temp={temp} must be > 0.")
+    if cap is not None and cap <= 0:
+        raise ValueError(
+            f"ice.kl_weight_cap={cap} must be > 0 (or null); a non-positive cap would "
+            "break the strictly-positive-weight invariant (negative coeff = unbounded "
+            "anti-distillation)."
+        )
+    _MAX_EXP = 50.0  # overflow guard: math.exp RAISES above ~709. exp(50)~5e21 is already
+                     # the effective only-best limit, so clamp the exponent here.
     n = len(instructed_mask)
     returns = [float(episode_returns[i]) for i in range(n)]
     inst_idx = [i for i in range(n) if instructed_mask[i]]
@@ -168,7 +179,7 @@ def compute_awr_weights(episode_returns, instructed_mask, temp: float = 1.0, cap
     std = math.sqrt(var)
     for i in inst_idx:
         adv = (returns[i] - mean) / std if std > 1e-8 else 0.0
-        w = math.exp(adv / temp) if temp > 0 else 1.0
+        w = math.exp(min(adv / temp, _MAX_EXP))
         if cap is not None:
             w = min(w, cap)
         weights[i] = w
