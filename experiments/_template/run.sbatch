@@ -119,8 +119,15 @@ export VERL_PPO_LOGGING_LEVEL=INFO
 unset ROCR_VISIBLE_DEVICES || true
 unset HIP_VISIBLE_DEVICES || true
 
-RANDOM_DELAY=$(( ( RANDOM % 90 ) + 1 ))
-echo "Sleeping ${RANDOM_DELAY}s to desync Ray init..."; sleep $RANDOM_DELAY
+# HYDRA_DRY=1 -> validate config resolution (all override keys) on CPU and exit (no Ray/GPU).
+HYDRA_DRY=${HYDRA_DRY:-0}
+DRY_FLAG=""
+if [ "$HYDRA_DRY" = "1" ]; then DRY_FLAG="--cfg job --resolve"; fi
+
+if [ "$HYDRA_DRY" != "1" ]; then
+  RANDOM_DELAY=$(( ( RANDOM % 90 ) + 1 ))
+  echo "Sleeping ${RANDOM_DELAY}s to desync Ray init..."; sleep $RANDOM_DELAY
+fi
 
 # Resolve local model snapshot
 FOLDER_NAME="models--$(echo "$MODEL_ID" | sed 's/\//--/')"
@@ -144,7 +151,7 @@ rollout_max_num_seqs=2048
 echo "=== RUN: algo=$ALGO env=$ENV intervention=$INTERVENTION seed=$SEED ==="
 echo "=== overrides: ${INTERVENTION_OVERRIDES[*]} ==="
 
-PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
+PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo $DRY_FLAG \
   data.max_prompt_length=$max_prompt_length \
   data.max_response_length=$max_response_length \
   data.train_batch_size=256 \
