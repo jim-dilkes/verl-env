@@ -40,6 +40,8 @@ from verl.envs.environments.focus_instructions import (
     has_ice_instructions,
     get_ice_instructions,
     sample_focus_for_episode,
+    fixed_focus_for_batch,
+    expand_per_focus_eval_envs,
     inject_focus_into_obs,
 )
 from verl.envs.vec_env import VecEnv
@@ -305,6 +307,39 @@ class MultiEnvEvaluator:
         """Get a VecEnv from the pool, or None if not available."""
         return self._pool_by_worker_count.get(worker_count)
 
+    def _expand_per_focus_eval_environments(self, env_configs):
+        """Expand any eval env with ``ice_per_focus: true`` into per-focus + no-focus
+        conditions (each pins one focus across all rollouts). Requires ICE enabled with
+        registered instructions for that env; otherwise the env passes through unchanged
+        with a warning. Non per-focus envs are returned as-is.
+        """
+        ice_config = getattr(self.config.prompt.prompt, 'ice', None) if hasattr(self.config, 'prompt') and hasattr(self.config.prompt, 'prompt') else None
+        source = getattr(ice_config, 'source', 'specific') if ice_config else 'specific'
+        expanded = []
+        for env_config in env_configs:
+            if not env_config.get('ice_per_focus', False):
+                expanded.append(env_config)
+                continue
+            env_name = env_config.get('env_name')
+            ice_active = (
+                ice_config is not None
+                and getattr(ice_config, 'enabled', False)
+                and has_ice_instructions(env_name, source)
+            )
+            if not ice_active:
+                logger.warning(
+                    "[MultiEnvEvaluator] ice_per_focus=true for %s but ICE not active "
+                    "(enabled=%s, has_instructions=%s); running it as a single bare eval.",
+                    env_config.get('name'),
+                    ice_config is not None and getattr(ice_config, 'enabled', False),
+                    has_ice_instructions(env_name, source) if ice_config else False,
+                )
+                expanded.append(env_config)
+                continue
+            instructions = get_ice_instructions(env_name, source)
+            expanded.extend(expand_per_focus_eval_envs(env_config, instructions))
+        return expanded
+
     def evaluate(self, global_step):
         """
         Run evaluation across all configured environments.
@@ -324,8 +359,10 @@ class MultiEnvEvaluator:
         self._dbg_print(f"[MultiEnvEvaluator] Initial memory usage: {initial_memory:.1f} MB")
         
         all_metrics = {}
-        
-        for env_idx, env_config in enumerate(self.eval_environments):
+
+        eval_environments = self._expand_per_focus_eval_environments(self.eval_environments)
+
+        for env_idx, env_config in enumerate(eval_environments):
             eval_name = env_config.get('name', f'env_{env_idx}')
             self._dbg_print(f"Evaluating environment: {eval_name}")
 
@@ -755,7 +792,20 @@ class MultiEnvEvaluator:
             eval_ice_proportion = env_config.get('ice_proportion', None)
             if eval_ice_proportion is not None:
                 eval_ice_no_supp = 1.0 - float(eval_ice_proportion)
-            self._dbg_print(f"[MultiEnvEvaluator] ICE focus enabled for {eval_name} (no_supp={eval_ice_no_supp:.3f})")
+            # Per-focus eval: pin one focus index (or -1 = no focus) to ALL rollouts.
+            eval_ice_fixed_focus = env_config.get('ice_fixed_focus', None)
+            if eval_ice_fixed_focus is not None:
+                eval_ice_fixed_focus = int(eval_ice_fixed_focus)
+                if not (-1 <= eval_ice_fixed_focus < len(eval_ice_instructions)):
+                    raise ValueError(
+                        f"ice_fixed_focus={eval_ice_fixed_focus} out of range for "
+                        f"{len(eval_ice_instructions)} instructions in {eval_name} "
+                        f"(use -1 for no focus, or 0..{len(eval_ice_instructions) - 1})."
+                    )
+            self._dbg_print(
+                f"[MultiEnvEvaluator] ICE focus enabled for {eval_name} "
+                f"(no_supp={eval_ice_no_supp:.3f}, fixed_focus={eval_ice_fixed_focus})"
+            )
         elif env_config.get('inherit_ice', False):
             logger.debug(
                 "[MultiEnvEvaluator] inherit_ice=true for %s but ICE not active "
@@ -781,6 +831,7 @@ class MultiEnvEvaluator:
         all_len_of_traj = []
         all_score_of_traj = []
         all_pos_rew_of_traj = []
+        all_milestones_reached = []  # per-trajectory per-milestone ever-reached flags (if env emits them)
 
         # Per-group state-action tracking (global indexing)
         group_state_action_texts_valid = [[] for _ in range(n_groups)]
@@ -930,11 +981,16 @@ class MultiEnvEvaluator:
                 # Raw game state texts for deterministic state-action dedup
                 current_game_state_texts = self._extract_from_info(info_vec, "game_state_text")
 
-                # ICE: sample focus instructions for this batch
+                # ICE: assign focus instructions for this batch
                 if eval_ice_enabled:
-                    batch_focus = sample_focus_for_episode(
-                        batch_n, eval_ice_instructions, eval_ice_no_supp
-                    )
+                    if eval_ice_fixed_focus is not None:
+                        # Per-focus eval: pin one focus (or none) across all rollouts.
+                        pinned = None if eval_ice_fixed_focus < 0 else eval_ice_instructions[eval_ice_fixed_focus]
+                        batch_focus = fixed_focus_for_batch(batch_n, pinned)
+                    else:
+                        batch_focus = sample_focus_for_episode(
+                            batch_n, eval_ice_instructions, eval_ice_no_supp
+                        )
 
                 # Per-batch state
                 pending_entropy_steps = set(entropy_measure_steps) if entropy_enabled else set()
@@ -949,6 +1005,9 @@ class MultiEnvEvaluator:
                 # Track per-rollout token counts: updated while active, frozen on termination
                 # Use -1 as sentinel for "not yet set" (valid token counts are >= 0)
                 batch_frozen_toks = np.full(batch_n, -1, dtype=np.int64)
+
+                # Per-trajectory milestone-ever-reached (OR-accumulated over active steps).
+                milestone_reached_batch = None  # lazily sized (batch_n, n_milestones) on first emit
 
                 # Episode loop for this batch
                 for step_idx in range(env_config['episode_length']):
@@ -1112,6 +1171,19 @@ class MultiEnvEvaluator:
                     # Update game state texts for next step (step returns NEW state)
                     current_game_state_texts = self._extract_from_info(info_vec, "game_state_text")
 
+                    # Milestone accumulation (if env emits per-step task milestones). OR the
+                    # current-step flags into the per-trajectory record for rollouts still
+                    # active BEFORE this step's termination update — so the terminating step's
+                    # milestone (e.g. delivery) is captured but post-auto-reset steps are not.
+                    emits_milestones = bool(info_vec) and isinstance(info_vec[0], Mapping) and "milestones" in info_vec[0]
+                    step_ms = self._extract_from_info(info_vec, "milestones") if emits_milestones else None
+                    if step_ms is not None and len(step_ms) == batch_n and step_ms[0] is not None:
+                        ms_arr = np.asarray(step_ms, dtype=bool)  # (batch_n, n_milestones)
+                        if milestone_reached_batch is None:
+                            milestone_reached_batch = np.zeros_like(ms_arr)
+                        active = ~ever_terminated  # pre-update: True also for rollouts ending this step
+                        milestone_reached_batch |= ms_arr & active[:, None]
+
                     # Update persistent termination tracking (never resets after auto-reset)
                     done_mask = np.logical_or(terminated_vec, truncated_vec)
                     ever_terminated = np.logical_or(ever_terminated, done_mask)
@@ -1172,6 +1244,8 @@ class MultiEnvEvaluator:
                     all_pos_rew_of_traj.extend(np.array(pos_rew_of_traj, dtype=np.float64).tolist())
                     if score_of_traj is not None:
                         all_score_of_traj.extend(np.array(score_of_traj, dtype=np.float64).tolist())
+                if milestone_reached_batch is not None:
+                    all_milestones_reached.extend(milestone_reached_batch.tolist())
 
                 # Capture frozen token counts (frozen at termination, or last step if never terminated)
                 # -1 sentinel means "not set" (rollout never ran a step, shouldn't happen)
@@ -1206,6 +1280,17 @@ class MultiEnvEvaluator:
 
         # =========== METRIC COMPUTATION (from accumulated data) ===========
         metric_dict: Dict[str, float] = {}
+
+        # Per-trajectory task-milestone reached fractions (if the env emitted milestones).
+        if all_milestones_reached:
+            ms_arr = np.asarray(all_milestones_reached, dtype=np.float64)  # (n_traj, n_milestones)
+            try:
+                from verl.envs.environments.overcooked.milestones import MILESTONE_NAMES
+            except Exception:
+                MILESTONE_NAMES = []
+            for k in range(ms_arr.shape[1]):
+                name = MILESTONE_NAMES[k] if k < len(MILESTONE_NAMES) else f"m{k}"
+                metric_dict[f"milestone/{k}_{name}_reached"] = float(ms_arr[:, k].mean())
 
         if track_standard_metrics and all_rew_of_traj:
             rew_of_traj_arr = np.array(all_rew_of_traj, dtype=np.float64)

@@ -1,0 +1,71 @@
+# @package eval
+# Per-focus ICE evaluation: one base eval auto-expands (ice_per_focus: true) into a
+# no-focus condition + one condition per registered focus instruction, each pinning
+# that focus across all rollouts on shared seeds. Lets you see, per checkpoint, how
+# each individual focus helps (or doesn't) relative to the unconditioned student.
+# Requires prompt.prompt.ice.enabled=true (for the instruction registry/source).
+# Cost: (1 + N_focus) x n_rollouts episodes; cap n_rollouts or use ice_focus_indices.
+# Use with: evaluation=overcooked_evals_ice_per_focus
+#
+# Optional per-env field: ice_focus_indices: [0, 2, 6]  # restrict which focuses to expand
+
+evaluation:
+  environments:
+    - name: "Overcooked-CrampedRoom-PerFocus"
+      ice_per_focus: true
+      n_rollouts: 30
+      episode_length: 40
+      generation:
+        temperature: 0.6
+        top_p: 1.0
+        top_k: -1
+        min_p: 0.0
+        do_sample: true
+      initial_seed: 0
+      freeze_completed_episodes: True
+      duplication_mode: none
+      env_name: overcooked
+      task: none
+      format_penalty: 0.0
+      instruction_prompt: |
+        [Instructions]
+        You are a chef cooking meals in a kitchen.
+        Your goal is to cook and deliver the meals as fast as possible to earn rewards. Your maximum response length: 200 words.
+
+        [Recipe]
+        3 onions
+
+        [How to Cook]
+        1. Identify the ingredients needed for the meal from the recipe.
+        2. Pick up ingredients from ingredient piles using 'interact' while facing them - you can hold only one ingredient at a time
+        3. Place 3 ingredients in a pot using 'interact'
+        4. Wait for the meal to cook
+        5. Pick up a dish from the dish pile using 'interact'
+        6. Pick up the cooked meal from the pot using 'interact' (with dish in hand)
+        7. Deliver the meal to the serving counter using 'interact'
+
+        [Available Actions]
+        "right": move right,
+        "down": move down,
+        "left": move left,
+        "up": move up,
+        "stay": stay in place (wait),
+        "interact": interact with object in front of you (pick up, place, or use)
+
+        [Response Format]
+        Respond using ONLY valid XML with <plan>...</plan> and <action>...</action> tags. Stop responding after the </action> tag.
+
+        <plan>{Think about what you need to do next to make and deliver meals. Consider your position, what you're facing towards, what you're holding, and pot status.}</plan>
+        <action>{Your selected action from the list above}</action>
+      captioner:
+        type: naive
+        max_text_history: 0
+      overcooked_kwargs:
+        layout_name: cramped_room
+        horizon: 40
+        partner_policy: none
+        shaped_reward: true
+        pot_cook_time: 5
+        print_visualization: false
+        print_coordinates: true
+        random_agent_positions: true
