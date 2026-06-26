@@ -1319,6 +1319,18 @@ class MultiEnvEvaluator:
                     "score_std": float(score_arr.std()),
                 })
 
+            # pass@k / best-of-group: how good the BEST trajectory per seed-group is, and how
+            # that scales with attempts k. Records every variant (continuous best-of-k on score,
+            # then reward as fallback; binary solve-rate on any-positive-reward) for later choice.
+            from verl.trainer.ppo.eval_metrics import compute_group_score_metrics
+            passk_continuous = all_score_of_traj if len(all_score_of_traj) == n_rollouts else all_rew_of_traj
+            metric_dict.update(compute_group_score_metrics(
+                n_groups,
+                seed_group_size,
+                continuous_values=passk_continuous,
+                binary_successes=all_pos_rew_of_traj,
+            ))
+
             if response_n_tokens_float is not None:
                 metric_dict.update({
                     "toks_out_mean": float(response_n_tokens_float.mean()),
