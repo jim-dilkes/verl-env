@@ -1,6 +1,8 @@
 # @package eval
 # Combined standard and multi-action evaluation configs for Overcooked
-# Use with: evaluation=overcooked_evals_combined
+# Use with: evaluation=overcooked_evals_harness  (AAAI entropy/exploration harness)
+# Adds seed_group_size to the 40-step task blocks so pass@k/best-of-group are computed over
+# same-seed groups (k attempts at the same start state). MA blocks removed to save eval cost.
 
 evaluation:
   environments:

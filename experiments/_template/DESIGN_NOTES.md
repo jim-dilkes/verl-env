@@ -92,6 +92,15 @@ not additive (plan §). Adaptive values = canonical Ch3 run `experiments/snake/a
 - NOTE for paper: a higher-temp dedicated pass@k block (temp~1.0, larger groups) would strengthen the
   diversity-collapse argument; current delivery pass@k is at eval temp 0.6. Recorded for later.
 
+## Review round 2 (converged — no major issues)
+- All 3 P1s VERIFIED fixed by independent reviewer. No new P1.
+- Minor: trailing symlink line tripped `set -e` on success → would mark a successful SLURM job FAILED;
+  fixed (if-block + `exit 0`). Confirmed via login-node HYDRA_DRY compose (all keys resolve clean).
+- DEFERRED (snake, secondary): snake reward blocks are greedy (`do_sample:False`) ⇒ naive pass@k is
+  degenerate (k identical samples). Snake pass@k currently comes only from its stochastic
+  StateVisitation block (gate handles it). A dedicated stochastic snake pass@k block is future work;
+  snake stays on `snake_evals_combined`. Overcooked (priority) unaffected.
+
 ## Open / to verify in smoke
 - coverage + entropy + passk + milestones all log in ONE run (exclusive-metric not dropping coverage).
 - validation_data_dir actually written; generations table has 20 samples.

@@ -249,4 +249,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo $DRY_FLAG \
 
 actual_session_dir="${short_temp_dir}/session_latest"
 readable_log_path="${readable_log_root}/${experiment_run_name}"
-[ -d "$actual_session_dir" ] && ln -sfn "$actual_session_dir" "$readable_log_path" && echo "Ray logs: $readable_log_path"
+if [ -d "$actual_session_dir" ]; then
+  ln -sfn "$actual_session_dir" "$readable_log_path" && echo "Ray logs: $readable_log_path"
+fi
+exit 0
