@@ -101,6 +101,26 @@ not additive (plan §). Adaptive values = canonical Ch3 run `experiments/snake/a
   StateVisitation block (gate handles it). A dedicated stochastic snake pass@k block is future work;
   snake stays on `snake_evals_combined`. Overcooked (priority) unaffected.
 
+## Smoke result (login L4, Qwen3-0.6B, overcooked, val_before_train + 2 steps) — PASS
+Exit 0, no errors. ALL metrics logged in ONE run (exclusive-metric gotcha avoided):
+- token entropy `actor/entropy` (training); action entropy + `unique_executed_actions_per_unique_text`
+  (Entropy-Check exclusive block); coverage `distinct_state_actions_valid_coverage` (StateVisitation);
+  `toks_out_mean`, `rewards_mean`.
+- milestone reach-rate `milestone/0..5_*_reached` (both reward + statevisitation blocks).
+- pass@k `passk/{best_of_group_mean,exp_best_at_k,solve_at_k}` on shared-seed blocks (k≤4 at gsz=4 —
+  clamp correct); CORRECTLY ABSENT on the exclusive Entropy-Check block (gating verified live).
+- wandb `generations` table logged (qualitative trajectory capture).
+
+### CAPTURE caveat (important)
+`validation_data_dir` / `rollout_data_dir` have NO consumers in the multi-step trainer/evaluator —
+setting them does nothing (dirs stay empty). They're only written by base verl `RayPPOTrainer`, which
+this multi-step path does not use. The DURABLE capture is the **wandb OFFLINE run dir** (`wandb/offline-run-*`),
+which persists all metrics + the eval generations table (log_val_generations=20) on disk for later
+analysis (pull via `wandb sync` or read the local files). The qualitative noise-vs-strategy figure
+sources from these generations. The dir flags are left in the template (harmless) but are inert; a
+proper file-based eval-trajectory dump in multi_env_evaluator is possible future work if wandb is
+insufficient.
+
 ## Open / to verify in smoke
 - coverage + entropy + passk + milestones all log in ONE run (exclusive-metric not dropping coverage).
 - validation_data_dir actually written; generations table has 20 samples.
