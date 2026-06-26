@@ -219,27 +219,28 @@ training. Works for any eval; emitted in training info too (currently only aggre
 
 Run with: `PYTHONPATH=. python tests/test_ice_swap.py`
 
+### Advantage-weighted KL_S (AWR-style) — IMPLEMENTED (V2)
+Weights the per-sample KL_S by the teacher rollout's advantage (positive, exp-of-z-score),
+a *soft* generalization of the hard `kl_filter`. Config: `ice.kl_weight: none|awr`,
+`ice.kl_weight_temp` (default 1.0), `ice.kl_weight_cap` (null). Only the `mean_logprob` path.
+- **`compute_awr_weights`** (`distill_kl.py`): `A_i` = z-scored `episode_return` over the
+  INSTRUCTED episodes; `w_i = exp(A_i/τ)`, optional cap. Always > 0 — signed advantage is
+  used only inside `exp`, so KL_S is never multiplied by a negative coefficient (that would
+  be unbounded anti-distillation; see below). `τ→∞` uniform, `τ→0` only-best.
+- **Trainer** computes per-episode weights, broadcasts to a per-sample `ice_kl_weight`
+  (absent / `none` ⇒ uniform); **actor** applies them via a *weighted* `masked_sample_mean`
+  (`sum(w·keep·kl)/sum(w·keep)`) — a convex combination, so the loss SCALE is preserved (no
+  separate mean-normalization needed). Orthogonal to `kl_filter`: the filter selects the kept
+  set, AWR re-weights within it. Metrics: `ice/kl_weight_mean`, `ice/kl_weight_max_batch`
+  (trainer, over instructed episodes), `ice/kl_weight_max` (actor, per micro-batch kept).
+  Requires `kl_estimator=mean_logprob` (k3 ignores weights → rejected). `temp>0` and
+  `cap>0|null` are enforced; the `exp` argument is clamped to avoid overflow at tiny `temp`.
+- **Why not raw signed GRPO advantages:** KL_S = `mean_t(sg[logπ_T] − logπ_S)`; minimizing
+  raises `logπ_S` on teacher tokens (bounded, logπ_S ≤ 0). A *negative* weight flips it to
+  lower `logπ_S` — unbounded below → anti-distillation collapse. AWR's `exp(A/τ)` keeps
+  weights strictly positive.
+
 ## Future work (V2)
-
-### Advantage-weighted KL_S (AWR-style)
-Weight the per-sample KL_S distillation term by the teacher rollout's advantage so the
-student is pulled harder toward high-advantage teacher trajectories — a *soft*
-generalization of the hard `kl_filter`.
-
-- **Do NOT use raw signed (GRPO) advantages.** KL_S = `mean_t(sg[logπ_T] − logπ_S)`;
-  minimizing raises `logπ_S` on teacher tokens (bounded, logπ_S ≤ 0). A *negative* weight
-  flips the gradient to lower `logπ_S`, which is **unbounded below** (cross-entropy → +∞):
-  the student drives those actions' probability toward 0 with no minimum → anti-distillation
-  collapse / instability (not clipped like the PPO surrogate).
-- **Use positive, mean-normalized weights** (Advantage-Weighted Regression / RWR):
-  `w_i = N·softmax(A_i/τ)` → always >0, mean ≈ 1, preserves overall KL_S magnitude while
-  reallocating emphasis. `τ→∞` = uniform (current); `τ→0` = only the best rollout. The hard
-  `kl_filter` (top_pct/return_positive) is a hard special case of this soft weighting.
-- **Advantage source (multi-step):** per-episode group-normalized `episode_returns` (same
-  basis as the filter's per-episode keep), broadcast to steps. Compute in the trainer, pass
-  per-sample (like `ice_kl_filter_mask`), apply as a weighted mean in the actor's
-  `mean_logprob` path (extend `masked_sample_mean`). Sketch: `ice.kl_weight: none|awr`,
-  `ice.kl_weight_temp: <τ>`; consider capping max weight.
 
 ### k3 teacher KL is also a heuristic (β_T>0 exploratory)
 k3-on-teacher's autograd gives only the pathwise `1 − π_S/π_T` gradient; a faithful

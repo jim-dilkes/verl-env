@@ -548,7 +548,7 @@ class DataParallelPPOActor(BasePPOActor):
         # ICE parallel optimisation: include teacher data if present
         ice_keys = ["teacher_input_ids", "teacher_attention_mask",
                      "teacher_position_ids", "teacher_old_log_probs", "has_instruction",
-                     "ice_kl_filter_mask"]
+                     "ice_kl_filter_mask", "ice_kl_weight"]
         for k in ice_keys:
             if k in data.batch.keys():
                 select_keys.append(k)
@@ -799,12 +799,18 @@ class DataParallelPPOActor(BasePPOActor):
                                 pg_loss = pg_loss + ice_kl_beta_teacher * kl_t_term
                                 micro_batch_metrics["ice/kl_teacher"] = kl_t_term.detach().item()
                             if ice_kl_beta_student > 0 and has_inst.any():
-                                kl_s_term = masked_sample_mean(kl_s_seq, keep_s_valid)
+                                # AWR: optionally weight KL_S by per-sample advantage weights
+                                # (weighted mean → preserves scale). None ⇒ uniform.
+                                ice_kl_weight = model_inputs.get('ice_kl_weight', None)
+                                kl_s_term = masked_sample_mean(kl_s_seq, keep_s_valid, weights=ice_kl_weight)
                                 pg_loss = pg_loss + ice_kl_beta_student * kl_s_term
                                 micro_batch_metrics["ice/kl_student"] = kl_s_term.detach().item()
                                 micro_batch_metrics["ice/kl_student_keep_frac"] = (
                                     keep_s_valid.sum() / keep_t.sum().clamp_min(1.0)
                                 ).detach().item()
+                                if ice_kl_weight is not None:
+                                    kept_w = (ice_kl_weight.to(keep_s_valid.dtype) * keep_s_valid)
+                                    micro_batch_metrics["ice/kl_weight_max"] = float(kept_w.max().detach().item())
                         else:
                             # k3 (Schulman) per-token estimator (branch default).
                             # Guard on mask.sum()>0 (not just has_inst.any()): the KL_S filter
