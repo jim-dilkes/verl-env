@@ -121,6 +121,18 @@ sources from these generations. The dir flags are left in the template (harmless
 proper file-based eval-trajectory dump in multi_env_evaluator is possible future work if wandb is
 insufficient.
 
+## Self-review fix (ultrathink pass) — eval-config sampling shortcoming
+FOUND: adding `seed_group_size=10` to the 40-step REWARD blocks (to enable pass@k) silently cut the
+distinct evaluated start states from 50 → 5 (10 rollouts share each of 5 seeds), degrading the PRIMARY
+`rewards_mean`/coverage estimate on those blocks. Clean task-reward (many distinct seeds) and pass@k
+(few shared-seed groups, many repeats) are different sampling regimes and must be SEPARATE blocks.
+FIX: reward blocks reverted to 50 DISTINCT seeds (clean reward/coverage); added a dedicated
+`Overcooked-CrampedRoom-PassK` block (n_rollouts=64, seed_group_size=16 → 4 groups, 40-step, temp 1.25,
+stochastic) for full-horizon delivery pass@k (k up to 16). StateVisitation still gives 8-step pass@k.
+Verified clean (3 of 4 other audit items): clip_ratio default=0.2 (PPO spec, no override needed);
+group_initial_seed controls TRAINING env seeding (ray_multistep_trainer.py:412-420), not eval-only;
+seed grouping survives batched eval (batch_seeds=all_seeds[batch_start:batch_end] → i//gsz holds).
+
 ## Open / to verify in smoke
 - coverage + entropy + passk + milestones all log in ONE run (exclusive-metric not dropping coverage).
 - validation_data_dir actually written; generations table has 20 samples.
