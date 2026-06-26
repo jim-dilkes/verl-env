@@ -55,20 +55,22 @@ case "$INTERVENTION" in
                      actor_rollout_ref.actor.policy_loss.kl_cov_ratio=0.0002 ) ;;
   adaptive)       INTERVENTION_OVERRIDES=( actor_rollout_ref.actor.entropy_coeff=0.002 actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
                      actor_rollout_ref.actor.entropy_coeff_low=0.0005 actor_rollout_ref.actor.entropy_coeff_high=0.02 actor_rollout_ref.actor.entropy_coeff_lr=0.002 \
-                     actor_rollout_ref.actor.entropy_low=0.5 actor_rollout_ref.actor.entropy_high=0.7 actor_rollout_ref.actor.entropy_top_p=0.33 ) ;;
+                     actor_rollout_ref.actor.entropy_low=0.5 actor_rollout_ref.actor.entropy_high=0.7 actor_rollout_ref.actor.entropy_top_p=0.33 ); USE_FUSED_KERNELS=False ;;
   adaptive_decay) INTERVENTION_OVERRIDES=( actor_rollout_ref.actor.entropy_coeff=0.002 actor_rollout_ref.actor.policy_loss.loss_mode=vanilla \
                      actor_rollout_ref.actor.entropy_coeff_low=0.0005 actor_rollout_ref.actor.entropy_coeff_high=0.02 actor_rollout_ref.actor.entropy_coeff_lr=0.002 \
                      actor_rollout_ref.actor.entropy_low=0.5 actor_rollout_ref.actor.entropy_high=0.7 actor_rollout_ref.actor.entropy_top_p=0.33 \
-                     actor_rollout_ref.actor.entropy_low_final=0.35 actor_rollout_ref.actor.entropy_high_final=0.55 ) ;;
+                     actor_rollout_ref.actor.entropy_low_final=0.35 actor_rollout_ref.actor.entropy_high_final=0.55 ); USE_FUSED_KERNELS=False ;;
   *) echo "Unknown INTERVENTION=$INTERVENTION" >&2; exit 1 ;;
 esac
+# entropy_top_p<1 (adaptive) is incompatible with fused kernels (needs logits); disable there.
+USE_FUSED_KERNELS=${USE_FUSED_KERNELS:-True}
 
 # ----------------------------- env switch ------------------------------------
 ENV_OVERRIDES=()
 case "$ENV" in
   overcooked)
     PROMPT=overcooked
-    EVALUATION=overcooked_evals_combined
+    EVALUATION=overcooked_evals_harness
     WANDB_TAGS='["aaai","overcooked","project:verl-env"]'
     ENV_OVERRIDES=( envs.env_name=overcooked envs.captioner.type=naive envs.captioner.max_text_history=0 envs.captioner.max_cot_history=1 \
       envs.overcooked_kwargs.layout_name=cramped_room envs.overcooked_kwargs.horizon=20 envs.overcooked_kwargs.partner_policy=none \
@@ -179,7 +181,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.update_weights_bucket_megabytes=256 \
   +actor_rollout_ref.model.override_config.torch_dtype=bfloat16 \
   actor_rollout_ref.model.use_remove_padding=True \
-  actor_rollout_ref.model.use_fused_kernels=True \
+  actor_rollout_ref.model.use_fused_kernels=$USE_FUSED_KERNELS \
   actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
   +critic.model.override_config.torch_dtype=bfloat16 \
   critic.model.fsdp_config.model_dtype=bfloat16 \

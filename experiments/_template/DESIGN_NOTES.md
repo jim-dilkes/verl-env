@@ -71,6 +71,27 @@ not additive (plan §). Adaptive values = canonical Ch3 run `experiments/snake/a
   save_freq=200. DECISION revisit if eval cost too high.
 - WANDB offline (cluster) → needs `wandb sync` after.
 
+## Review round 1 fixes (independent Opus reviewer)
+- **P1-A (crash):** `adaptive`/`adaptive_decay` use `entropy_top_p=0.33`<1, which is incompatible with
+  fused kernels (`dp_actor.py` raises). Fixed: those two interventions set `USE_FUSED_KERNELS=False`
+  (a bash var so it actually wins over the template's default `True`).
+- **P1-B (saturated metric):** binary `solve_at_k` was fed any-positive-reward, but under
+  `shaped_reward=True` an onion pickup is positive ⇒ saturates ≈1, NOT delivery. Fixed: pass@k binary
+  success now uses the **`delivered` milestone** (true sparse delivery) for overcooked; falls back to
+  any-positive-reward only when milestones absent (snake).
+- **P1-C (wrong groups):** pass@k is only meaningful for SAME-SEED groups. The 40-step reward blocks
+  had no `seed_group_size` ⇒ distinct seeds ⇒ pass@k mixed start states. Fixed two ways: (1) evaluator
+  now gates pass@k on `initial_seed is not None and 1 < seed_group_size < n_rollouts` (shared-seed
+  groups only — distinct-seed blocks emit nothing misleading); (2) new `overcooked_evals_harness.yaml`
+  gives the two 40-step task blocks `seed_group_size=10` (delivery pass@k, k≤8 @ eval temp 0.6),
+  keeps StateVisitation (group 20, 8-step early-exploration pass@k), drops MA blocks (cost). Template
+  points overcooked eval at `overcooked_evals_harness`.
+- Confirmed-correct by reviewer (no action): pass@k math (brute-force verified), group ordering
+  (i//seed_group_size matches `_compute_seed_sequence`), all Hydra keys valid, adaptive activation
+  gates, two-block eval + milestone-on-baseline, `partner_policy=none` parses as string, bash safety.
+- NOTE for paper: a higher-temp dedicated pass@k block (temp~1.0, larger groups) would strengthen the
+  diversity-collapse argument; current delivery pass@k is at eval temp 0.6. Recorded for later.
+
 ## Open / to verify in smoke
 - coverage + entropy + passk + milestones all log in ONE run (exclusive-metric not dropping coverage).
 - validation_data_dir actually written; generations table has 20 samples.

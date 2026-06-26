@@ -1320,16 +1320,31 @@ class MultiEnvEvaluator:
                 })
 
             # pass@k / best-of-group: how good the BEST trajectory per seed-group is, and how
-            # that scales with attempts k. Records every variant (continuous best-of-k on score,
-            # then reward as fallback; binary solve-rate on any-positive-reward) for later choice.
-            from verl.trainer.ppo.eval_metrics import compute_group_score_metrics
-            passk_continuous = all_score_of_traj if len(all_score_of_traj) == n_rollouts else all_rew_of_traj
-            metric_dict.update(compute_group_score_metrics(
-                n_groups,
-                seed_group_size,
-                continuous_values=passk_continuous,
-                binary_successes=all_pos_rew_of_traj,
-            ))
+            # that scales with attempts k. Only meaningful when groups SHARE an initial env seed
+            # (k attempts at the SAME start state) -- i.e. initial_seed set and 1 < seed_group_size
+            # < n_rollouts (else _compute_seed_sequence gives every rollout a distinct seed and the
+            # "group" mixes start states). Records every variant for later choice; binary success
+            # uses the true task signal (delivered milestone) when available, else any-positive-reward.
+            shared_seed_groups = (initial_seed is not None and 1 < seed_group_size < n_rollouts)
+            if shared_seed_groups:
+                from verl.trainer.ppo.eval_metrics import compute_group_score_metrics
+                passk_continuous = all_score_of_traj if len(all_score_of_traj) == n_rollouts else all_rew_of_traj
+                binary_successes = all_pos_rew_of_traj
+                if all_milestones_reached and len(all_milestones_reached) == n_rollouts:
+                    try:
+                        from verl.envs.environments.overcooked.milestones import MILESTONE_NAMES
+                        di = MILESTONE_NAMES.index("delivered")
+                        ms = np.asarray(all_milestones_reached, dtype=np.float64)
+                        if di < ms.shape[1]:
+                            binary_successes = ms[:, di].tolist()  # true delivery, not shaped reward
+                    except (ImportError, ValueError):
+                        pass
+                metric_dict.update(compute_group_score_metrics(
+                    n_groups,
+                    seed_group_size,
+                    continuous_values=passk_continuous,
+                    binary_successes=binary_successes,
+                ))
 
             if response_n_tokens_float is not None:
                 metric_dict.update({
