@@ -1175,7 +1175,8 @@ class MultiEnvEvaluator:
                     # current-step flags into the per-trajectory record for rollouts still
                     # active BEFORE this step's termination update — so the terminating step's
                     # milestone (e.g. delivery) is captured but post-auto-reset steps are not.
-                    step_ms = self._extract_from_info(info_vec, "milestones", default=None)
+                    emits_milestones = bool(info_vec) and isinstance(info_vec[0], Mapping) and "milestones" in info_vec[0]
+                    step_ms = self._extract_from_info(info_vec, "milestones") if emits_milestones else None
                     if step_ms is not None and len(step_ms) == batch_n and step_ms[0] is not None:
                         ms_arr = np.asarray(step_ms, dtype=bool)  # (batch_n, n_milestones)
                         if milestone_reached_batch is None:
