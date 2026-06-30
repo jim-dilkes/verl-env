@@ -5,7 +5,7 @@
 #SBATCH --mem=300GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=6
+#SBATCH --cpus-per-task=16
 #SBATCH --partition=swarm_a100,swarm_h100
 #SBATCH --time=5-00:00:00
 #SBATCH --gpus-per-node=2
@@ -32,6 +32,11 @@ TOTAL_STEPS=${TOTAL_STEPS:-600}
 TEST_FREQ=${TEST_FREQ:-50}
 SAVE_FREQ=${SAVE_FREQ:-200}
 number_of_gpus=2
+
+# Run from the repo root so relative paths (e.g. data.train_files=examples/data/placeholder.parquet)
+# resolve regardless of submission directory. Overridable via REPO_ROOT.
+REPO_ROOT=${REPO_ROOT:-$HOME/verl-env}
+cd "$REPO_ROOT"
 
 project_name=${PROJECT_NAME:-rl_sdm_aaai}
 experiment_name=AAAI_${ALGO}_${ENV}_${INTERVENTION}
@@ -242,7 +247,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo $DRY_FLAG \
   trainer.max_actor_ckpt_to_keep=1 \
   trainer.max_critic_ckpt_to_keep=1 \
   trainer.tags="$WANDB_TAGS" \
-  ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-6} \
+  ray_kwargs.ray_init.num_cpus=${SLURM_CPUS_PER_TASK:-16} \
   ray_kwargs.ray_init.num_gpus=$number_of_gpus \
   evaluation=$EVALUATION \
   prompt=$PROMPT 2>&1 | tee verl_demo.log

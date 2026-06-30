@@ -133,6 +133,27 @@ Verified clean (3 of 4 other audit items): clip_ratio default=0.2 (PPO spec, no 
 group_initial_seed controls TRAINING env seeding (ray_multistep_trainer.py:412-420), not eval-only;
 seed grouping survives batched eval (batch_seeds=all_seeds[batch_start:batch_end] → i//gsz holds).
 
+## Independent review (round 2 of this feature) + fixes — GO, no P1
+Independent Opus review verified: pass@k math (brute-forced), group↔seed alignment under batching,
+two-block coverage gotcha avoided, milestones, intervention engagement, template fidelity. Verdict GO.
+Applied fixes:
+- **CPU 6→16** (`--cpus-per-task` + num_cpus fallback): baseline 1119194 died at 14h from raylet
+  "missed heartbeats / node marked dead" (NOT mem — 105GB/300GB used) = raylet CPU starvation under
+  6 CPU with 32 fork-spawned JAX envs. 16 relieves it (ref regime used 32).
+- **cd to $REPO_ROOT** at script start: `data.train_files=examples/data/placeholder.parquet` is RELATIVE;
+  it only resolved when submitted from repo root. The ICE 260623 jobs died on exactly this (submitted via
+  `cd .../260623_ICE_RUNS && sbatch` → wrong CWD → FileNotFoundError). Now submission-dir-proof.
+- **rollout-IS × clip_cov/kl_cov (documented, kept as-is):** the cov loss fns accept but DON'T apply
+  `rollout_is_weights` (only vanilla/GSPO-family do, `core_algos.py:1136` etc.). So baseline/H/adaptive
+  train with sequence-IS correction; clip_cov/kl_cov don't. This is a *method-vs-method* difference
+  (cui/PRIME-RL cov methods don't use rollout-IS by design), not a bug. DECISION: keep as-is + report in
+  methods. Strict-ablation alternative (set rollout_is=null for ALL interventions) is a 1-line config
+  toggle if isolation is later preferred. Wiring IS into cov needs a core_algos edit (out of harness scope).
+- **Qualitative capture caveat (documented):** wandb generations TEXT comes from the trainer's inline
+  validation env (training config: cramped_room, horizon 20), NOT the 5 MultiEnvEvaluator harness blocks
+  (which emit scalar metrics only). Fine for a noise-vs-strategy figure sourced from inline val; add an
+  eval-block text dump later if eval-block trajectories are needed.
+
 ## Open / to verify in smoke
 - coverage + entropy + passk + milestones all log in ONE run (exclusive-metric not dropping coverage).
 - validation_data_dir actually written; generations table has 20 samples.
