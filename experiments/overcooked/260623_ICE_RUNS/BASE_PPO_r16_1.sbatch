@@ -5,7 +5,7 @@
 #SBATCH --mem=350GB
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=8
 #SBATCH --partition=swarm_h100,swarm_a100,a100
 #SBATCH --time=60:00:00
 #SBATCH --gpus-per-node=2
