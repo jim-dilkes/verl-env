@@ -218,6 +218,12 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo $DRY_FLAG \
   "${ENV_OVERRIDES[@]}" \
   envs.vec_env_multiprocessing=fork \
   actor_rollout_ref.rollout.calculate_log_probs=true \
+  `# ===> rollout-IS CAVEAT: sequence-level rollout importance-sampling correction below is APPLIED` \
+  `#      only by the vanilla/GSPO policy-loss family (baseline, H_sweep, adaptive, adaptive_decay).` \
+  `#      The clip_cov & kl_cov loss fns (core_algos.py) ACCEPT but IGNORE rollout_is_weights, so those` \
+  `#      two interventions effectively train WITHOUT IS correction. This is a method-vs-method` \
+  `#      difference (cui/PRIME-RL cov methods don't use rollout-IS), NOT a bug. For a strict ablation,` \
+  `#      set rollout_is=null for ALL interventions so every run is on equal footing. <===` \
   algorithm.rollout_correction.rollout_is=sequence \
   algorithm.rollout_correction.rollout_is_threshold=3.0 \
   algorithm.rollout_correction.rollout_rs=null \
