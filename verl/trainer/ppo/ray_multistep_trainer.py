@@ -1352,7 +1352,11 @@ class RayMultistepTrainer(object):
                         if self.freeze_completed_episodes:
                             # Track which environments have completed episodes
                             env_frozen = np.zeros(self.config.envs.n_rollouts, dtype=bool)
-                    
+
+                        # Per-rollout count of invalid (format-penalised) actions, to reconstruct the
+                        # format-penalty-free task return for the ICE teacher/student reward split below.
+                        invalid_count_per_rollout = np.zeros(self.config.envs.n_rollouts, dtype=np.float64)
+
                         for time_step in range(episode_len+1):
                         
                             # TODO: move this to a function 
@@ -1537,8 +1541,9 @@ class RayMultistepTrainer(object):
 
                             # Collect metrics from each environment's info for this step
                             # Later these are used to calculate mean value of the metrics per executed step across all environments
-                            for active_flag, info in zip(active_envs, info_vec):
+                            for orig_idx, (active_flag, info) in enumerate(zip(active_envs, info_vec)):
                                 if active_flag:
+                                    invalid_count_per_rollout[orig_idx] += float(info['metrics'].get('action_pct/invalid', 0.0))
                                     for key, value in info['metrics'].items():
                                         if key in metrics:
                                             metrics[key].append(value)
@@ -1656,16 +1661,27 @@ class RayMultistepTrainer(object):
                         if ice_enabled:
                             base_mask = torch.tensor([f is None for f in focus_per_rollout])
                             supp_mask = ~base_mask
+                            # Format-penalty-free TASK return: add back format_penalty for each invalid
+                            # (format-penalised) action so reward/*_task isolates task progress from the
+                            # invalid/malformed-output penalty (envs subtract format_penalty per invalid step).
+                            format_penalty = float(getattr(self.config.envs, 'format_penalty', 0.0) or 0.0)
+                            task_returns = episode_returns + format_penalty * torch.as_tensor(
+                                invalid_count_per_rollout, dtype=episode_returns.dtype, device=episode_returns.device)
                             if base_mask.any():
                                 base_returns = episode_returns[base_mask]
                                 metrics['reward/base_mean'] = base_returns.mean().item()
                                 metrics['reward/base_std'] = base_returns.std().item() if base_mask.sum() > 1 else 0.0
+                                metrics['reward/base_task_mean'] = task_returns[base_mask].mean().item()
                             if supp_mask.any():
                                 supp_returns = episode_returns[supp_mask]
                                 metrics['reward/ice_mean'] = supp_returns.mean().item()
                                 metrics['reward/ice_std'] = supp_returns.std().item() if supp_mask.sum() > 1 else 0.0
+                                # format-free teacher (focus-conditioned) task reward
+                                metrics['reward/ice_task_mean'] = task_returns[supp_mask].mean().item()
+                            metrics['reward/invalid_actions_per_episode_mean'] = float(invalid_count_per_rollout.mean())
                             if base_mask.any() and supp_mask.any():
                                 metrics['reward/internalization_gap'] = metrics['reward/ice_mean'] - metrics['reward/base_mean']
+                                metrics['reward/task_internalization_gap'] = metrics['reward/ice_task_mean'] - metrics['reward/base_task_mean']
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
